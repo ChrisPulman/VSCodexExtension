@@ -25,11 +25,11 @@ namespace VSCodexExtension.Commands
         private void Execute(object sender, EventArgs e)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            _package.JoinableTaskFactory.RunAsync(async () =>
+            _ = _package.JoinableTaskFactory.RunAsync(async () =>
             {
                 var window = await _package.ShowToolWindowAsync(typeof(CodexToolWindowPane), 0, true, _package.DisposalToken).ConfigureAwait(true);
                 if (window == null || window.Frame == null) throw new NotSupportedException("Cannot create Codex tool window.");
-            }).FireAndForget();
+            });
         }
     }
 }
