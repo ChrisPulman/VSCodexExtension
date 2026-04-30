@@ -10,5 +10,8 @@ namespace VSCodexExtension.Commands
         public const int CreatePlanCommandId = 0x0104;
         public const int CodexToolsMenuGroup = 0x1020;
         public const int CodexEditorContextMenuGroup = 0x1021;
+        public const int CodexViewMenuGroup = 0x1022;
+        public const int CodexProjectContextMenuGroup = 0x1023;
+        public const int CodexSolutionContextMenuGroup = 0x1024;
     }
 }

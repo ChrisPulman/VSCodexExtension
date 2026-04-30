@@ -8,6 +8,15 @@
       <Group guid="guidCommandSet" id="CodexToolsMenuGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
       </Group>
+      <Group guid="guidCommandSet" id="CodexViewMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexProjectContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_PROJNODE" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexSolutionContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_SOLNNODE" />
+      </Group>
       <Group guid="guidCommandSet" id="CodexEditorContextMenuGroup" priority="0x0700">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
       </Group>
@@ -60,6 +69,18 @@
     <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
       <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
     </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexViewMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+    </CommandPlacement>
   </CommandPlacements>
 
   <Symbols>
@@ -72,6 +93,9 @@
       <IDSymbol name="CreatePlanCommandId" value="0x0104" />
       <IDSymbol name="CodexToolsMenuGroup" value="0x1020" />
       <IDSymbol name="CodexEditorContextMenuGroup" value="0x1021" />
+      <IDSymbol name="CodexViewMenuGroup" value="0x1022" />
+      <IDSymbol name="CodexProjectContextMenuGroup" value="0x1023" />
+      <IDSymbol name="CodexSolutionContextMenuGroup" value="0x1024" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>
