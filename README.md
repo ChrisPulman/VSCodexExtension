@@ -28,6 +28,7 @@ A ReactiveUI-first Visual Studio 2022/2026 extension that hosts local OpenAI Cod
 
 ## Layout
 
+- `VSCodexExtension.slnx` — Visual Studio solution in XML `.slnx` format.
 - `docs/PLAN.md` — feature plan and architecture.
 - `src/VSCodexExtension` — VSIX project.
 - `src/VSCodexExtension/Resources/codex-bridge.mjs` — JSONL bridge to Codex SDK.
@@ -37,7 +38,7 @@ A ReactiveUI-first Visual Studio 2022/2026 extension that hosts local OpenAI Cod
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" `
-  VSCodexExtension.sln `
+  VSCodexExtension.slnx `
   /t:Restore,Build `
   /p:Configuration=Release
 ```

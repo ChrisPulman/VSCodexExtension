@@ -1,0 +1,18 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <Platform Name="Any CPU" />
+  </Configurations>
+  <Folder Name="/Docs/">
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+    <File Path="docs/PLAN.md" />
+  </Folder>
+  <Folder Name="/Scripts/">
+    <File Path="scripts/validate_structure.py" />
+  </Folder>
+  <Project Path="src/VSCodexExtension/VSCodexExtension.csproj" Id="6a8fe7a8-6245-4f29-bc95-89f6d61bba30" />
+</Solution>

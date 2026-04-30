@@ -227,7 +227,7 @@ namespace VSCodexExtension.Services
                 return false;
             }
 
-            return new[] { ".cs", ".xaml", ".xml", ".json", ".md", ".props", ".targets", ".sln", ".csproj", ".config", ".toml", ".txt" }.Contains(Path.GetExtension(p).ToLowerInvariant());
+            return new[] { ".cs", ".xaml", ".xml", ".json", ".md", ".props", ".targets", ".sln", ".slnx", ".csproj", ".config", ".toml", ".txt" }.Contains(Path.GetExtension(p).ToLowerInvariant());
         }
 
         private static string SafePreview(string path, int maxBytes)
