@@ -12,8 +12,18 @@ A ReactiveUI-first Visual Studio 2022/2026 extension that hosts local OpenAI Cod
 - MCP server registry backed by `~/.codex/config.toml`.
 - Local + workspace memory stores.
 - Solution-aware `@file` search and active-context capture.
-- Image attachments.
+- Solution-aware `#` references for selected Visual Studio code (`#selection`) and files from the current solution.
+- `/MCP` prompt workflow that lists configured MCP servers, discovers tools, and prompts for required/optional tool inputs.
+- Debug assistant context capture from Visual Studio break/exception/stack/selection state.
+- Integrated test assistant for selected code, including editor context-menu command to create tests.
+- Plan generation that recommends sub-agent usage and validation sequencing.
+- Main orchestration model, per-agent model selection, and budget-driven model mode.
+- Theme-aware WPF tool window using Visual Studio environment brushes.
+- Configurable prompt input height with standard text cut/copy/paste plus pasted/dropped image and document attachments.
+- Image/document/file attachments.
 - Session persistence and resume-by-thread-id.
+- Multi-agent orchestration with logical Planner, Architect, Builder, Reviewer, and Verifier agents.
+- Orchestration task splitting for larger multi-step requests, with per-section status tracking.
 - ReactiveUI command/state composition throughout.
 
 ## Layout

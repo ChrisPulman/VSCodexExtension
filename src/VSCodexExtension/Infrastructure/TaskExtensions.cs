@@ -1,11 +1,17 @@
+using System.Threading;
 using System.Threading.Tasks;
+
 namespace VSCodexExtension.Infrastructure
 {
     internal static class TaskExtensions
     {
-        public static async void FireAndForget(this Task task)
+        public static void FireAndForget(this Task task)
         {
-            try { await task.ConfigureAwait(false); } catch { }
+            _ = task.ContinueWith(
+                t => _ = t.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
         }
     }
 }

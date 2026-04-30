@@ -20,8 +20,18 @@
 6. MCP server discovery from `%USERPROFILE%\.codex\config.toml`.
 7. User and workspace memory stores.
 8. Solution-aware `@file` context injection.
-9. Image attachments.
-10. Session persistence and resume-by-thread-id.
+9. Solution-aware `#` context references for selected Visual Studio code and current-solution files.
+10. `/MCP` command workflow with server listing, tool discovery, and required/optional input prompting.
+11. Exception/debug context assistant for Visual Studio break state, stack summary, and selected code.
+12. Integrated test assistant and editor context menu for creating tests from selected code.
+13. Plan creation that recommends sub-agent allocation, model choice, handoff order, and validation.
+14. Main orchestration model, per-agent model selection, and budget-driven model mode.
+15. Theme-aware WPF styling via Visual Studio environment resources.
+16. Configurable prompt input area with standard text cut/copy/paste and image/document paste/drop attachment handling.
+17. Image/document/file attachments.
+18. Session persistence and resume-by-thread-id.
+19. Multi-agent orchestration task handler with Planner, Architect, Builder, Reviewer, and Verifier roles.
+20. Large-request task splitting into trackable sections with reactive status events.
 
 ## Verification
 

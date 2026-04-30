@@ -2,15 +2,76 @@
 <CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <Extern href="stdidcmd.h" />
   <Extern href="vsshlids.h" />
+
   <Commands package="guidPackage">
-    <Groups><Group guid="guidCommandSet" id="CodexMenuGroup" priority="0x0600"><Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" /></Group></Groups>
-    <Buttons><Button guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100" type="Button"><Parent guid="guidCommandSet" id="CodexMenuGroup" /><Strings><ButtonText>Codex</ButtonText><CommandName>Open Codex Tool Window</CommandName></Strings></Button></Buttons>
+    <Groups>
+      <Group guid="guidCommandSet" id="CodexToolsMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexEditorContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100" type="Button">
+        <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+        <Strings>
+          <ButtonText>Codex Tool Window</ButtonText>
+          <CommandName>Open Codex Tool Window</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110" type="Button">
+        <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+        <Strings>
+          <ButtonText>Codex Options</ButtonText>
+          <CommandName>Open Codex Options</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="CreateTestFromSelectionCommandId" priority="0x0120" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Codex: Create Test for Selection</ButtonText>
+          <CommandName>Create Codex Test for Selection</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Codex: Debug Current Context</ButtonText>
+          <CommandName>Debug Current Context with Codex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Codex: Create Plan with Agents</ButtonText>
+          <CommandName>Create Codex Plan with Agents</CommandName>
+        </Strings>
+      </Button>
+    </Buttons>
   </Commands>
+
+  <CommandPlacements>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
+    </CommandPlacement>
+  </CommandPlacements>
+
   <Symbols>
     <GuidSymbol name="guidPackage" value="{cc277233-b28f-43d6-a597-1cc515cb0110}" />
     <GuidSymbol name="guidCommandSet" value="{a17f6b52-76e1-48cb-855e-30c86c46a74d}">
       <IDSymbol name="OpenToolWindowCommandId" value="0x0100" />
-      <IDSymbol name="CodexMenuGroup" value="0x1020" />
+      <IDSymbol name="OpenOptionsCommandId" value="0x0101" />
+      <IDSymbol name="CreateTestFromSelectionCommandId" value="0x0102" />
+      <IDSymbol name="DebugWithCodexCommandId" value="0x0103" />
+      <IDSymbol name="CreatePlanCommandId" value="0x0104" />
+      <IDSymbol name="CodexToolsMenuGroup" value="0x1020" />
+      <IDSymbol name="CodexEditorContextMenuGroup" value="0x1021" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

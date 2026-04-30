@@ -5,6 +5,8 @@
     <AssemblyName>VSCodexExtension</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
     <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
     <DeployExtension>false</DeployExtension>
     <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>

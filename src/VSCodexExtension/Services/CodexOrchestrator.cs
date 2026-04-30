@@ -13,7 +13,7 @@ namespace VSCodexExtension.Services
         public IObservable<CodexEvent> Events => _events.AsObservable();
         public async Task<CodexRunResult> RunAsync(CodexRunRequest request)
         {
-            var enriched = new CodexRunRequest { Prompt = _promptBuilder.Build(request), ThreadId = request.ThreadId, WorkspaceRoot = request.WorkspaceRoot, Options = request.Options, Attachments = request.Attachments, Skills = request.Skills, Memories = request.Memories, McpServers = request.McpServers, WorkspaceFiles = request.WorkspaceFiles };
+            var enriched = new CodexRunRequest { Prompt = _promptBuilder.Build(request), ThreadId = request.ThreadId, WorkspaceRoot = request.WorkspaceRoot, Options = request.Options, Attachments = request.Attachments, Skills = request.Skills, Memories = request.Memories, McpServers = request.McpServers, WorkspaceFiles = request.WorkspaceFiles, AgentRoles = request.AgentRoles };
             try { return await (request.Options.Transport == CodexTransportKind.CliFallback ? _cli : _sdk).RunAsync(enriched).ConfigureAwait(false); }
             catch (Exception ex) when (request.Options.Transport == CodexTransportKind.SdkBridge) { _events.OnNext(new CodexEvent { Type = "fallback", Message = "SDK bridge failed; using CLI fallback: " + ex.Message }); return await _cli.RunAsync(enriched).ConfigureAwait(false); }
         }

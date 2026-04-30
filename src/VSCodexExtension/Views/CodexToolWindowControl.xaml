@@ -1,47 +1,298 @@
 <UserControl x:Class="VSCodexExtension.Views.CodexToolWindowControl"
+             x:Name="Root"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:views="clr-namespace:VSCodexExtension.Views">
+             xmlns:views="clr-namespace:VSCodexExtension.Views"
+             xmlns:vsui="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
+             Background="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}">
     <UserControl.Resources>
         <views:RoleBrushConverter x:Key="RoleBrushConverter" />
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+        </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="AcceptsReturn" Value="True" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}" />
+        </Style>
+
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}" />
+        </Style>
+
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+        </Style>
+
+        <Style TargetType="Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}" />
         </Style>
     </UserControl.Resources>
-    <Grid>
-        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="180" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <Border Grid.Row="0" Padding="8" BorderBrush="#333" BorderThickness="0,0,0,1">
+
+    <Grid Background="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Padding="8" BorderThickness="0,0,0,1">
             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Mode" Margin="0,4,4,0" /><ComboBox Width="90" ItemsSource="{Binding ModeOptions}" SelectedItem="{Binding Mode}" Margin="0,0,8,0" />
-                <TextBlock Text="Model" Margin="0,4,4,0" /><ComboBox Width="130" IsEditable="True" ItemsSource="{Binding ModelOptions}" Text="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
-                <TextBlock Text="Reasoning" Margin="0,4,4,0" /><ComboBox Width="90" ItemsSource="{Binding ReasoningOptions}" SelectedItem="{Binding SelectedReasoning}" Margin="0,0,8,0" />
-                <TextBlock Text="Verbosity" Margin="0,4,4,0" /><ComboBox Width="90" ItemsSource="{Binding VerbosityOptions}" SelectedItem="{Binding SelectedVerbosity}" Margin="0,0,8,0" />
-                <TextBlock Text="Approval" Margin="0,4,4,0" /><ComboBox Width="110" ItemsSource="{Binding ApprovalOptions}" SelectedItem="{Binding ApprovalPolicy}" Margin="0,0,8,0" />
-                <TextBlock Text="Sandbox" Margin="0,4,4,0" /><ComboBox Width="140" ItemsSource="{Binding SandboxOptions}" SelectedItem="{Binding SandboxMode}" Margin="0,0,8,0" />
-                <TextBlock Text="Transport" Margin="0,4,4,0" /><ComboBox Width="110" ItemsSource="{Binding TransportOptions}" SelectedItem="{Binding Transport}" Margin="0,0,8,0" />
+                <TextBlock Text="Mode" Margin="0,4,4,0" />
+                <ComboBox Width="90" ItemsSource="{Binding ModeOptions}" SelectedItem="{Binding Mode}" Margin="0,0,8,0" />
+                <TextBlock Text="Model" Margin="0,4,4,0" />
+                <ComboBox Width="130" IsEditable="True" ItemsSource="{Binding ModelOptions}" Text="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
+                <TextBlock Text="Orchestrator" Margin="0,4,4,0" />
+                <ComboBox Width="130" IsEditable="True" ItemsSource="{Binding ModelOptions}" Text="{Binding OrchestrationModel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
+                <CheckBox Content="Budget" IsChecked="{Binding BudgetDrivenModelSelection}" Margin="0,4,4,0" />
+                <ComboBox Width="120" IsEditable="True" ItemsSource="{Binding ModelOptions}" Text="{Binding BudgetModel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
+                <TextBlock Text="Reasoning" Margin="0,4,4,0" />
+                <ComboBox Width="90" ItemsSource="{Binding ReasoningOptions}" SelectedItem="{Binding SelectedReasoning}" Margin="0,0,8,0" />
+                <TextBlock Text="Verbosity" Margin="0,4,4,0" />
+                <ComboBox Width="90" ItemsSource="{Binding VerbosityOptions}" SelectedItem="{Binding SelectedVerbosity}" Margin="0,0,8,0" />
+                <TextBlock Text="Approval" Margin="0,4,4,0" />
+                <ComboBox Width="110" ItemsSource="{Binding ApprovalOptions}" SelectedItem="{Binding ApprovalPolicy}" Margin="0,0,8,0" />
+                <TextBlock Text="Sandbox" Margin="0,4,4,0" />
+                <ComboBox Width="140" ItemsSource="{Binding SandboxOptions}" SelectedItem="{Binding SandboxMode}" Margin="0,0,8,0" />
+                <TextBlock Text="Transport" Margin="0,4,4,0" />
+                <ComboBox Width="110" ItemsSource="{Binding TransportOptions}" SelectedItem="{Binding Transport}" Margin="0,0,8,0" />
+                <CheckBox Content="Multi-agent" IsChecked="{Binding UseMultiAgentOrchestration}" Margin="0,4,8,0" />
+                <TextBlock Text="Strategy" Margin="0,4,4,0" />
+                <ComboBox Width="130" ItemsSource="{Binding AgentStrategyOptions}" SelectedItem="{Binding AgentStrategy}" Margin="0,0,8,0" />
+                <TextBlock Text="Agents" Margin="0,4,4,0" />
+                <TextBox Width="36" Height="22" AcceptsReturn="False" Text="{Binding MaxAgentConcurrency, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
+                <TextBlock Text="Input px" Margin="0,4,4,0" />
+                <TextBox Width="48" Height="22" AcceptsReturn="False" Text="{Binding InputAreaHeight, UpdateSourceTrigger=LostFocus, StringFormat=F0}" Margin="0,0,8,0" />
                 <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+                <Button Content="Plan" Command="{Binding CreatePlanCommand}" Margin="4,0,0,0" />
+                <Button Content="Debug" Command="{Binding DebugSelectionCommand}" Margin="4,0,0,0" />
+                <Button Content="Test" Command="{Binding CreateTestForSelectionCommand}" Margin="4,0,0,0" />
             </WrapPanel>
         </Border>
+
         <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="3*" /><ColumnDefinition Width="340" /></Grid.ColumnDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="340" />
+            </Grid.ColumnDefinitions>
+
             <ListBox Grid.Column="0" ItemsSource="{Binding Messages}" BorderThickness="0">
-                <ListBox.ItemTemplate><DataTemplate><Border Margin="6" Padding="8" CornerRadius="6" BorderThickness="1" BorderBrush="#444"><StackPanel><DockPanel><Ellipse Width="10" Height="10" Fill="{Binding Role, Converter={StaticResource RoleBrushConverter}}" DockPanel.Dock="Left" Margin="0,0,6,0" /><TextBlock Text="{Binding Role}" FontWeight="Bold" /><TextBlock Text="{Binding Timestamp}" Margin="8,0,0,0" Opacity="0.65" /></DockPanel><TextBox Text="{Binding Content}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Margin="0,6,0,0" /></StackPanel></Border></DataTemplate></ListBox.ItemTemplate>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="6" Padding="8" CornerRadius="6" BorderThickness="1">
+                            <StackPanel>
+                                <DockPanel>
+                                    <Ellipse Width="10" Height="10" Fill="{Binding Role, Converter={StaticResource RoleBrushConverter}}" DockPanel.Dock="Left" Margin="0,0,6,0" />
+                                    <TextBlock Text="{Binding Role}" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Timestamp}" Margin="8,0,0,0" Opacity="0.65" />
+                                </DockPanel>
+                                <TextBox Text="{Binding Content}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
             </ListBox>
+
             <TabControl Grid.Column="1">
-                <TabItem Header="Skills"><ListBox ItemsSource="{Binding Skills}"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4"><CheckBox IsChecked="{Binding IsEnabled}" Content="{Binding Name}" FontWeight="Bold" /><TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.7" /></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox></TabItem>
-                <TabItem Header="MCP"><ListBox ItemsSource="{Binding McpServers}"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4"><CheckBox IsChecked="{Binding IsEnabled}" Content="{Binding Name}" FontWeight="Bold" /><TextBlock Text="{Binding Command}" /><TextBlock Text="{Binding Health}" Opacity="0.7" /></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox></TabItem>
-                <TabItem Header="Memory"><DockPanel><StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4"><Button Content="Save user memory from prompt" Command="{Binding AddUserMemoryCommand}" Margin="0,0,4,0" /><Button Content="Save workspace memory" Command="{Binding AddWorkspaceMemoryCommand}" /></StackPanel><ListBox ItemsSource="{Binding Memories}"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4"><TextBlock Text="{Binding Scope}" FontWeight="Bold" /><TextBlock Text="{Binding Text}" TextWrapping="Wrap" /></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox></DockPanel></TabItem>
-                <TabItem Header="@files"><ListBox ItemsSource="{Binding FileSuggestions}"><ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding RelativePath}" Margin="4" /></DataTemplate></ListBox.ItemTemplate></ListBox></TabItem>
-                <TabItem Header="Images"><DockPanel><StackPanel DockPanel.Dock="Top" Orientation="Horizontal"><Button Content="Attach image" Command="{Binding AddImageAttachmentCommand}" Margin="0,0,4,0" /><Button Content="Clear attachments" Command="{Binding ClearAttachmentsCommand}" /></StackPanel><ListBox ItemsSource="{Binding Attachments}" DisplayMemberPath="DisplayName" /></DockPanel></TabItem>
+                <TabItem Header="Skills">
+                    <ListBox ItemsSource="{Binding Skills}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="4">
+                                    <CheckBox IsChecked="{Binding IsEnabled}" Content="{Binding Name}" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.7" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </TabItem>
+
+                <TabItem Header="MCP">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Margin="4" TextWrapping="Wrap" Opacity="0.7" Text="Type /MCP in the prompt, select a server, then select a tool. Optional input fields show 'option' after the field name." />
+                        <StackPanel DockPanel.Dock="Bottom" Margin="4">
+                            <TextBlock Text="{Binding McpInputPrompt}" TextWrapping="Wrap" Opacity="0.75" />
+                            <ItemsControl ItemsSource="{Binding McpToolInputFields}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,4,0,0">
+                                            <TextBlock Text="{Binding DisplayLabel}" FontWeight="Bold" />
+                                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.65" />
+                                            <TextBox AcceptsReturn="False" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button Content="Insert MCP tool use" Command="{Binding InsertMcpToolCommand}" Margin="0,6,0,0" />
+                        </StackPanel>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="140" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <ListBox Grid.Row="0" ItemsSource="{Binding McpServers}" SelectedItem="{Binding SelectedMcpServer}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="4">
+                                            <CheckBox IsChecked="{Binding IsEnabled}" Content="{Binding Name}" FontWeight="Bold" />
+                                            <TextBlock Text="{Binding Command}" />
+                                            <Button Content="List tools" Command="{Binding DataContext.SelectMcpServerCommand, ElementName=Root}" CommandParameter="{Binding}" Margin="0,3,0,0" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <ListBox Grid.Row="1" ItemsSource="{Binding McpToolSuggestions}" SelectedItem="{Binding SelectedMcpTool}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="4">
+                                            <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" />
+                                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.7" />
+                                            <Button Content="Use tool" Command="{Binding DataContext.SelectMcpToolCommand, ElementName=Root}" CommandParameter="{Binding}" Margin="0,3,0,0" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </DockPanel>
+                </TabItem>
+
+                <TabItem Header="Memory">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
+                            <Button Content="Save user memory from prompt" Command="{Binding AddUserMemoryCommand}" Margin="0,0,4,0" />
+                            <Button Content="Save workspace memory" Command="{Binding AddWorkspaceMemoryCommand}" />
+                        </StackPanel>
+                        <ListBox ItemsSource="{Binding Memories}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="4">
+                                        <TextBlock Text="{Binding Scope}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </TabItem>
+
+                <TabItem Header="@files">
+                    <ListBox ItemsSource="{Binding FileSuggestions}" MouseDoubleClick="OnReferenceSuggestionDoubleClick">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="4">
+                                    <TextBlock Text="{Binding ReferenceKey}" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding RelativePath}" Opacity="0.7" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </TabItem>
+
+                <TabItem Header="#refs">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Margin="4" TextWrapping="Wrap" Opacity="0.7" Text="Use #selection to include selected Visual Studio code, or #filename to include a solution file. Double-click a reference to insert it." />
+                        <ListBox ItemsSource="{Binding ContextSuggestions}" MouseDoubleClick="OnReferenceSuggestionDoubleClick">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="4">
+                                        <TextBlock Text="{Binding ReferenceKey}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding ReferenceKind}" Opacity="0.7" />
+                                        <TextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" Opacity="0.7" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </TabItem>
+
+                <TabItem Header="Agents">
+                    <DockPanel>
+                        <ListBox DockPanel.Dock="Top" Height="120" ItemsSource="{Binding AgentRoles}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="4">
+                                        <CheckBox IsChecked="{Binding IsEnabled}" Content="{Binding Name}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding Role}" />
+                                        <TextBlock Text="{Binding Instructions}" TextWrapping="Wrap" Opacity="0.7" />
+                                        <DockPanel Margin="0,4,0,0">
+                                            <TextBlock Text="Model" Margin="0,4,4,0" DockPanel.Dock="Left" />
+                                            <ComboBox IsEditable="True" ItemsSource="{Binding DataContext.ModelOptions, ElementName=Root}" Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" />
+                                        </DockPanel>
+                                        <ComboBox ItemsSource="{Binding DataContext.AgentModelSelectionModeOptions, ElementName=Root}" SelectedItem="{Binding ModelSelectionMode}" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <ListBox ItemsSource="{Binding OrchestrationSections}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="4">
+                                        <TextBlock Text="{Binding Title}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding AssignedAgent}" />
+                                        <TextBlock Text="{Binding Status}" Opacity="0.7" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </TabItem>
+
+                <TabItem Header="Attachments">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+                            <Button Content="Attach files" Command="{Binding AddImageAttachmentCommand}" Margin="0,0,4,0" />
+                            <Button Content="Clear attachments" Command="{Binding ClearAttachmentsCommand}" />
+                        </StackPanel>
+                        <ListBox ItemsSource="{Binding Attachments}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="4">
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding Kind}" Opacity="0.7" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </TabItem>
             </TabControl>
         </Grid>
+
         <Grid Grid.Row="2" Margin="8">
-            <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-            <TextBox Grid.Row="0" Text="{Binding Prompt, UpdateSourceTrigger=PropertyChanged}" ToolTip="Ask Codex. Use @filename to attach solution context." />
-            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0"><Button Content="Run" Width="92" Command="{Binding RunCommand}" Margin="0,0,8,0" /><Button Content="Cancel" Width="92" Command="{Binding CancelCommand}" /></StackPanel>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBox x:Name="PromptTextBox"
+                     Grid.Row="0"
+                     Height="{Binding InputAreaHeight}"
+                     MinHeight="80"
+                     MaxHeight="600"
+                     AllowDrop="True"
+                     PreviewDragOver="OnPromptPreviewDragOver"
+                     Drop="OnPromptDrop"
+                     Text="{Binding Prompt, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="Ask Codex. Use /MCP for MCP servers/tools, /debug for exception/debug context, /test to create tests from selection, /plan for sub-agent plans, @filename for files, #selection for selected code." />
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                <Button Content="Run" Width="92" Command="{Binding RunCommand}" Margin="0,0,8,0" />
+                <Button Content="Cancel" Width="92" Command="{Binding CancelCommand}" />
+            </StackPanel>
         </Grid>
-        <StatusBar Grid.Row="3"><StatusBarItem Content="{Binding Status}" /><Separator /><StatusBarItem Content="Thread:" /><StatusBarItem Content="{Binding ThreadId}" /></StatusBar>
+
+        <StatusBar Grid.Row="3">
+            <StatusBarItem Content="{Binding Status}" />
+            <Separator />
+            <StatusBarItem Content="Thread:" />
+            <StatusBarItem Content="{Binding ThreadId}" />
+        </StatusBar>
     </Grid>
 </UserControl>

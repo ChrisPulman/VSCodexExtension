@@ -41,12 +41,14 @@ namespace VSCodexExtension.Services
             return new CodexRunResult { ThreadId = response.Value<string>("threadId"), FinalResponse = response.Value<string>("finalResponse") ?? response.ToString(Formatting.None), RawJson = response.ToString(Formatting.None) };
         }
         public void CancelActiveRun() { _ = SendAsync(new JObject { ["command"] = "cancel" }); }
-        private Task<JObject> SendAsync(JObject payload)
+        private async Task<JObject> SendAsync(JObject payload)
         {
             if (_stdin == null) throw new InvalidOperationException("Codex SDK bridge is not running.");
             var id = Guid.NewGuid().ToString("N"); payload["id"] = id;
             var tcs = new TaskCompletionSource<JObject>(); _pending[id] = tcs;
-            _stdin.WriteLine(payload.ToString(Formatting.None)); _stdin.Flush(); return tcs.Task;
+            await _stdin.WriteLineAsync(payload.ToString(Formatting.None)).ConfigureAwait(false);
+            await _stdin.FlushAsync().ConfigureAwait(false);
+            return await tcs.Task.ConfigureAwait(false);
         }
         private async Task EnsureBridgeAsync()
         {
