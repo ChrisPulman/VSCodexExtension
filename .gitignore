@@ -3,6 +3,9 @@ obj/
 .vs/
 *.user
 *.suo
+*.sln
+extension.vsixmanifest
+merged.source.extension.vsixmanifest
 *.nupkg
 *.vsix
 TestResults/

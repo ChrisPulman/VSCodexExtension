@@ -15,8 +15,71 @@ namespace VSCodexExtension.Services
         {
             var enriched = new CodexRunRequest { Prompt = _promptBuilder.Build(request), ThreadId = request.ThreadId, WorkspaceRoot = request.WorkspaceRoot, Options = request.Options, Attachments = request.Attachments, Skills = request.Skills, Memories = request.Memories, McpServers = request.McpServers, WorkspaceFiles = request.WorkspaceFiles, AgentRoles = request.AgentRoles };
             try { return await (request.Options.Transport == CodexTransportKind.CliFallback ? _cli : _sdk).RunAsync(enriched).ConfigureAwait(false); }
-            catch (Exception ex) when (request.Options.Transport == CodexTransportKind.SdkBridge) { _events.OnNext(new CodexEvent { Type = "fallback", Message = "SDK bridge failed; using CLI fallback: " + ex.Message }); return await _cli.RunAsync(enriched).ConfigureAwait(false); }
+            catch (Exception ex) when (request.Options.Transport == CodexTransportKind.SdkBridge)
+            {
+                var failover = BuildFailoverRequest(enriched);
+                if (failover != null)
+                {
+                    _events.OnNext(new CodexEvent { Type = "fallback-model", Message = $"SDK bridge failed for {request.Options.Model}; retrying failover model {failover.Options.Model}: {ex.Message}" });
+                    try { return await _sdk.RunAsync(failover).ConfigureAwait(false); }
+                    catch (Exception failoverEx)
+                    {
+                        _events.OnNext(new CodexEvent { Type = "fallback", Message = "SDK failover model also failed; using CLI fallback: " + failoverEx.Message });
+                        return await _cli.RunAsync(failover).ConfigureAwait(false);
+                    }
+                }
+
+                _events.OnNext(new CodexEvent { Type = "fallback", Message = "SDK bridge failed; using CLI fallback: " + ex.Message });
+                return await _cli.RunAsync(enriched).ConfigureAwait(false);
+            }
         }
         public void Cancel() { _sdk.CancelActiveRun(); _cli.CancelActiveRun(); }
+
+        private static CodexRunRequest? BuildFailoverRequest(CodexRunRequest request)
+        {
+            var failoverModel = request.Options.FailoverModel;
+            if (string.IsNullOrWhiteSpace(failoverModel) || failoverModel.Equals(request.Options.Model, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var options = new CodexRunOptions
+            {
+                Model = failoverModel,
+                FailoverModel = failoverModel,
+                ReasoningEffort = request.Options.ReasoningEffort,
+                Verbosity = request.Options.Verbosity,
+                ServiceTier = request.Options.ServiceTier,
+                Profile = request.Options.Profile,
+                ApprovalPolicy = request.Options.ApprovalPolicy,
+                SandboxMode = request.Options.SandboxMode,
+                Mode = request.Options.Mode,
+                Transport = request.Options.Transport,
+                IncludeWorkspaceContext = request.Options.IncludeWorkspaceContext,
+                IncludeMemory = request.Options.IncludeMemory,
+                IncludeSkills = request.Options.IncludeSkills,
+                IncludeMcpServers = request.Options.IncludeMcpServers,
+                UseMultiAgentOrchestration = request.Options.UseMultiAgentOrchestration,
+                MaxAgentConcurrency = request.Options.MaxAgentConcurrency,
+                AgentStrategy = request.Options.AgentStrategy,
+                OrchestrationModel = request.Options.OrchestrationModel,
+                BudgetDrivenModelSelection = request.Options.BudgetDrivenModelSelection,
+                BudgetModel = request.Options.BudgetModel
+            };
+
+            return new CodexRunRequest
+            {
+                Prompt = request.Prompt,
+                ThreadId = request.ThreadId,
+                WorkspaceRoot = request.WorkspaceRoot,
+                Options = options,
+                Attachments = request.Attachments,
+                Skills = request.Skills,
+                Memories = request.Memories,
+                McpServers = request.McpServers,
+                WorkspaceFiles = request.WorkspaceFiles,
+                AgentRoles = request.AgentRoles
+            };
+        }
     }
 }

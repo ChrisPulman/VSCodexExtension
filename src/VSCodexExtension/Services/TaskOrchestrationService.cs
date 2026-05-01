@@ -297,6 +297,7 @@ namespace VSCodexExtension.Services
             return new CodexRunOptions
             {
                 Model = source.Model,
+                FailoverModel = source.FailoverModel,
                 ReasoningEffort = source.ReasoningEffort,
                 Verbosity = source.Verbosity,
                 ServiceTier = source.ServiceTier,

@@ -60,6 +60,7 @@ namespace VSCodexExtension.Infrastructure
                 .RegisterSingleton<IWorkspaceContextService>(ctx => new WorkspaceContextService(ctx.ServiceProvider))
                 .RegisterSingleton<ISessionStore>(_ => new SessionStore())
                 .RegisterSingleton<ICodingAssistantContextService>(ctx => new CodingAssistantContextService(ctx.ServiceProvider, ctx.Get<IWorkspaceContextService>()))
+                .RegisterSingleton<IModelAnalyticsService>(_ => new ModelAnalyticsService())
                 .RegisterSingleton<CodexSdkJsonClient>(ctx => new CodexSdkJsonClient(ctx.Get<ISettingsStore>()))
                 .RegisterSingleton<CodexCliClient>(ctx => new CodexCliClient(ctx.Get<ISettingsStore>()))
                 .RegisterSingleton<ICodexOrchestrator>(ctx => new CodexOrchestrator(ctx.Get<CodexSdkJsonClient>(), ctx.Get<CodexCliClient>()))
@@ -101,7 +102,8 @@ namespace VSCodexExtension.Infrastructure
                 Get<ISessionStore>(),
                 Get<ICodexOrchestrator>(),
                 Get<ITaskOrchestrationService>(),
-                Get<ICodingAssistantContextService>());
+                Get<ICodingAssistantContextService>(),
+                Get<IModelAnalyticsService>());
         }
 
         public CodexToolWindowControl CreateToolWindowControl()

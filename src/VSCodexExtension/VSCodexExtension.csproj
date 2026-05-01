@@ -12,6 +12,11 @@
     <VSSDKBuildToolsAutoSetup>true</VSSDKBuildToolsAutoSetup>
     <GeneratePkgDefFile>true</GeneratePkgDefFile>
     <DeployExtension>false</DeployExtension>
+    <VSSDKTargetPlatformRegRootSuffix Condition="'$(VSSDKTargetPlatformRegRootSuffix)' == ''">Exp</VSSDKTargetPlatformRegRootSuffix>
+    <DebuggerFlavor Condition="'$(Configuration)' == 'Debug'">VsixDebugger</DebuggerFlavor>
+    <VSCodexUseVsixInstallerDeployment Condition="'$(VSCodexUseVsixInstallerDeployment)' == ''">true</VSCodexUseVsixInstallerDeployment>
+    <VSCodexVsixInstallerPath Condition="'$(VSCodexVsixInstallerPath)' == '' and '$(DevEnvDir)' != ''">$(DevEnvDir)VSIXInstaller.exe</VSCodexVsixInstallerPath>
+    <IncludeDebugSymbolsInLocalVSIXDeployment>true</IncludeDebugSymbolsInLocalVSIXDeployment>
     <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
     <IncludeDebugSymbolsInVSIXContainer>false</IncludeDebugSymbolsInVSIXContainer>
     <CopyBuildOutputToOutputDirectory>true</CopyBuildOutputToOutputDirectory>
@@ -28,7 +33,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" ExcludeAssets="runtime" />
-    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.6.38345" />
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.5.40034" />
     <PackageReference Include="ReactiveUI" Version="23.2.19" />
     <PackageReference Include="ReactiveUI.WPF" Version="23.2.19" />
     <PackageReference Include="ReactiveUI.Extensions" Version="2.3.1" />
@@ -38,12 +43,40 @@
 
   <ItemGroup>
     <VSCTCompile Include="Commands\CodexCommands.vsct" />
-    <Content Include="source.extension.vsixmanifest">
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
+    <None Update="source.extension.vsixmanifest">
+      <SubType>Designer</SubType>
+    </None>
     <Content Include="Resources\codex-bridge.mjs">
       <IncludeInVSIX>true</IncludeInVSIX>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+
+  <Target Name="IncludeVSCodexRuntimeAssembliesInVsix" AfterTargets="GetVsixSourceItems">
+    <ItemGroup>
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'Microsoft.Bcl.AsyncInterfaces.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'Newtonsoft.Json.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Buffers.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Collections.Immutable.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.IO.Pipelines.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Memory.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Numerics.Vectors.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Runtime.CompilerServices.Unsafe.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Text.Json.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Threading.Tasks.Extensions.dll'" />
+      <VSIXSourceItem Include="@(_VSCodexRuntimeAssembly)">
+        <VSIXSubPath>$(AssemblyVSIXSubPath)</VSIXSubPath>
+      </VSIXSourceItem>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="InstallVSCodexVsixForDebugging"
+          AfterTargets="CreateVsixContainer"
+          Condition="'$(Configuration)' == 'Debug' and '$(CreateVsixContainer)' == 'true' and '$(TargetVsixContainer)' != '' and '$(VSCodexUseVsixInstallerDeployment)' == 'true' and ('$(BuildingInsideVisualStudio)' == 'true' or '$(DeployVSCodexVsixWithInstaller)' == 'true')">
+    <PropertyGroup>
+      <_VSCodexVsixInstallLog>$(IntermediateOutputPath)VSCodexExtension.vsixinstall.log</_VSCodexVsixInstallLog>
+    </PropertyGroup>
+
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\install-vsix-experimental.ps1&quot; -VsixPath &quot;$(TargetVsixContainer)&quot; -VsixInstallerPath &quot;$(VSCodexVsixInstallerPath)&quot; -RootSuffix &quot;$(VSSDKTargetPlatformRegRootSuffix)&quot; -InstanceId &quot;$(DeployTargetInstanceId)&quot; -LogFile &quot;$(_VSCodexVsixInstallLog)&quot;" />
+  </Target>
 </Project>

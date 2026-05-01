@@ -28,6 +28,7 @@ namespace VSCodexExtension.ViewModels
         private readonly ICodexOrchestrator _codex;
         private readonly ITaskOrchestrationService _taskOrchestrator;
         private readonly ICodingAssistantContextService _assistantContext;
+        private readonly IModelAnalyticsService _modelAnalytics;
         private readonly IDisposable _subscriptions;
         private readonly CodexSessionDocument _session;
 
@@ -41,10 +42,12 @@ namespace VSCodexExtension.ViewModels
         private AgentExecutionStrategy _agentStrategy = AgentExecutionStrategy.ReviewGate;
         private CodexRunMode _mode = CodexRunMode.Chat;
         private string _selectedModel;
+        private string _failoverModel;
         private string _selectedReasoning;
         private string _selectedVerbosity;
         private string _orchestrationModel;
         private string _budgetModel;
+        private ModelUsageEstimate _modelEstimate = new ModelUsageEstimate();
         private string _mcpInputPrompt = string.Empty;
         private ApprovalPolicy _approvalPolicy;
         private SandboxMode _sandboxMode;
@@ -63,7 +66,8 @@ namespace VSCodexExtension.ViewModels
             ISessionStore sessionStore,
             ICodexOrchestrator codex,
             ITaskOrchestrationService taskOrchestrator,
-            ICodingAssistantContextService assistantContext)
+            ICodingAssistantContextService assistantContext,
+            IModelAnalyticsService modelAnalytics)
         {
             _settingsStore = settingsStore;
             _memoryStore = memoryStore;
@@ -75,10 +79,12 @@ namespace VSCodexExtension.ViewModels
             _codex = codex;
             _taskOrchestrator = taskOrchestrator;
             _assistantContext = assistantContext;
+            _modelAnalytics = modelAnalytics;
             _session = sessionStore.Create();
 
             var settings = _settingsStore.Current;
             _selectedModel = settings.DefaultModel;
+            _failoverModel = string.IsNullOrWhiteSpace(settings.DefaultFailoverModel) ? "gpt-5.3-codex" : settings.DefaultFailoverModel;
             _selectedReasoning = settings.DefaultReasoningEffort;
             _selectedVerbosity = settings.DefaultVerbosity;
             _approvalPolicy = settings.DefaultApprovalPolicy;
@@ -117,6 +123,8 @@ namespace VSCodexExtension.ViewModels
             RunCommand = ReactiveCommand.CreateFromTask(RunAsync, canRun);
             CancelCommand = ReactiveCommand.Create(() => { _taskOrchestrator.Cancel(); _codex.Cancel(); }, this.WhenAnyValue(x => x.IsRunning));
             RefreshCommand = ReactiveCommand.Create(Refresh);
+            RefreshAnalyticsCommand = ReactiveCommand.Create(() => UpdateAnalytics(Prompt));
+            ApplyRecommendedModelCommand = ReactiveCommand.Create(ApplyRecommendedModel);
             AddUserMemoryCommand = ReactiveCommand.Create(() => AddMemory("user"), this.WhenAnyValue(x => x.Prompt, p => !string.IsNullOrWhiteSpace(p)));
             AddWorkspaceMemoryCommand = ReactiveCommand.Create(() => AddMemory("workspace"), this.WhenAnyValue(x => x.Prompt, p => !string.IsNullOrWhiteSpace(p)));
             AddImageAttachmentCommand = ReactiveCommand.Create(AddImageAttachment);
@@ -137,6 +145,7 @@ namespace VSCodexExtension.ViewModels
                 this.WhenAnyValue(x => x.Prompt).ThrottleDistinct(TimeSpan.FromMilliseconds(180), RxSchedulers.MainThreadScheduler).Subscribe(OnPromptChanged));
 
             Refresh();
+            UpdateAnalytics(Prompt);
         }
 
         public ObservableCollection<ChatMessage> Messages { get; }
@@ -163,6 +172,8 @@ namespace VSCodexExtension.ViewModels
         public ReactiveCommand<Unit, Unit> RunCommand { get; }
         public ReactiveCommand<Unit, Unit> CancelCommand { get; }
         public ReactiveCommand<Unit, Unit> RefreshCommand { get; }
+        public ReactiveCommand<Unit, Unit> RefreshAnalyticsCommand { get; }
+        public ReactiveCommand<Unit, Unit> ApplyRecommendedModelCommand { get; }
         public ReactiveCommand<Unit, Unit> AddUserMemoryCommand { get; }
         public ReactiveCommand<Unit, Unit> AddWorkspaceMemoryCommand { get; }
         public ReactiveCommand<Unit, Unit> AddImageAttachmentCommand { get; }
@@ -178,19 +189,23 @@ namespace VSCodexExtension.ViewModels
         public string Status { get => _status; set => this.RaiseAndSetIfChanged(ref _status, value); }
         public bool IsRunning { get => _isRunning; set => this.RaiseAndSetIfChanged(ref _isRunning, value); }
         public bool UseMultiAgentOrchestration { get => _useMultiAgentOrchestration; set => this.RaiseAndSetIfChanged(ref _useMultiAgentOrchestration, value); }
-        public bool BudgetDrivenModelSelection { get => _budgetDrivenModelSelection; set { this.RaiseAndSetIfChanged(ref _budgetDrivenModelSelection, value); SaveModelSettings(); } }
+        public bool BudgetDrivenModelSelection { get => _budgetDrivenModelSelection; set { this.RaiseAndSetIfChanged(ref _budgetDrivenModelSelection, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
         public int MaxAgentConcurrency { get => _maxAgentConcurrency; set => this.RaiseAndSetIfChanged(ref _maxAgentConcurrency, Math.Max(1, value)); }
         public double InputAreaHeight { get => _inputAreaHeight; set { var clamped = ClampInputHeight(value); this.RaiseAndSetIfChanged(ref _inputAreaHeight, clamped); SaveInputAreaHeight(clamped); } }
         public AgentExecutionStrategy AgentStrategy { get => _agentStrategy; set => this.RaiseAndSetIfChanged(ref _agentStrategy, value); }
         public CodexRunMode Mode { get => _mode; set => this.RaiseAndSetIfChanged(ref _mode, value); }
-        public string SelectedModel { get => _selectedModel; set => this.RaiseAndSetIfChanged(ref _selectedModel, value); }
-        public string SelectedReasoning { get => _selectedReasoning; set => this.RaiseAndSetIfChanged(ref _selectedReasoning, value); }
-        public string SelectedVerbosity { get => _selectedVerbosity; set => this.RaiseAndSetIfChanged(ref _selectedVerbosity, value); }
+        public string SelectedModel { get => _selectedModel; set { this.RaiseAndSetIfChanged(ref _selectedModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
+        public string FailoverModel { get => _failoverModel; set { this.RaiseAndSetIfChanged(ref _failoverModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
+        public string SelectedReasoning { get => _selectedReasoning; set { this.RaiseAndSetIfChanged(ref _selectedReasoning, value); SaveModelSettings(); } }
+        public string SelectedVerbosity { get => _selectedVerbosity; set { this.RaiseAndSetIfChanged(ref _selectedVerbosity, value); SaveModelSettings(); } }
         public string OrchestrationModel { get => _orchestrationModel; set { this.RaiseAndSetIfChanged(ref _orchestrationModel, value); SaveModelSettings(); } }
-        public string BudgetModel { get => _budgetModel; set { this.RaiseAndSetIfChanged(ref _budgetModel, value); SaveModelSettings(); } }
+        public string BudgetModel { get => _budgetModel; set { this.RaiseAndSetIfChanged(ref _budgetModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
+        public ModelUsageEstimate ModelEstimate { get => _modelEstimate; set => this.RaiseAndSetIfChanged(ref _modelEstimate, value); }
+        public string AnalyticsSummary => ModelEstimate.Summary;
+        public string AnalyticsRecommendation => ModelEstimate.RecommendationReason;
         public string McpInputPrompt { get => _mcpInputPrompt; set => this.RaiseAndSetIfChanged(ref _mcpInputPrompt, value); }
-        public ApprovalPolicy ApprovalPolicy { get => _approvalPolicy; set => this.RaiseAndSetIfChanged(ref _approvalPolicy, value); }
-        public SandboxMode SandboxMode { get => _sandboxMode; set => this.RaiseAndSetIfChanged(ref _sandboxMode, value); }
+        public ApprovalPolicy ApprovalPolicy { get => _approvalPolicy; set { this.RaiseAndSetIfChanged(ref _approvalPolicy, value); SaveModelSettings(); } }
+        public SandboxMode SandboxMode { get => _sandboxMode; set { this.RaiseAndSetIfChanged(ref _sandboxMode, value); SaveModelSettings(); } }
         public CodexTransportKind Transport { get => _transport; set => this.RaiseAndSetIfChanged(ref _transport, value); }
         public McpServerDefinition? SelectedMcpServer { get => _selectedMcpServer; set => this.RaiseAndSetIfChanged(ref _selectedMcpServer, value); }
         public McpToolDefinition? SelectedMcpTool { get => _selectedMcpTool; set => this.RaiseAndSetIfChanged(ref _selectedMcpTool, value); }
@@ -221,6 +236,7 @@ namespace VSCodexExtension.ViewModels
                 {
                     Mode = Mode,
                     Model = EffectiveMainModel(),
+                    FailoverModel = FailoverModel,
                     ReasoningEffort = SelectedReasoning,
                     Verbosity = SelectedVerbosity,
                     ApprovalPolicy = ApprovalPolicy,
@@ -234,6 +250,9 @@ namespace VSCodexExtension.ViewModels
                     BudgetModel = BudgetModel
                 };
                 var request = new CodexRunRequest { Prompt = userPrompt, ThreadId = ThreadId, WorkspaceRoot = _workspace.CurrentWorkspaceRoot, Options = options, Attachments = Attachments.ToList(), Skills = Skills.Where(x => x.IsEnabled).ToList(), Memories = _memoryStore.Search(userPrompt, 10), McpServers = McpServers.Where(x => x.IsEnabled).ToList(), WorkspaceFiles = workspaceFiles, AgentRoles = selectedAgents };
+                ModelEstimate = _modelAnalytics.Estimate(request);
+                this.RaisePropertyChanged(nameof(AnalyticsSummary));
+                this.RaisePropertyChanged(nameof(AnalyticsRecommendation));
                 var result = await (UseMultiAgentOrchestration ? _taskOrchestrator.RunAsync(request) : _codex.RunAsync(request)).ConfigureAwait(true);
                 ThreadId = result.ThreadId ?? ThreadId;
                 AddMessage(CodexMessageRole.Assistant, result.FinalResponse);
@@ -284,6 +303,7 @@ namespace VSCodexExtension.ViewModels
         private void OnPromptChanged(string prompt)
         {
             UpdateReferenceSuggestions(prompt);
+            UpdateAnalytics(prompt);
             if (IsMcpDiscoveryPrompt(prompt)) ShowMcpServerList();
         }
 
@@ -390,10 +410,74 @@ namespace VSCodexExtension.ViewModels
         private void SaveModelSettings()
         {
             var settings = _settingsStore.Current;
+            settings.DefaultModel = string.IsNullOrWhiteSpace(SelectedModel) ? settings.DefaultModel : SelectedModel;
+            settings.DefaultFailoverModel = string.IsNullOrWhiteSpace(FailoverModel) ? settings.DefaultFailoverModel : FailoverModel;
+            settings.DefaultReasoningEffort = string.IsNullOrWhiteSpace(SelectedReasoning) ? settings.DefaultReasoningEffort : SelectedReasoning;
+            settings.DefaultVerbosity = string.IsNullOrWhiteSpace(SelectedVerbosity) ? settings.DefaultVerbosity : SelectedVerbosity;
+            settings.DefaultApprovalPolicy = ApprovalPolicy;
+            settings.DefaultSandboxMode = SandboxMode;
             settings.DefaultOrchestrationModel = OrchestrationModel;
             settings.DefaultBudgetDrivenModelSelection = BudgetDrivenModelSelection;
             settings.DefaultBudgetModel = BudgetModel;
             _settingsStore.Save(settings);
+        }
+
+        private void ApplyRecommendedModel()
+        {
+            var recommended = ModelEstimate.RecommendedModel;
+            if (string.IsNullOrWhiteSpace(recommended)) return;
+            if (recommended.Equals(BudgetModel, StringComparison.OrdinalIgnoreCase))
+            {
+                BudgetDrivenModelSelection = true;
+            }
+            else
+            {
+                SelectedModel = recommended;
+                BudgetDrivenModelSelection = false;
+            }
+            Status = "Applied model recommendation: " + recommended;
+        }
+
+        private void UpdateAnalytics(string prompt)
+        {
+            try
+            {
+                var request = new CodexRunRequest
+                {
+                    Prompt = prompt ?? string.Empty,
+                    ThreadId = ThreadId,
+                    WorkspaceRoot = _workspace.CurrentWorkspaceRoot,
+                    Options = new CodexRunOptions
+                    {
+                        Mode = Mode,
+                        Model = EffectiveMainModel(),
+                        FailoverModel = FailoverModel,
+                        ReasoningEffort = SelectedReasoning,
+                        Verbosity = SelectedVerbosity,
+                        ApprovalPolicy = ApprovalPolicy,
+                        SandboxMode = SandboxMode,
+                        Transport = Transport,
+                        OrchestrationModel = EffectiveOrchestrationModel(),
+                        BudgetDrivenModelSelection = BudgetDrivenModelSelection,
+                        BudgetModel = BudgetModel
+                    },
+                    Attachments = Attachments.ToList(),
+                    Skills = Skills.Where(x => x.IsEnabled).ToList(),
+                    Memories = _memoryStore.Search(prompt ?? string.Empty, 10),
+                    McpServers = McpServers.Where(x => x.IsEnabled).ToList(),
+                    WorkspaceFiles = _workspace.ResolveMentions(prompt ?? string.Empty, 12000)
+                        .Concat(_workspace.ResolveHashReferences(prompt ?? string.Empty, 12000))
+                        .ToList(),
+                    AgentRoles = AgentRoles.Where(x => x.IsEnabled).ToList()
+                };
+                ModelEstimate = _modelAnalytics.Estimate(request);
+                this.RaisePropertyChanged(nameof(AnalyticsSummary));
+                this.RaisePropertyChanged(nameof(AnalyticsRecommendation));
+            }
+            catch
+            {
+                // Analytics must never block prompt editing in the tool window.
+            }
         }
 
         private static string? LastReferenceToken(string prompt) => (prompt ?? string.Empty).Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).LastOrDefault(x => x.StartsWith("@", StringComparison.Ordinal) || x.StartsWith("#", StringComparison.Ordinal));

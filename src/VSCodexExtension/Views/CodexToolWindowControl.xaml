@@ -49,8 +49,10 @@
             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="Mode" Margin="0,4,4,0" />
                 <ComboBox Width="90" ItemsSource="{Binding ModeOptions}" SelectedItem="{Binding Mode}" Margin="0,0,8,0" />
-                <TextBlock Text="Model" Margin="0,4,4,0" />
+                <TextBlock Text="Primary" Margin="0,4,4,0" />
                 <ComboBox Width="130" IsEditable="True" ItemsSource="{Binding ModelOptions}" Text="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
+                <TextBlock Text="Failover" Margin="0,4,4,0" />
+                <ComboBox Width="130" IsEditable="True" ItemsSource="{Binding ModelOptions}" Text="{Binding FailoverModel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
                 <TextBlock Text="Orchestrator" Margin="0,4,4,0" />
                 <ComboBox Width="130" IsEditable="True" ItemsSource="{Binding ModelOptions}" Text="{Binding OrchestrationModel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
                 <CheckBox Content="Budget" IsChecked="{Binding BudgetDrivenModelSelection}" Margin="0,4,4,0" />
@@ -161,6 +163,48 @@
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
+                        </Grid>
+                    </DockPanel>
+                </TabItem>
+
+                <TabItem Header="Analytics">
+                    <DockPanel Margin="4">
+                        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <TextBlock Text="{Binding AnalyticsSummary}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding AnalyticsRecommendation}" TextWrapping="Wrap" Opacity="0.75" Margin="0,6,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="Refresh analytics" Command="{Binding RefreshAnalyticsCommand}" Margin="0,0,4,0" />
+                                <Button Content="Apply recommendation" Command="{Binding ApplyRecommendedModelCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Input tokens" FontWeight="Bold" Margin="0,0,8,4" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ModelEstimate.EstimatedInputTokens}" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Output tokens" FontWeight="Bold" Margin="0,0,8,4" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ModelEstimate.EstimatedOutputTokens}" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Primary cost" FontWeight="Bold" Margin="0,0,8,4" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ModelEstimate.PrimaryEstimatedCost, StringFormat={}{0:C4}}" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Budget cost" FontWeight="Bold" Margin="0,0,8,4" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ModelEstimate.BudgetEstimatedCost, StringFormat={}{0:C4}}" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Savings" FontWeight="Bold" Margin="0,0,8,4" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ModelEstimate.EstimatedSavingsPercent, StringFormat={}{0:F0}%}" />
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Complexity" FontWeight="Bold" Margin="0,0,8,4" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ModelEstimate.Complexity}" />
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Recommended" FontWeight="Bold" Margin="0,0,8,4" />
+                            <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding ModelEstimate.RecommendedModel}" />
                         </Grid>
                     </DockPanel>
                 </TabItem>

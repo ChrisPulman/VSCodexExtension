@@ -18,6 +18,7 @@ namespace VSCodexExtension.Options
                 NodePath = settings.NodePath;
                 BridgeScriptPath = settings.BridgeScriptPath;
                 DefaultModel = settings.DefaultModel;
+                DefaultFailoverModel = settings.DefaultFailoverModel;
                 DefaultReasoningEffort = settings.DefaultReasoningEffort;
                 DefaultVerbosity = settings.DefaultVerbosity;
                 DefaultServiceTier = settings.DefaultServiceTier;
@@ -56,8 +57,13 @@ namespace VSCodexExtension.Options
         public string BridgeScriptPath { get; set; } = string.Empty;
 
         [Category("Defaults")]
-        [DisplayName("Model")]
-        public string DefaultModel { get; set; } = "gpt-5.4";
+        [DisplayName("Primary Model")]
+        public string DefaultModel { get; set; } = "gpt-5.5";
+
+        [Category("Defaults")]
+        [DisplayName("Failover Model")]
+        [Description("Model retried automatically when the primary SDK run fails before falling back to the CLI transport.")]
+        public string DefaultFailoverModel { get; set; } = "gpt-5.3-codex";
 
         [Category("Defaults")]
         [DisplayName("Reasoning Effort")]
@@ -111,7 +117,7 @@ namespace VSCodexExtension.Options
         [Category("Multi-Agent Orchestration")]
         [DisplayName("Orchestration Model")]
         [Description("Model used by the main orchestration/coordinator AI.")]
-        public string OrchestrationModel { get; set; } = "gpt-5.4-codex";
+        public string OrchestrationModel { get; set; } = "gpt-5.5";
 
         [Category("Multi-Agent Orchestration")]
         [DisplayName("Budget Driven Model Selection")]
@@ -120,7 +126,7 @@ namespace VSCodexExtension.Options
 
         [Category("Multi-Agent Orchestration")]
         [DisplayName("Budget Model")]
-        public string BudgetModel { get; set; } = "gpt-5.1-codex";
+        public string BudgetModel { get; set; } = "gpt-5.4-mini";
 
         [Category("Multi-Agent Orchestration")]
         [DisplayName("Agent Roles")]
@@ -134,7 +140,8 @@ namespace VSCodexExtension.Options
             settings.CodexCliPath = string.IsNullOrWhiteSpace(CodexCliPath) ? "codex" : CodexCliPath.Trim();
             settings.NodePath = string.IsNullOrWhiteSpace(NodePath) ? "node" : NodePath.Trim();
             settings.BridgeScriptPath = BridgeScriptPath?.Trim() ?? string.Empty;
-            settings.DefaultModel = string.IsNullOrWhiteSpace(DefaultModel) ? "gpt-5.4" : DefaultModel.Trim();
+            settings.DefaultModel = string.IsNullOrWhiteSpace(DefaultModel) ? "gpt-5.5" : DefaultModel.Trim();
+            settings.DefaultFailoverModel = string.IsNullOrWhiteSpace(DefaultFailoverModel) ? "gpt-5.3-codex" : DefaultFailoverModel.Trim();
             settings.DefaultReasoningEffort = string.IsNullOrWhiteSpace(DefaultReasoningEffort) ? "medium" : DefaultReasoningEffort.Trim();
             settings.DefaultVerbosity = string.IsNullOrWhiteSpace(DefaultVerbosity) ? "medium" : DefaultVerbosity.Trim();
             settings.DefaultServiceTier = string.IsNullOrWhiteSpace(DefaultServiceTier) ? "auto" : DefaultServiceTier.Trim();
