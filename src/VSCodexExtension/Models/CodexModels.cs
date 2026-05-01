@@ -12,6 +12,35 @@ namespace VSCodexExtension.Models
     public enum AgentExecutionStrategy { Sequential, PlannerThenParallel, ReviewGate }
     public enum AgentModelSelectionMode { Explicit, BudgetDriven }
     public enum OrchestrationSectionStatus { Pending, Running, Completed, Failed, Cancelled }
+    public enum ModelTaskComplexity { Low, Medium, High }
+
+    public sealed class ModelProfile
+    {
+        public string Id { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public double InputPricePerMillion { get; set; }
+        public double OutputPricePerMillion { get; set; }
+        public int ContextWindowTokens { get; set; }
+        public ModelTaskComplexity BestForComplexity { get; set; } = ModelTaskComplexity.Medium;
+        public bool IsCodexOptimized { get; set; }
+        public string Notes { get; set; } = string.Empty;
+    }
+
+    public sealed class ModelUsageEstimate : ReactiveObject
+    {
+        public int EstimatedInputTokens { get; set; }
+        public int EstimatedOutputTokens { get; set; }
+        public string PrimaryModel { get; set; } = string.Empty;
+        public string FailoverModel { get; set; } = string.Empty;
+        public string BudgetModel { get; set; } = string.Empty;
+        public string RecommendedModel { get; set; } = string.Empty;
+        public double PrimaryEstimatedCost { get; set; }
+        public double BudgetEstimatedCost { get; set; }
+        public double EstimatedSavingsPercent { get; set; }
+        public ModelTaskComplexity Complexity { get; set; } = ModelTaskComplexity.Medium;
+        public string RecommendationReason { get; set; } = string.Empty;
+        public string Summary { get; set; } = string.Empty;
+    }
 
     public sealed class AgentRoleDefinition : ReactiveObject
     {
@@ -79,7 +108,8 @@ namespace VSCodexExtension.Models
 
     public sealed class CodexRunOptions : ReactiveObject
     {
-        public string Model { get; set; } = "gpt-5.4";
+        public string Model { get; set; } = "gpt-5.5";
+        public string FailoverModel { get; set; } = "gpt-5.3-codex";
         public string ReasoningEffort { get; set; } = "medium";
         public string Verbosity { get; set; } = "medium";
         public string ServiceTier { get; set; } = "auto";
@@ -232,23 +262,24 @@ namespace VSCodexExtension.Models
         public string CodexCliPath { get; set; } = "codex";
         public string NodePath { get; set; } = "node";
         public string BridgeScriptPath { get; set; } = string.Empty;
-        public string DefaultModel { get; set; } = "gpt-5.4";
+        public string DefaultModel { get; set; } = "gpt-5.5";
+        public string DefaultFailoverModel { get; set; } = "gpt-5.3-codex";
         public string DefaultReasoningEffort { get; set; } = "medium";
         public string DefaultVerbosity { get; set; } = "medium";
         public string DefaultServiceTier { get; set; } = "auto";
         public string DefaultProfile { get; set; } = "default";
         public ApprovalPolicy DefaultApprovalPolicy { get; set; } = ApprovalPolicy.OnRequest;
         public SandboxMode DefaultSandboxMode { get; set; } = SandboxMode.WorkspaceWrite;
-        public List<string> CustomModels { get; set; } = new List<string> { "gpt-5.4", "gpt-5.4-codex", "gpt-5.1-codex" };
+        public List<string> CustomModels { get; set; } = new List<string> { "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex", "gpt-5-codex" };
         public List<string> CustomReasoningEfforts { get; set; } = new List<string> { "minimal", "low", "medium", "high", "xhigh" };
         public List<string> CustomVerbosityOptions { get; set; } = new List<string> { "low", "medium", "high" };
         public List<string> SkillRoots { get; set; } = new List<string>();
         public bool DefaultUseMultiAgentOrchestration { get; set; }
         public int DefaultMaxAgentConcurrency { get; set; } = 1;
         public AgentExecutionStrategy DefaultAgentStrategy { get; set; } = AgentExecutionStrategy.ReviewGate;
-        public string DefaultOrchestrationModel { get; set; } = "gpt-5.4-codex";
+        public string DefaultOrchestrationModel { get; set; } = "gpt-5.5";
         public bool DefaultBudgetDrivenModelSelection { get; set; }
-        public string DefaultBudgetModel { get; set; } = "gpt-5.1-codex";
+        public string DefaultBudgetModel { get; set; } = "gpt-5.4-mini";
         public double DefaultInputAreaHeight { get; set; } = 180d;
         public List<AgentRoleDefinition> AgentRoles { get; set; } = new List<AgentRoleDefinition>
         {

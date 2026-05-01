@@ -30,14 +30,28 @@ async function ensureCodex() { if (codex) return codex; const Codex = await load
 async function getThread(request) {
   const c = await ensureCodex();
   if (request.threadId) { if (!threads.has(request.threadId)) threads.set(request.threadId, c.resumeThread(request.threadId)); return threads.get(request.threadId); }
-  const options = {}; if (request.model) options.model = request.model;
+  const options = {};
+  if (request.model) options.model = request.model;
+  if (request.profile) options.profile = request.profile;
   return c.startThread ? c.startThread(options) : await c.thread_start?.(options);
+}
+function buildRunOptions(request) {
+  const options = { signal: activeAbort.signal };
+  if (request.model) options.model = request.model;
+  if (request.reasoningEffort) options.reasoningEffort = request.reasoningEffort;
+  if (request.verbosity) options.verbosity = request.verbosity;
+  if (request.serviceTier) options.serviceTier = request.serviceTier;
+  if (request.approvalPolicy) options.approvalPolicy = request.approvalPolicy;
+  if (request.sandboxMode) options.sandboxMode = request.sandboxMode;
+  if (request.workspaceRoot) options.cwd = request.workspaceRoot;
+  if (Array.isArray(request.images)) options.images = request.images.filter(x => x?.kind === 'image').map(x => x.path);
+  return options;
 }
 async function handle(request) {
   if (request.command === 'cancel') { activeAbort?.abort?.(); return { cancelled: true }; }
   const thread = await getThread(request);
   activeAbort = new AbortController();
-  const result = await thread.run(request.prompt, { signal: activeAbort.signal });
+  const result = await thread.run(request.prompt, buildRunOptions(request));
   const threadId = result?.threadId ?? result?.thread_id ?? thread.id ?? request.threadId;
   if (threadId) threads.set(threadId, thread);
   return { threadId, finalResponse: result?.final_response ?? result?.finalResponse ?? String(result ?? ''), result };

@@ -20,6 +20,9 @@
       <Group guid="guidCommandSet" id="CodexEditorContextMenuGroup" priority="0x0700">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
       </Group>
+      <Group guid="guidCommandSet" id="CodexDebugMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_DEBUG" />
+      </Group>
     </Groups>
 
     <Buttons>
@@ -62,6 +65,62 @@
           <CommandName>Create Codex Plan with Agents</CommandName>
         </Strings>
       </Button>
+
+      <Button guid="guidCommandSet" id="AskCodexCommandId" priority="0x0110" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Ask Codex</ButtonText>
+          <CommandName>Ask Codex About Selection</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="ExplainSelectionCommandId" priority="0x0111" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Codex: Explain Selection</ButtonText>
+          <CommandName>Explain Selection with Codex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="FixSelectionCommandId" priority="0x0112" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Codex: Fix Selection</ButtonText>
+          <CommandName>Fix Selection with Codex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="ReviewSelectionCommandId" priority="0x0113" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Codex: Review Selection</ButtonText>
+          <CommandName>Review Selection with Codex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="OptimizeSelectionCommandId" priority="0x0114" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Codex: Optimize Selection</ButtonText>
+          <CommandName>Optimize Selection with Codex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="GenerateDocsCommandId" priority="0x0115" type="Button">
+        <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+        <Strings>
+          <ButtonText>Codex: Generate Documentation</ButtonText>
+          <CommandName>Generate Documentation with Codex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150" type="Button">
+        <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+        <Strings>
+          <ButtonText>Codex ReactiveMemory Setup</ButtonText>
+          <CommandName>Configure Codex ReactiveMemory</CommandName>
+        </Strings>
+      </Button>
     </Buttons>
   </Commands>
 
@@ -81,6 +140,45 @@
     <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
       <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
     </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexDebugMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="AskCodexCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="AskCodexCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150">
+      <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
   </CommandPlacements>
 
   <Symbols>
@@ -91,11 +189,19 @@
       <IDSymbol name="CreateTestFromSelectionCommandId" value="0x0102" />
       <IDSymbol name="DebugWithCodexCommandId" value="0x0103" />
       <IDSymbol name="CreatePlanCommandId" value="0x0104" />
+      <IDSymbol name="AskCodexCommandId" value="0x0105" />
+      <IDSymbol name="ExplainSelectionCommandId" value="0x0106" />
+      <IDSymbol name="FixSelectionCommandId" value="0x0107" />
+      <IDSymbol name="ReviewSelectionCommandId" value="0x0108" />
+      <IDSymbol name="OptimizeSelectionCommandId" value="0x0109" />
+      <IDSymbol name="GenerateDocsCommandId" value="0x010A" />
+      <IDSymbol name="ConfigureMemoryCommandId" value="0x010B" />
       <IDSymbol name="CodexToolsMenuGroup" value="0x1020" />
       <IDSymbol name="CodexEditorContextMenuGroup" value="0x1021" />
       <IDSymbol name="CodexViewMenuGroup" value="0x1022" />
       <IDSymbol name="CodexProjectContextMenuGroup" value="0x1023" />
       <IDSymbol name="CodexSolutionContextMenuGroup" value="0x1024" />
+      <IDSymbol name="CodexDebugMenuGroup" value="0x1025" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

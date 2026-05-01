@@ -9,9 +9,16 @@ namespace VSCodexExtension.Services
     public interface ICodingAssistantContextService
     {
         DebugContextSnapshot CaptureDebugContext();
+        string BuildAskPrompt();
+        string BuildExplainPrompt();
+        string BuildFixPrompt();
+        string BuildReviewPrompt();
+        string BuildOptimizePrompt();
+        string BuildDocumentationPrompt();
         string BuildDebugPrompt();
         string BuildTestPrompt();
         string BuildPlanPrompt(string userGoal, string agentSummary);
+        string BuildReactiveMemorySetupPrompt();
     }
 
     public sealed class CodingAssistantContextService : ICodingAssistantContextService
@@ -67,6 +74,54 @@ namespace VSCodexExtension.Services
             return sb.ToString().Trim();
         }
 
+        public string BuildAskPrompt()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            return BuildSelectionCentredPrompt(
+                "Use Codex to answer a question about the current Visual Studio context.",
+                "If code is selected, focus on that selection. Otherwise inspect the active solution context and ask for any missing detail only when it blocks a correct answer.");
+        }
+
+        public string BuildExplainPrompt()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            return BuildSelectionCentredPrompt(
+                "Explain the selected Visual Studio code clearly for a developer who will maintain it.",
+                "Cover intent, control/data flow, key dependencies, edge cases, and any behavior that is easy to misread.");
+        }
+
+        public string BuildFixPrompt()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            return BuildSelectionCentredPrompt(
+                "Fix the selected Visual Studio code with the smallest safe change.",
+                "First identify the likely defect and evidence. Then propose or implement the fix, including the most relevant validation steps.");
+        }
+
+        public string BuildReviewPrompt()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            return BuildSelectionCentredPrompt(
+                "Review the selected Visual Studio code.",
+                "Prioritize correctness, regressions, concurrency/threading issues, API misuse, missing tests, and maintainability risks. Return findings first with file and line context when available.");
+        }
+
+        public string BuildOptimizePrompt()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            return BuildSelectionCentredPrompt(
+                "Optimize the selected Visual Studio code without changing behavior.",
+                "Look for measurable performance, allocation, async/reactive, and UI-thread improvements. Explain tradeoffs and keep changes scoped.");
+        }
+
+        public string BuildDocumentationPrompt()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            return BuildSelectionCentredPrompt(
+                "Generate or improve documentation for the selected Visual Studio code.",
+                "Prefer concise XML documentation or nearby developer-facing comments only where they clarify behavior, contracts, or extension integration.");
+        }
+
         public string BuildTestPrompt()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
@@ -100,6 +155,36 @@ namespace VSCodexExtension.Services
             }
             sb.AppendLine("Goal:");
             sb.AppendLine(string.IsNullOrWhiteSpace(userGoal) ? "Plan the selected coding task from current context." : userGoal);
+            return sb.ToString().Trim();
+        }
+
+        public string BuildReactiveMemorySetupPrompt()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Verify and configure ReactiveMemory as the default Codex MCP memory system for this Visual Studio extension.");
+            sb.AppendLine("Use MCP server `reactivememory` when available. First call `reactivememory_status`, then `reactivememory_react_to_prompt` for this setup request, and summarize any missing installation/configuration steps.");
+            sb.AppendLine("The extension should preserve durable context by using `reactivememory_search`, `reactivememory_search_relays`, `reactivememory_add_drawer`, and `reactivememory_diary_write` with minimal user input.");
+            return sb.ToString().Trim();
+        }
+
+        private string BuildSelectionCentredPrompt(string title, string instruction)
+        {
+            var selection = _workspace.GetCurrentSelectionReference(16000);
+            var sb = new StringBuilder();
+            sb.AppendLine(title);
+            sb.AppendLine(instruction);
+            if (selection != null)
+            {
+                sb.AppendLine($"Selected code: {selection.RelativePath} lines {selection.StartLine}-{selection.EndLine}");
+                sb.AppendLine("```");
+                sb.AppendLine(selection.Preview);
+                sb.AppendLine("```");
+            }
+            else
+            {
+                sb.AppendLine("No editor selection was available; use the active solution/workspace context and ask for a target only if required.");
+            }
+
             return sb.ToString().Trim();
         }
 

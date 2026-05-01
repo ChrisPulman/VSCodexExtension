@@ -18,9 +18,16 @@ namespace VSCodexExtension.Commands
 
             commandService.AddCommand(new MenuCommand(ExecuteOpenToolWindow, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.OpenToolWindowCommandId)));
             commandService.AddCommand(new MenuCommand(ExecuteOpenOptions, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.OpenOptionsCommandId)));
+            commandService.AddCommand(new MenuCommand(ExecuteAskCodex, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.AskCodexCommandId)));
+            commandService.AddCommand(new MenuCommand(ExecuteExplainSelection, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.ExplainSelectionCommandId)));
+            commandService.AddCommand(new MenuCommand(ExecuteFixSelection, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.FixSelectionCommandId)));
+            commandService.AddCommand(new MenuCommand(ExecuteReviewSelection, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.ReviewSelectionCommandId)));
+            commandService.AddCommand(new MenuCommand(ExecuteOptimizeSelection, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.OptimizeSelectionCommandId)));
+            commandService.AddCommand(new MenuCommand(ExecuteGenerateDocs, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.GenerateDocsCommandId)));
             commandService.AddCommand(new MenuCommand(ExecuteCreateTestFromSelection, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.CreateTestFromSelectionCommandId)));
             commandService.AddCommand(new MenuCommand(ExecuteDebugWithCodex, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.DebugWithCodexCommandId)));
             commandService.AddCommand(new MenuCommand(ExecuteCreatePlan, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.CreatePlanCommandId)));
+            commandService.AddCommand(new MenuCommand(ExecuteConfigureMemory, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), CodexCommandIds.ConfigureMemoryCommandId)));
         }
 
         public static async Task InitializeAsync(AsyncPackage package)
@@ -61,6 +68,42 @@ namespace VSCodexExtension.Commands
             ShowPromptFromContext(x => x.BuildTestPrompt());
         }
 
+        private void ExecuteAskCodex(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            ShowPromptFromContext(x => x.BuildAskPrompt());
+        }
+
+        private void ExecuteExplainSelection(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            ShowPromptFromContext(x => x.BuildExplainPrompt());
+        }
+
+        private void ExecuteFixSelection(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            ShowPromptFromContext(x => x.BuildFixPrompt());
+        }
+
+        private void ExecuteReviewSelection(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            ShowPromptFromContext(x => x.BuildReviewPrompt());
+        }
+
+        private void ExecuteOptimizeSelection(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            ShowPromptFromContext(x => x.BuildOptimizePrompt());
+        }
+
+        private void ExecuteGenerateDocs(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            ShowPromptFromContext(x => x.BuildDocumentationPrompt());
+        }
+
         private void ExecuteDebugWithCodex(object sender, EventArgs e)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
@@ -71,6 +114,12 @@ namespace VSCodexExtension.Commands
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             ShowPromptFromContext(x => x.BuildPlanPrompt("Create a plan for the current selected coding task.", string.Empty));
+        }
+
+        private void ExecuteConfigureMemory(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            ShowPromptFromContext(x => x.BuildReactiveMemorySetupPrompt());
         }
 
         private void ShowPromptFromContext(Func<ICodingAssistantContextService, string> promptFactory)

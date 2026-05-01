@@ -12,7 +12,20 @@ namespace VSCodexExtension.Services
             sb.AppendLine($"Mode: {request.Options.Mode}");
             sb.AppendLine($"Workspace: {request.WorkspaceRoot}");
             sb.AppendLine($"Approval policy: {request.Options.ApprovalPolicy}; Sandbox: {request.Options.SandboxMode}");
+            if (!string.IsNullOrWhiteSpace(request.Options.FailoverModel)) sb.AppendLine($"Model failover: {request.Options.FailoverModel}");
             sb.AppendLine();
+            var reactiveMemory = request.McpServers.FirstOrDefault(s => s.IsEnabled && (s.Name.IndexOf("reactivememory", System.StringComparison.OrdinalIgnoreCase) >= 0 || s.Command.IndexOf("ReactiveMemory", System.StringComparison.OrdinalIgnoreCase) >= 0));
+            if (reactiveMemory != null)
+            {
+                sb.AppendLine("## ReactiveMemory MCP hooks");
+                sb.AppendLine($"Use MCP server `{reactiveMemory.Name}` as the durable memory system.");
+                sb.AppendLine("At session start call `reactivememory_status`.");
+                sb.AppendLine("For every user prompt, call `reactivememory_react_to_prompt` before answering so related memories, entities, duplicates, and checkpoints are handled automatically.");
+                sb.AppendLine("Before relying on persisted facts, call `reactivememory_search`, `reactivememory_search_relays`, or `reactivememory_facts_query` and prefer retrieved data over assumptions.");
+                sb.AppendLine("When durable context, project decisions, code patterns, or changed facts appear, use `reactivememory_check_duplicate`, `reactivememory_add_drawer`, `reactivememory_facts_invalidate`, and `reactivememory_facts_add` as appropriate.");
+                sb.AppendLine("After a meaningful interaction, call `reactivememory_diary_write` to preserve the session summary with minimal user input.");
+                sb.AppendLine();
+            }
             if (request.Options.IncludeMemory && request.Memories.Any()) { sb.AppendLine("## Relevant memory"); foreach (var m in request.Memories.Take(12)) sb.AppendLine($"- [{m.Scope}] {m.Text}"); sb.AppendLine(); }
             if (request.Options.IncludeSkills && request.Skills.Any()) { sb.AppendLine("## Enabled skills"); foreach (var s in request.Skills.Where(x => x.IsEnabled).Take(8)) { sb.AppendLine($"### {s.Name}"); sb.AppendLine(s.Description); sb.AppendLine(s.Content.Length > 4000 ? s.Content.Substring(0, 4000) : s.Content); sb.AppendLine(); } }
             if (request.Options.IncludeMcpServers && request.McpServers.Any()) { sb.AppendLine("## MCP servers available through local Codex config"); foreach (var s in request.McpServers.Where(x => x.IsEnabled)) sb.AppendLine($"- {s.Name}: {s.Command} {string.Join(" ", s.Args)} ({s.Health})"); sb.AppendLine(); }
