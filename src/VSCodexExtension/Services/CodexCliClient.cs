@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Reactive.Linq;
@@ -22,8 +23,16 @@ namespace VSCodexExtension.Services
             args.Append("--sandbox ").Append(ToCliSandbox(request.Options.SandboxMode)).Append(' ');
             foreach (var image in request.Attachments.Where(x => x.Kind == "image")) args.Append("--image ").Append(Quote(image.Path)).Append(' ');
             args.Append(Quote(request.Prompt));
-            var psi = new ProcessStartInfo { FileName = _settings.Current.CodexCliPath, Arguments = args.ToString(), WorkingDirectory = string.IsNullOrWhiteSpace(request.WorkspaceRoot) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : request.WorkspaceRoot, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-            var output = new StringBuilder(); _active = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start Codex CLI.");
+            var psi = new ProcessStartInfo { FileName = CodexEnvironmentService.ResolveCodexCliPath(_settings.Current.CodexCliPath), Arguments = args.ToString(), WorkingDirectory = string.IsNullOrWhiteSpace(request.WorkspaceRoot) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : request.WorkspaceRoot, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+            var output = new StringBuilder();
+            try
+            {
+                _active = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start Codex CLI.");
+            }
+            catch (Win32Exception ex)
+            {
+                throw new InvalidOperationException("Codex CLI executable was not found. This is the optional VSCodex fallback transport. Install it on Windows with `npm install -g @openai/codex`, restart Visual Studio, or set the VSCodex Codex CLI Path setting to the full codex.cmd path. Current value: " + _settings.Current.CodexCliPath, ex);
+            }
             _active.OutputDataReceived += (_, e) => { if (e.Data != null) { output.AppendLine(e.Data); _events.OnNext(new CodexEvent { Type = "stdout", Message = e.Data }); } };
             _active.ErrorDataReceived += (_, e) => { if (e.Data != null) _events.OnNext(new CodexEvent { Type = "stderr", Message = e.Data }); };
             _active.BeginOutputReadLine(); _active.BeginErrorReadLine(); await Task.Run(() => _active.WaitForExit()).ConfigureAwait(false);

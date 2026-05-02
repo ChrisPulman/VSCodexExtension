@@ -13,6 +13,7 @@ namespace VSCodexExtension.Models
     public enum AgentModelSelectionMode { Explicit, BudgetDriven }
     public enum OrchestrationSectionStatus { Pending, Running, Completed, Failed, Cancelled }
     public enum ModelTaskComplexity { Low, Medium, High }
+    public enum PrerequisiteState { Ready, Warning, Missing, Error }
 
     public sealed class ModelProfile
     {
@@ -40,6 +41,43 @@ namespace VSCodexExtension.Models
         public ModelTaskComplexity Complexity { get; set; } = ModelTaskComplexity.Medium;
         public string RecommendationReason { get; set; } = string.Empty;
         public string Summary { get; set; } = string.Empty;
+    }
+
+    public sealed class RateLimitWindowStatus : ReactiveObject
+    {
+        private string _remaining = "Waiting for SDK telemetry";
+        private int _usagePercent;
+        private string _resetText = string.Empty;
+
+        public string Label { get; set; } = string.Empty;
+        public string Remaining { get => _remaining; set => this.RaiseAndSetIfChanged(ref _remaining, value ?? string.Empty); }
+        public int UsagePercent { get => _usagePercent; set => this.RaiseAndSetIfChanged(ref _usagePercent, Math.Max(0, Math.Min(100, value))); }
+        public string ResetText { get => _resetText; set => this.RaiseAndSetIfChanged(ref _resetText, value ?? string.Empty); }
+    }
+
+    public sealed class PrerequisiteStatus : ReactiveObject
+    {
+        private PrerequisiteState _state = PrerequisiteState.Missing;
+        private string _status = string.Empty;
+        private string _details = string.Empty;
+
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public PrerequisiteState State { get => _state; set => this.RaiseAndSetIfChanged(ref _state, value); }
+        public string Status { get => _status; set => this.RaiseAndSetIfChanged(ref _status, value ?? string.Empty); }
+        public string Details { get => _details; set => this.RaiseAndSetIfChanged(ref _details, value ?? string.Empty); }
+        public string InstallCommand { get; set; } = string.Empty;
+        public bool IsBlocking { get; set; }
+    }
+
+    public sealed class CodexEnvironmentReport
+    {
+        public IReadOnlyList<PrerequisiteStatus> Items { get; set; } = Array.Empty<PrerequisiteStatus>();
+        public bool IsSdkReady { get; set; }
+        public bool IsCliReady { get; set; }
+        public string Summary { get; set; } = string.Empty;
+        public string Instructions { get; set; } = string.Empty;
+        public bool CanRunSdkBridge => IsSdkReady;
     }
 
     public sealed class AgentRoleDefinition : ReactiveObject

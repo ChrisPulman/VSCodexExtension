@@ -22,6 +22,19 @@ async function loadCodex() {
   }
   throw lastError ?? new Error('Unable to import @openai/codex-sdk. Install with: npm install -g @openai/codex-sdk');
 }
+
+if (process.argv.includes('--check')) {
+  try {
+    await loadCodex();
+    console.log('Codex SDK bridge prerequisites OK');
+    process.exit(0);
+  } catch (error) {
+    console.error(error?.stack ?? String(error));
+    console.error('Install on Windows with: npm install -g @openai/codex-sdk');
+    process.exit(1);
+  }
+}
+
 const threads = new Map();
 let codex;
 let activeAbort;
