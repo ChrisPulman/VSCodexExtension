@@ -1,0 +1,83 @@
+name: Build and publish VSCodex VSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the built VSIX to the Visual Studio Marketplace
+        required: true
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  CONFIGURATION: Release
+  SOLUTION_PATH: src/VSCodex.slnx
+  VSIX_PROJECT_DIR: src/VSCodex
+  PUBLISH_MANIFEST: marketplace/vs-publish.json
+
+jobs:
+  build:
+    name: Build VSIX
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore and build
+        run: msbuild $env:SOLUTION_PATH /restore /p:Configuration=$env:CONFIGURATION /m
+
+      - name: Locate VSIX
+        id: vsix
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem $env:VSIX_PROJECT_DIR -Recurse -Filter *.vsix |
+            Where-Object { $_.FullName -like "*\bin\$env:CONFIGURATION\*" } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+
+          if (-not $vsix) {
+            throw "No VSIX was produced under $env:VSIX_PROJECT_DIR for $env:CONFIGURATION."
+          }
+
+          "path=$($vsix.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSCodex-vsix
+          path: ${{ steps.vsix.outputs.path }}
+          if-no-files-found: error
+
+      - name: Publish to Visual Studio Marketplace
+        if: github.ref_type == 'tag' || github.event.inputs.publish == 'true'
+        shell: pwsh
+        env:
+          VS_MARKETPLACE_PAT: ${{ secrets.VS_MARKETPLACE_PAT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VS_MARKETPLACE_PAT)) {
+            throw "Missing VS_MARKETPLACE_PAT secret. Create a Visual Studio Marketplace PAT with publish rights before publishing."
+          }
+
+          $publisher = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.vssdk.buildtools" -Recurse -Filter VsixPublisher.exe |
+            Where-Object { $_.FullName -notlike "*\lib\*" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if (-not $publisher) {
+            throw "VsixPublisher.exe was not found in the Microsoft.VSSDK.BuildTools package."
+          }
+
+          & $publisher.FullName publish `
+            -payload "${{ steps.vsix.outputs.path }}" `
+            -publishManifest $env:PUBLISH_MANIFEST `
+            -personalAccessToken $env:VS_MARKETPLACE_PAT

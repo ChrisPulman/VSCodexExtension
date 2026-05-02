@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json.schemastore.org/vsix-publish",
+  "categories": [
+    "coding"
+  ],
+  "identity": {
+    "internalName": "VSCodex"
+  },
+  "overview": "README.md",
+  "priceCategory": "free",
+  "publisher": "ChrisPulman",
+  "private": false,
+  "qna": true,
+  "repo": "https://github.com/ChrisPulman/VSCodexExtension"
+}

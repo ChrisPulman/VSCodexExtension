@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+
+  <Commands package="guidPackage">
+    <Menus>
+      <Menu guid="guidCommandSet" id="VSCodexTopLevelMenu" priority="0x0200" type="Menu">
+        <Parent guid="guidCommandSet" id="VSCodexExtensionsMenuGroup" />
+        <Strings>
+          <ButtonText>VSCodex</ButtonText>
+          <CommandName>VSCodex</CommandName>
+        </Strings>
+      </Menu>
+      <Menu guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100" type="Menu">
+        <Parent guid="guidCommandSet" id="VSCodexCodeWindowContextMenuGroup" />
+        <Strings>
+          <ButtonText>VSCodex Actions</ButtonText>
+          <CommandName>VSCodex Editor Actions</CommandName>
+        </Strings>
+      </Menu>
+    </Menus>
+
+    <Groups>
+      <Group guid="guidCommandSet" id="VSCodexExtensionsMenuGroup" priority="0x0200">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_ADDINS" />
+      </Group>
+      <Group guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" priority="0x0100">
+        <Parent guid="guidCommandSet" id="VSCodexTopLevelMenu" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexToolsMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexViewMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexProjectContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_PROJNODE" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexSolutionContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_SOLNNODE" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexItemContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_ITEMNODE" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexEditorContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
+      </Group>
+      <Group guid="guidCommandSet" id="VSCodexCodeWindowContextMenuGroup" priority="0x0005">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
+      </Group>
+      <Group guid="guidCommandSet" id="VSCodexEditorAllContextMenuGroup" priority="0x0005">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_EDITOR_ALL" />
+      </Group>
+      <Group guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" priority="0x0100">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenu" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexDebugMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_DEBUG" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexErrorListContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_ERRORLIST" />
+      </Group>
+      <Group guid="guidCommandSet" id="CodexErrorCorrectionContextMenuGroup" priority="0x0700">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_ERROR_CORRECTION" />
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100" type="Button">
+        <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
+        <Strings>
+          <ButtonText>VSCodex Tool Window</ButtonText>
+          <CommandName>Open VSCodex Tool Window</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" />
+        <Strings>
+          <ButtonText>VSCodex Settings</ButtonText>
+          <CommandName>Open VSCodex Settings</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="CreateTestFromSelectionCommandId" priority="0x0120" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Generate Tests</ButtonText>
+          <CommandName>Create VSCodex Test for Selection</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Debug Selection</ButtonText>
+          <CommandName>Debug Current Context with VSCodex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Create Agent Plan</ButtonText>
+          <CommandName>Create VSCodex Plan with Agents</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="AskCodexCommandId" priority="0x0110" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Add to VSCodex Chat</ButtonText>
+          <CommandName>Ask VSCodex About Selection</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="ExplainSelectionCommandId" priority="0x0111" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Explain</ButtonText>
+          <CommandName>Explain Selection with VSCodex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="FixSelectionCommandId" priority="0x0112" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Fix Selection</ButtonText>
+          <CommandName>Fix Selection with VSCodex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="ReviewSelectionCommandId" priority="0x0113" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Review Selection</ButtonText>
+          <CommandName>Review Selection with VSCodex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="OptimizeSelectionCommandId" priority="0x0114" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Optimize Selection</ButtonText>
+          <CommandName>Optimize Selection with VSCodex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="GenerateDocsCommandId" priority="0x0115" type="Button">
+        <Parent guid="guidCommandSet" id="VSCodexEditorContextMenuActionsGroup" />
+        <Strings>
+          <ButtonText>Generate Comments</ButtonText>
+          <CommandName>Generate Documentation with VSCodex</CommandName>
+        </Strings>
+      </Button>
+
+      <Button guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150" type="Button">
+        <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+        <Strings>
+          <ButtonText>VSCodex ReactiveMemory Setup</ButtonText>
+          <CommandName>Configure VSCodex ReactiveMemory</CommandName>
+        </Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+
+  <CommandPlacements>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="AskCodexCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreateTestFromSelectionCommandId" priority="0x0120">
+      <Parent guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140">
+      <Parent guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150">
+      <Parent guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexViewMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexItemContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexErrorListContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
+      <Parent guid="guidCommandSet" id="VSCodexEditorAllContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
+      <Parent guid="guidSHLMainMenu" id="IDG_VS_CTXT_EDITOR_ALL" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
+      <Parent guid="guidSHLMainMenu" id="IDG_VS_CODEWIN_DEBUG_STEP" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexErrorCorrectionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
+      <Parent guid="guidCommandSet" id="CodexErrorListContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexItemContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="AskCodexCommandId" priority="0x0115">
+      <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="AskCodexCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="AskCodexCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="AskCodexCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="CodexItemContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreateTestFromSelectionCommandId" priority="0x0120">
+      <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreateTestFromSelectionCommandId" priority="0x0120">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreateTestFromSelectionCommandId" priority="0x0120">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreateTestFromSelectionCommandId" priority="0x0120">
+      <Parent guid="guidCommandSet" id="CodexItemContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexDebugMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexItemContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexErrorListContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="CodexErrorCorrectionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidSHLMainMenu" id="IDG_VS_CODEWIN_DEBUG_STEP" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidSHLMainMenu" id="IDG_VS_CTXT_ERROR_CORRECTION" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidSHLMainMenu" id="IDG_VS_ERRORLIST" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140">
+      <Parent guid="guidCommandSet" id="CodexItemContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150">
+      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150">
+      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150">
+      <Parent guid="guidCommandSet" id="CodexItemContextMenuGroup" />
+    </CommandPlacement>
+  </CommandPlacements>
+
+  <Symbols>
+    <GuidSymbol name="guidPackage" value="{cc277233-b28f-43d6-a597-1cc515cb0110}" />
+    <GuidSymbol name="guidCommandSet" value="{a17f6b52-76e1-48cb-855e-30c86c46a74d}">
+      <IDSymbol name="OpenToolWindowCommandId" value="0x0100" />
+      <IDSymbol name="OpenOptionsCommandId" value="0x0101" />
+      <IDSymbol name="CreateTestFromSelectionCommandId" value="0x0102" />
+      <IDSymbol name="DebugWithCodexCommandId" value="0x0103" />
+      <IDSymbol name="CreatePlanCommandId" value="0x0104" />
+      <IDSymbol name="AskCodexCommandId" value="0x0105" />
+      <IDSymbol name="ExplainSelectionCommandId" value="0x0106" />
+      <IDSymbol name="FixSelectionCommandId" value="0x0107" />
+      <IDSymbol name="ReviewSelectionCommandId" value="0x0108" />
+      <IDSymbol name="OptimizeSelectionCommandId" value="0x0109" />
+      <IDSymbol name="GenerateDocsCommandId" value="0x010A" />
+      <IDSymbol name="ConfigureMemoryCommandId" value="0x010B" />
+      <IDSymbol name="VSCodexTopLevelMenu" value="0x1010" />
+      <IDSymbol name="VSCodexExtensionsMenuGroup" value="0x1011" />
+      <IDSymbol name="VSCodexTopLevelMenuGroup" value="0x1012" />
+      <IDSymbol name="CodexToolsMenuGroup" value="0x1020" />
+      <IDSymbol name="CodexEditorContextMenuGroup" value="0x1021" />
+      <IDSymbol name="CodexViewMenuGroup" value="0x1022" />
+      <IDSymbol name="CodexProjectContextMenuGroup" value="0x1023" />
+      <IDSymbol name="CodexSolutionContextMenuGroup" value="0x1024" />
+      <IDSymbol name="CodexDebugMenuGroup" value="0x1025" />
+      <IDSymbol name="CodexItemContextMenuGroup" value="0x1026" />
+      <IDSymbol name="CodexErrorListContextMenuGroup" value="0x1027" />
+      <IDSymbol name="CodexErrorCorrectionContextMenuGroup" value="0x1028" />
+      <IDSymbol name="VSCodexEditorContextMenu" value="0x1030" />
+      <IDSymbol name="VSCodexCodeWindowContextMenuGroup" value="0x1031" />
+      <IDSymbol name="VSCodexEditorAllContextMenuGroup" value="0x1032" />
+      <IDSymbol name="VSCodexEditorContextMenuActionsGroup" value="0x1033" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>

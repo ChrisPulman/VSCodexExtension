@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
+  <Metadata>
+    <Identity Id="VSCodex.0b7b2b54-8746-4d11-9205-c7aa90e0a6c9" Version="0.1.12" Language="en-US" Publisher="Chris Pulman" />
+    <DisplayName>VSCodex</DisplayName>
+    <Description xml:space="preserve">Reactive-first VSCodex tool window for Visual Studio 2022 and Visual Studio 2026 with skills, MCP servers, memory, and solution-aware context.</Description>
+    <MoreInfo>https://developers.openai.com/codex/sdk</MoreInfo>
+    <Icon>Resources\VSCodexIcon-128.png</Icon>
+    <PreviewImage>Resources\VSCodexIcon-256.png</PreviewImage>
+    <Tags>Codex, OpenAI, ReactiveUI, MCP, Skills, Visual Studio</Tags>
+  </Metadata>
+  <Installation>
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,19.0)">
+      <ProductArchitecture>amd64</ProductArchitecture>
+    </InstallationTarget>
+    <InstallationTarget Id="Microsoft.VisualStudio.Pro" Version="[17.0,19.0)">
+      <ProductArchitecture>amd64</ProductArchitecture>
+    </InstallationTarget>
+    <InstallationTarget Id="Microsoft.VisualStudio.Enterprise" Version="[17.0,19.0)">
+      <ProductArchitecture>amd64</ProductArchitecture>
+    </InstallationTarget>
+  </Installation>
+  <Dependencies><Dependency Id="Microsoft.Framework.NDP" DisplayName=".NET Framework" Version="[4.8,)" /></Dependencies>
+  <Assets><Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="VSCodex" Path="|VSCodex;PkgdefProjectOutputGroup|" /></Assets>
+  <Prerequisites><Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[17.0,19.0)" DisplayName="Visual Studio core editor" /></Prerequisites>
+</PackageManifest>
