@@ -70,6 +70,23 @@
     </ItemGroup>
   </Target>
 
+  <Target Name="IncludeVSCodexCommandTableInVsix"
+          AfterTargets="GetVsixSourceItems"
+          DependsOnTargets="VSCTCompile">
+    <Copy SourceFiles="$(IntermediateOutputPath)CodexCommands.cto"
+          DestinationFiles="$(IntermediateOutputPath)Menus.ctmenu"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(IntermediateOutputPath)CodexCommands.cto')" />
+    <ItemGroup>
+      <VSIXSourceItem Include="$(IntermediateOutputPath)Menus.ctmenu"
+                      Condition="Exists('$(IntermediateOutputPath)Menus.ctmenu')">
+        <VSIXSubPath></VSIXSubPath>
+      </VSIXSourceItem>
+      <FileWrites Include="$(IntermediateOutputPath)Menus.ctmenu"
+                  Condition="Exists('$(IntermediateOutputPath)Menus.ctmenu')" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="InstallVSCodexVsixForDebugging"
           AfterTargets="CreateVsixContainer"
           Condition="'$(Configuration)' == 'Debug' and '$(CreateVsixContainer)' == 'true' and '$(TargetVsixContainer)' != '' and '$(VSCodexUseVsixInstallerDeployment)' == 'true' and ('$(BuildingInsideVisualStudio)' == 'true' or '$(DeployVSCodexVsixWithInstaller)' == 'true')">

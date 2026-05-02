@@ -25,15 +25,27 @@ namespace VSCodexExtension.Services
                     catch (Exception failoverEx)
                     {
                         _events.OnNext(new CodexEvent { Type = "fallback", Message = "SDK failover model also failed; using CLI fallback: " + failoverEx.Message });
-                        return await _cli.RunAsync(failover).ConfigureAwait(false);
+                        return await RunCliFallbackAsync(failover, failoverEx).ConfigureAwait(false);
                     }
                 }
 
                 _events.OnNext(new CodexEvent { Type = "fallback", Message = "SDK bridge failed; using CLI fallback: " + ex.Message });
-                return await _cli.RunAsync(enriched).ConfigureAwait(false);
+                return await RunCliFallbackAsync(enriched, ex).ConfigureAwait(false);
             }
         }
         public void Cancel() { _sdk.CancelActiveRun(); _cli.CancelActiveRun(); }
+
+        private async Task<CodexRunResult> RunCliFallbackAsync(CodexRunRequest request, Exception sdkException)
+        {
+            try
+            {
+                return await _cli.RunAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception cliException)
+            {
+                throw new InvalidOperationException("VSCodex could not run because the Codex SDK bridge failed and the optional Codex CLI fallback is unavailable. Open the VSCodex Settings tab, run Check setup, and install @openai/codex-sdk on Windows with `npm install -g @openai/codex-sdk`. Optional CLI fallback install: `npm install -g @openai/codex`. SDK failure: " + sdkException.Message + " CLI failure: " + cliException.Message, cliException);
+            }
+        }
 
         private static CodexRunRequest? BuildFailoverRequest(CodexRunRequest request)
         {

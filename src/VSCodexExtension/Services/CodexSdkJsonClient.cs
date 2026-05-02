@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Reactive.Linq;
@@ -38,7 +39,7 @@ namespace VSCodexExtension.Services
                 ["images"] = JArray.FromObject(request.Attachments)
             };
             var response = await SendAsync(payload).ConfigureAwait(false);
-            return new CodexRunResult { ThreadId = response.Value<string>("threadId"), FinalResponse = response.Value<string>("finalResponse") ?? response.ToString(Formatting.None), RawJson = response.ToString(Formatting.None) };
+            return new CodexRunResult { ThreadId = response.Value<string>("threadId"), FinalResponse = response.Value<string>("finalResponse") ?? ToCompactJson(response), RawJson = ToCompactJson(response) };
         }
         public void CancelActiveRun() { _ = SendAsync(new JObject { ["command"] = "cancel" }); }
         private async Task<JObject> SendAsync(JObject payload)
@@ -46,7 +47,7 @@ namespace VSCodexExtension.Services
             if (_stdin == null) throw new InvalidOperationException("Codex SDK bridge is not running.");
             var id = Guid.NewGuid().ToString("N"); payload["id"] = id;
             var tcs = new TaskCompletionSource<JObject>(); _pending[id] = tcs;
-            await _stdin.WriteLineAsync(payload.ToString(Formatting.None)).ConfigureAwait(false);
+            await _stdin.WriteLineAsync(ToCompactJson(payload)).ConfigureAwait(false);
             await _stdin.FlushAsync().ConfigureAwait(false);
             return await tcs.Task.ConfigureAwait(false);
         }
@@ -55,8 +56,17 @@ namespace VSCodexExtension.Services
             if (_process != null && !_process.HasExited) return;
             var script = _settings.Current.BridgeScriptPath; if (string.IsNullOrWhiteSpace(script)) script = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "codex-bridge.mjs");
             if (!File.Exists(script)) throw new FileNotFoundException("Codex SDK bridge script was not found.", script);
-            var psi = new ProcessStartInfo { FileName = _settings.Current.NodePath, Arguments = Quote(script), UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true, WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory };
-            _process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start node bridge."); _stdin = _process.StandardInput;
+            var psi = new ProcessStartInfo { FileName = CodexEnvironmentService.ResolveNodePath(_settings.Current.NodePath), Arguments = Quote(script), UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true, WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory };
+            try
+            {
+                _process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start node bridge.");
+            }
+            catch (Win32Exception ex)
+            {
+                throw new InvalidOperationException("Node.js executable was not found. Install Node.js LTS on Windows with `winget install OpenJS.NodeJS.LTS`, restart Visual Studio, or set the VSCodex Node Path setting to the full node.exe path. Current value: " + _settings.Current.NodePath, ex);
+            }
+
+            _stdin = _process.StandardInput;
             _ = Task.Run(() => PumpStdout(_process.StandardOutput)); _ = Task.Run(() => PumpStderr(_process.StandardError)); await Task.Delay(150).ConfigureAwait(false);
         }
         private void PumpStdout(StreamReader reader)
@@ -67,14 +77,15 @@ namespace VSCodexExtension.Services
                 {
                     var obj = JObject.Parse(line); var id = obj.Value<string>("id"); var type = obj.Value<string>("type") ?? "event";
                     if (type == "response" && id != null && _pending.TryRemove(id, out var tcs)) tcs.TrySetResult((JObject)(obj["result"] ?? new JObject()));
-                    else if (type == "error" && id != null && _pending.TryRemove(id, out var errorTcs)) errorTcs.TrySetException(new InvalidOperationException(obj.Value<string>("message") ?? obj.ToString(Formatting.None)));
-                    else _events.OnNext(new CodexEvent { Type = type, Message = obj.Value<string>("message") ?? obj.ToString(Formatting.None), ThreadId = obj.Value<string>("threadId"), RawJson = obj.ToString(Formatting.None) });
+                    else if (type == "error" && id != null && _pending.TryRemove(id, out var errorTcs)) errorTcs.TrySetException(new InvalidOperationException(obj.Value<string>("message") ?? ToCompactJson(obj)));
+                    else _events.OnNext(new CodexEvent { Type = type, Message = obj.Value<string>("message") ?? ToCompactJson(obj), ThreadId = obj.Value<string>("threadId"), RawJson = ToCompactJson(obj) });
                 }
                 catch (Exception ex) { _events.OnNext(new CodexEvent { Type = "bridge-output", Message = line + "\n" + ex.Message }); }
             }
         }
         private void PumpStderr(StreamReader reader) { string? line; while ((line = reader.ReadLine()) != null) _events.OnNext(new CodexEvent { Type = "stderr", Message = line }); }
         private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
+        private static string ToCompactJson(JToken token) => JsonConvert.SerializeObject(token);
         public void Dispose() { try { _process?.Kill(); } catch { } _events.Dispose(); }
     }
 }
