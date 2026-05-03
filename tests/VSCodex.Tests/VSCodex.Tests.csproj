@@ -10,6 +10,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Testing.Platform" Version="2.2.2" />
-    <PackageReference Include="TUnit" Version="1.43.2" />
+    <PackageReference Include="TUnit" Version="1.43.11" />
   </ItemGroup>
 </Project>
