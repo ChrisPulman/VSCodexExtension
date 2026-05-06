@@ -69,6 +69,7 @@ public sealed class RxAppBuilder
             .RegisterSingleton<ISkillIndexService>(_ => new SkillIndexService())
             .RegisterSingleton<IMcpConfigService>(_ => new McpConfigService())
             .RegisterSingleton<IMcpToolCatalogService>(ctx => new McpToolCatalogService(ctx.Get<IMcpConfigService>()))
+            .RegisterSingleton<IReactiveMemoryService>(ctx => new ReactiveMemoryService(ctx.Get<IMcpConfigService>(), ctx.Get<IMcpToolCatalogService>()))
             .RegisterSingleton<IWorkspaceContextService>(ctx => new WorkspaceContextService(ctx.ServiceProvider))
             .RegisterSingleton<ISessionStore>(_ => new SessionStore())
             .RegisterSingleton<ICodingAssistantContextService>(ctx => new CodingAssistantContextService(ctx.ServiceProvider, ctx.Get<IWorkspaceContextService>()))
@@ -115,6 +116,7 @@ public sealed class RxAppContext
             Get<ISkillIndexService>(),
             Get<IMcpConfigService>(),
             Get<IMcpToolCatalogService>(),
+            Get<IReactiveMemoryService>(),
             Get<IWorkspaceContextService>(),
             Get<ISessionStore>(),
             Get<ICodexOrchestrator>(),

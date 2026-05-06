@@ -140,8 +140,17 @@ The prompt editor accepts file drops and pasted files where supported. Attachmen
 
 For larger tasks, VSCodex can split work across logical planner, architect, builder, reviewer, and verifier roles. The Agents tab controls role enablement, per-role model selection, orchestration model, budget-driven model mode, and maximum agent concurrency.
 
+## Marketplace Publishing
 
-```
+The repository includes Marketplace packaging assets and a publish workflow:
+
+- `src/VSCodex/Resources/VSCodexIcon.svg` is the source icon artwork.
+- `src/VSCodex/Resources/VSCodexIcon-128.png` is used as the Visual Studio Marketplace icon.
+- `src/VSCodex/Resources/VSCodexIcon-256.png` is used as the Marketplace preview image.
+- `marketplace/vs-publish.json` is the VSIX publish manifest and uses this README as the Marketplace overview.
+- `.github/workflows/publish-vsix.yml` builds the Release VSIX, uploads it as an artifact, and can publish it to the Visual Studio Marketplace.
+
+Publishing requires a Visual Studio Marketplace personal access token stored as the `VS_MARKETPLACE_PAT` GitHub secret. The workflow publishes when a `v*` tag is pushed or when it is run manually with the `publish` input enabled.
 
 ## License
 

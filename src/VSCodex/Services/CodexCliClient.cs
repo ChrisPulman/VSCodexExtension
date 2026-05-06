@@ -7,6 +7,7 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using VSCodex.Models;
 
 namespace VSCodex.Services;
@@ -18,6 +19,7 @@ public sealed class CodexCliClient : ICodexClient
     public IObservable<CodexEvent> Events => _events.AsObservable();
     public async Task<CodexRunResult> RunAsync(CodexRunRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.WorkspaceRoot)) throw new InvalidOperationException("VSCodex cannot run because Visual Studio has not provided a solution or project workspace root yet.");
         var args = new StringBuilder(); args.Append("exec ");
         if (!string.IsNullOrWhiteSpace(request.Options.Model)) args.Append("--model ").Append(Quote(request.Options.Model)).Append(' ');
         if (ShouldPassProfile(request.Options.Profile)) args.Append("--profile ").Append(Quote(request.Options.Profile)).Append(' ');
@@ -68,6 +70,7 @@ public sealed class CodexCliClient : ICodexClient
 
         return new CodexRunResult { FinalResponse = output.ToString(), UsedFallback = true };
     }
+    public Task<JObject?> GetRateLimitsAsync() => Task.FromResult<JObject?>(null);
     public void CancelActiveRun() { try { if (_active != null && !_active.HasExited) _active.Kill(); } catch { } }
     private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
     private static bool ShouldPassProfile(string profile) => !string.IsNullOrWhiteSpace(profile) && !profile.Equals("default", StringComparison.OrdinalIgnoreCase);
