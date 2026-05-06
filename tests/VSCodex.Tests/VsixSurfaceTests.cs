@@ -121,6 +121,10 @@ public sealed class VsixSurfaceTests
         var models = ReadText("src/VSCodex/Models/CodexModels.cs");
         var promptBuilder = ReadText("src/VSCodex/Services/PromptBuilder.cs");
         var mcpConfig = ReadText("src/VSCodex/Services/McpConfigService.cs");
+        var mcpTools = ReadText("src/VSCodex/Services/McpToolCatalogService.cs");
+        var reactiveMemory = ReadText("src/VSCodex/Services/ReactiveMemoryService.cs");
+        var appBuilder = ReadText("src/VSCodex/Infrastructure/RxAppBuilder.cs");
+        var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
         var view = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml");
         var analytics = ReadText("src/VSCodex/Services/ModelAnalyticsService.cs");
 
@@ -130,7 +134,20 @@ public sealed class VsixSurfaceTests
         RequireContains(promptBuilder, "reactivememory_status", "Prompt builder must inject ReactiveMemory session-start hooks.");
         RequireContains(promptBuilder, "reactivememory_react_to_prompt", "Prompt builder must inject per-prompt ReactiveMemory hooks.");
         RequireContains(mcpConfig, "[mcp_servers.reactivememory]", "MCP config service must install ReactiveMemory as the default memory server.");
+        RequireContains(mcpConfig, "existingBlock.Success", "MCP config service must validate the real ReactiveMemory server block instead of matching unrelated text.");
+        RequireContains(mcpConfig, "enabled\\s*=\\s*false", "MCP config service must re-enable the default ReactiveMemory server when it is explicitly disabled.");
         RequireContains(mcpConfig, "CP.ReactiveMemory.Mcp.Server", "MCP config service must know the ReactiveMemory package identity.");
+        RequireContains(mcpTools, "InvokeToolAsync", "MCP tooling must expose runtime tool invocation, not only tool discovery.");
+        RequireContains(mcpTools, "tools/call", "MCP tooling must call MCP tools through the JSON-RPC tools/call method.");
+        RequireContains(reactiveMemory, "IReactiveMemoryService", "VSCodex must have a runtime ReactiveMemory service.");
+        RequireContains(reactiveMemory, "ReactToPromptAsync", "ReactiveMemory must be called before requests so context can be restored.");
+        RequireContains(reactiveMemory, "WriteDiaryAsync", "ReactiveMemory must write durable memories after requests complete.");
+        RequireContains(reactiveMemory, "AddMemoryAsync", "Explicit memory commands must persist through ReactiveMemory.");
+        RequireContains(reactiveMemory, "InvokeToolAsync(server, tool.Name, arguments)", "ReactiveMemory must use real MCP tool calls.");
+        RequireContains(appBuilder, "RegisterSingleton<IReactiveMemoryService>", "ReactiveMemory service must be registered for the tool-window view model.");
+        RequireContains(viewModel, "_reactiveMemory.ReactToPromptAsync", "Run must update ReactiveMemory context before calling Codex.");
+        RequireContains(viewModel, "_reactiveMemory.WriteDiaryAsync", "Run completion must write a ReactiveMemory diary entry.");
+        RequireContains(viewModel, "_reactiveMemory.AddMemoryAsync", "Memory buttons must persist through ReactiveMemory.");
         RequireContains(view, "Header=\"Analytics\"", "Tool window must expose model/cost analytics.");
         RequireContains(view, "FailoverModel", "Tool window must expose failover model control.");
         RequireContains(analytics, "EstimatedSavingsPercent", "Analytics must estimate whether a cheaper model can be used.");
@@ -139,7 +156,7 @@ public sealed class VsixSurfaceTests
     [Test]
     public void Package_auto_loads_and_defers_first_run_tool_window_creation_until_after_initialization()
     {
-        var packageSource = ReadText("src/VSCodex/VSCodexExtensionPackage.cs");
+        var packageSource = ReadText("src/VSCodex/VSCodexPackage.cs");
         var commandSource = ReadText("src/VSCodex/Commands/OpenVSCodexToolWindowCommand.cs");
 
         RequireContains(packageSource, "ProvideAutoLoad(VSConstants.UICONTEXT.NoSolution_string", "Package must auto-load before a solution is open.");
@@ -174,7 +191,7 @@ public sealed class VsixSurfaceTests
     [Test]
     public void VSCodex_settings_are_hosted_in_the_tool_window_not_legacy_Tools_Options()
     {
-        var packageSource = ReadText("src/VSCodex/VSCodexExtensionPackage.cs");
+        var packageSource = ReadText("src/VSCodex/VSCodexPackage.cs");
         var commandSource = ReadText("src/VSCodex/Commands/OpenVSCodexToolWindowCommand.cs");
         var toolWindow = ReadText("src/VSCodex/ToolWindows/VSCodexToolWindowPane.cs");
         var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
@@ -227,8 +244,8 @@ public sealed class VsixSurfaceTests
         RequireContains(publishManifest, "\"$schema\": \"http://json.schemastore.org/vsix-publish\"", "Marketplace publishing must use the supported VSIX publish manifest schema.");
         RequireContains(publishManifest, "\"overview\": \"README.md\"", "The Marketplace overview must use README.md.");
         RequireContains(publishManifest, "\"internalName\": \"VSCodex\"", "The Marketplace internal name must be stable.");
-        RequireContains(workflow, "microsoft/setup-msbuild@v2", "The Marketplace workflow must build with MSBuild on Windows.");
-        RequireContains(workflow, "actions/upload-artifact@v4", "The Marketplace workflow must publish the built VSIX as an artifact.");
+        RequireContains(workflow, "microsoft/setup-msbuild@v3", "The Marketplace workflow must build with MSBuild on Windows.");
+        RequireContains(workflow, "actions/upload-artifact@v7", "The Marketplace workflow must publish the built VSIX as an artifact.");
         RequireContains(workflow, "VsixPublisher.exe", "The Marketplace workflow must publish through the supported Visual Studio Marketplace CLI.");
         RequireContains(workflow, "VS_MARKETPLACE_PAT", "The Marketplace workflow must authenticate with a secret PAT.");
         RequireContains(workflow, "marketplace/vs-publish.json", "The Marketplace workflow must use the repository publish manifest.");
@@ -286,9 +303,64 @@ public sealed class VsixSurfaceTests
         RequireContains(cliClient, "IsProcessTerminationNoise", "Codex CLI fallback must filter Windows taskkill success lines from user-visible output.");
         RequireContains(cliClient, "SUCCESS: The process with PID", "Codex CLI fallback must recognize the Windows taskkill stdout line that can contaminate codex output.");
         RequireDoesNotContain(cliClient, "--approval-policy", "Codex CLI fallback must not use the removed codex exec --approval-policy flag.");
+        RequireContains(sdkClient, "GetRateLimitsAsync", "SDK transport must expose a rate-limit telemetry call that can run on tool-window load.");
+        RequireContains(orchestrator, "GetRateLimitsAsync", "The orchestrator must expose rate-limit telemetry independently from request execution.");
         RequireContains(orchestrator, "SDK failure:", "CLI fallback failures must preserve the original SDK bridge failure.");
         RequireContains(orchestrator, "npm install -g @openai/codex-sdk", "Combined run failure must direct the user to install the Codex SDK.");
         RequireContains(orchestrator, "%USERPROFILE%\\\\.codex\\\\config.toml", "Combined run failure must point users to the Codex profile configuration when profile selection breaks fallback.");
+    }
+
+    [Test]
+    public void Workspace_execution_uses_repository_root_and_project_scoped_identity()
+    {
+        var workspace = ReadText("src/VSCodex/Services/WorkspaceContextService.cs");
+        var models = ReadText("src/VSCodex/Models/CodexModels.cs");
+        var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
+        var promptBuilder = ReadText("src/VSCodex/Services/PromptBuilder.cs");
+        var sdkClient = ReadText("src/VSCodex/Services/CodexSdkJsonClient.cs");
+        var cliClient = ReadText("src/VSCodex/Services/CodexCliClient.cs");
+        var bridge = ReadText("src/VSCodex/Resources/codex-bridge.mjs");
+        var orchestrator = ReadText("src/VSCodex/Services/CodexOrchestrator.cs");
+        var orchestration = ReadText("src/VSCodex/Services/TaskOrchestrationService.cs");
+        var memoryStore = ReadText("src/VSCodex/Services/MemoryStore.cs");
+
+        RequireContains(workspace, "ResolveWorkspaceStartDirectory", "Workspace discovery must start from the loaded solution and fall back to the active project.");
+        RequireContains(workspace, "FindRepositoryRoot(startDirectory)", "Workspace discovery must promote src-hosted solutions to the repository root.");
+        RequireContains(workspace, "Directory.Exists(gitPath) || File.Exists(gitPath)", "Repository discovery must handle normal Git folders and Git worktree files.");
+        RequireContains(workspace, "GetActiveProjectDirectory", "Single-project Visual Studio sessions must still get a stable workspace root.");
+        RequireContains(workspace, "GetSolutionPath(dte)", "Workspace refresh must ask Visual Studio for the current solution path each time.");
+        RequireContains(workspace, "SVsSolution", "Workspace refresh must fall back to SVsSolution when DTE has not populated Solution.FullName yet.");
+        RequireContains(workspace, "GetActiveDocumentDirectory", "Workspace discovery must fall back to the active document directory when solution and project data are still loading.");
+        RequireContains(workspace, "BuildWorkspaceIdentity", "Workspace refresh must create a stable project identity for Codex and memory systems.");
+        RequireContains(workspace, "ComputeWorkspaceIdentityId", "Workspace identity must be deterministic across Visual Studio sessions.");
+        RequireContains(workspace, "ReadRepositoryRemote", "Workspace identity should include the repository remote when available.");
+        RequireContains(workspace, "vscodex-workspace.json", "VSCodex must persist project-space metadata under the repository .codex folder.");
+        RequireContains(models, "public sealed class WorkspaceIdentity", "The run model must carry explicit workspace identity data.");
+        RequireContains(models, "SolutionRelativePath", "Workspace identity must distinguish solutions inside the same repository.");
+        RequireContains(models, "RepositoryRemote", "Workspace identity must retain the Git remote for cross-product context matching.");
+        RequireContains(models, "MemoryRoot", "Workspace identity must expose the project memory root.");
+        RequireContains(viewModel, "_workspace.Refresh();", "Run must refresh Visual Studio workspace context immediately before executing Codex.");
+        RequireContains(viewModel, "EnsureWorkspaceReadyForRun", "Run must block before Codex if Visual Studio has not supplied a real workspace root.");
+        RequireContains(viewModel, "LocalPaths.ExtensionInstallRoot", "Run must reject the installed VSIX payload folder as an execution workspace.");
+        RequireContains(viewModel, "_lastWorkspaceIdentityId", "Changing Visual Studio solutions must reset VSCodex execution state.");
+        RequireContains(viewModel, "ThreadId = null", "Changing Visual Studio solutions or starting a new conversation must not reuse another workspace's Codex thread.");
+        RequireContains(viewModel, "_codex.Cancel()", "Changing Visual Studio workspaces must cancel any stale in-flight Codex process.");
+        RequireContains(viewModel, "WorkspaceIdentity = _workspace.CurrentWorkspaceIdentity", "Run and analytics requests must use the same workspace identity resolved by Visual Studio.");
+        RequireContains(promptBuilder, "Workspace root:", "The enriched prompt must clearly tell Codex which repository root is the execution root.");
+        RequireContains(promptBuilder, "Workspace identity:", "The enriched prompt must include the stable project identity.");
+        RequireContains(promptBuilder, "Project memory root:", "The enriched prompt must include the project memory root.");
+        RequireContains(promptBuilder, "Scope all memory operations to workspace identity", "ReactiveMemory hooks must be project-scoped to avoid cross-repository memory bleed.");
+        RequireContains(sdkClient, "[\"workspaceRoot\"] = request.WorkspaceRoot", "The SDK payload must run from the repository root resolved by Visual Studio.");
+        RequireContains(sdkClient, "[\"workspaceIdentity\"]", "The SDK payload must include workspace identity metadata for bridge-aware Codex SDKs.");
+        RequireContains(sdkClient, "Visual Studio has not provided a solution or project workspace root yet", "SDK transport must reject missing workspace roots before starting Node.");
+        RequireContains(cliClient, "Visual Studio has not provided a solution or project workspace root yet", "CLI fallback must reject missing workspace roots before starting Codex.");
+        RequireContains(bridge, "VSCodex workspaceRoot is required", "Node bridge must reject missing workspace roots before SDK or CLI fallback execution.");
+        RequireContains(bridge, "threads.set(request.threadId, { thread, workspaceRoot: request.workspaceRoot })", "SDK bridge must scope cached threads by Visual Studio workspace root.");
+        RequireContains(bridge, "cwd: request.workspaceRoot", "Resilient CLI parsing must execute from the Visual Studio workspace root.");
+        RequireDoesNotContain(bridge, "process.cwd()", "The bridge must never fall back to the installed VSIX payload directory.");
+        RequireContains(orchestrator, "WorkspaceIdentity = request.WorkspaceIdentity", "Failover and enriched requests must preserve workspace identity.");
+        RequireContains(orchestration, "WorkspaceIdentity = request.WorkspaceIdentity", "Multi-agent section and synthesis requests must preserve workspace identity.");
+        RequireContains(memoryStore, "Path.Combine(workspaceRoot, \".codex\", \"memory.json\")", "Workspace memory must live under the resolved repository .codex folder.");
     }
 
     [Test]
@@ -305,6 +377,12 @@ public sealed class VsixSurfaceTests
 
         RequireContains(bridge, "process.argv.includes('--check')", "The Node bridge must expose a startup health check path.");
         RequireContains(bridge, "process.argv.includes('--self-test-resilient-parser')", "The Node bridge must expose a non-network parser self-test for Windows codex stdout noise.");
+        RequireContains(bridge, "request.command === 'getRateLimits'", "The Node bridge must expose a telemetry-only rate-limit command for tool-window load.");
+        RequireContains(bridge, "app-server', '--listen', 'stdio://'", "The bridge must use Codex app-server stdio to read real account rate limits.");
+        RequireContains(bridge, "account/rateLimits/read", "The bridge must call the Codex account rate-limit JSON-RPC method.");
+        RequireContains(bridge, "method: 'account/rateLimits/read' }", "The bridge must call account/rateLimits/read without a params:null member, matching the generated Codex app-server protocol.");
+        RequireDoesNotContain(bridge, "method: 'account/rateLimits/read', params: null", "The bridge must not send params:null because Codex app-server ignores that malformed request shape.");
+        RequireContains(bridge, "account/rateLimits/updated", "The bridge must handle live Codex rate-limit update notifications.");
         RequireContains(bridge, "cmd.exe', ['/d', '/s', '/c', 'npm root -g']", "The bridge must query global npm packages through cmd.exe on Windows.");
         RequireContains(bridge, "path.join(packageRoot, exported)", "The bridge must resolve the package export file instead of importing a global package directory.");
         RequireContains(bridge, "npm install -g @openai/codex-sdk", "Bridge health check failures must include the SDK install command.");
@@ -318,6 +396,9 @@ public sealed class VsixSurfaceTests
         RequireContains(bridge, "runResilientCodexExec", "The bridge must retry through a resilient codex exec parser when the SDK cannot parse Windows stdout noise.");
         RequireContains(bridge, "runSdkThread", "The bridge must use SDK streaming so Codex rate-limit telemetry events are not discarded by the completed-turn API.");
         RequireContains(bridge, "thread.runStreamed", "The SDK bridge must consume streamed Codex events when available.");
+        RequireContains(bridge, "emitCodexProgress(event)", "The SDK bridge must forward streamed progress while long-running requests are active.");
+        RequireContains(bridge, "type: 'progress'", "The SDK bridge must emit user-visible progress events.");
+        RequireContains(bridge, "type: 'rate-limits'", "The SDK bridge must emit rate-limit events to the WPF view model.");
         RequireContains(bridge, "codex.rate_limits", "The SDK bridge parser must preserve real Codex rate-limit telemetry events.");
         RequireContains(bridge, "rateLimits: state.rateLimits", "The SDK bridge result must expose real Codex rate-limit telemetry to the WPF view model.");
         RequireContains(bridge, "isSdkJsonNoiseError", "The bridge retry must be limited to the known SDK JSON parsing failure.");
@@ -415,13 +496,29 @@ public sealed class VsixSurfaceTests
         var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
         var codeBehind = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml.cs");
 
-        RequireContains(view, "MinWidth=\"320\"", "The tool window must declare a practical minimum width for docked narrow layouts.");
+        RequireContains(view, "MinWidth=\"240\"", "The tool window must allow narrow docking while the inner controls wrap and scroll.");
         RequireContains(view, "MaxWidth=\"{Binding ActualWidth, ElementName=Root}\"", "The settings panel must be constrained to the actual tool-window width.");
+        RequireContains(view, "PromptResizeThumbStyle", "The prompt input must expose a theme-aware mouse resize grip.");
+        RequireContains(view, "DragDelta=\"OnPromptResizeDragDelta\"", "Dragging the prompt resize grip must resize the prompt input.");
+        RequireContains(view, "MinHeight=\"32\"", "The prompt input must keep a one-line minimum height when collapsed.");
+        RequireContains(view, "MaxHeight=\"600\"", "The prompt input must have a practical maximum height when expanded.");
         RequireContains(view, "Panel.ZIndex=\"10\"", "The settings panel must overlay the conversation in narrow layouts instead of disappearing off-screen.");
-        RequireContains(view, "<WrapPanel Grid.Row=\"2\"", "The prompt footer must wrap model controls and run buttons instead of forcing fixed columns.");
+        RequireContains(view, "Grid.Row=\"3\"", "The prompt footer must wrap model controls and run buttons below the resizable prompt input.");
         RequireContains(view, "Header=\"Settings\"", "Execution settings must be grouped in a dedicated tab instead of a single overflowing toolbar.");
         RequireContains(view, "Rate limits remaining", "The tool window must surface hourly and weekly rate-limit details near the model controls.");
-        RequireContains(view, "New Thread", "The tool window must expose a first-class new thread action.");
+        RequireContains(view, "Command=\"{Binding NewThreadCommand}\"", "The tool window must expose a first-class new thread action.");
+        RequireContains(view, "ToolTip=\"Start a fresh VSCodex thread.", "The new-thread action must be an icon button with an accessible tooltip.");
+        RequireContains(view, "ToolTip=\"Open VSCodex model, MCP, memory, and execution settings.", "The settings action must be an icon button with an accessible tooltip.");
+        RequireContains(view, "<Setter Property=\"ToolTip\" Value=\"Send\" />", "The tool window run control must expose the visual send state through a tooltip.");
+        RequireContains(view, "<Setter Property=\"ToolTip\" Value=\"Stop\" />", "The same visual run control must expose the stop state while a task is running.");
+        RequireContains(view, "x:Name=\"SendIcon\"", "The idle run control must show a send icon.");
+        RequireContains(view, "x:Name=\"StopIcon\"", "The running run control must show a stop icon.");
+        RequireContains(view, "Click=\"OnRunControlClick\"", "The visual run control must route send and stop through one button.");
+        RequireContains(view, "IsIndeterminate=\"True\"", "The running stop state must show an animated progress element.");
+        RequireDoesNotContain(view, "Content=\"Run\"", "The prompt footer must not use a text Run button.");
+        RequireDoesNotContain(view, "Content=\"Cancel\"", "The prompt footer must not use a text Cancel button.");
+        RequireDoesNotContain(view, "Content=\"New Thread\"", "The header must use a visual new-thread button instead of text.");
+        RequireDoesNotContain(view, "Content=\"Settings\"", "The header must use a visual settings button instead of text.");
         RequireContains(view, "BooleanToVisibilityConverter", "The controls tab strip must be hidden until the user opens it.");
         RequireContains(view, "IsSettingsPanelOpen", "The controls tab strip must not occupy workspace permanently.");
         RequireContains(view, "CanEditSettings", "Model and settings controls must be locked while a task is running.");
@@ -455,14 +552,27 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "EnvironmentColors.ToolWindowTextBrushKey", "Tool-window foregrounds must use Visual Studio theme brushes.");
         RequireContains(view, "EnvironmentColors.ToolWindowBorderBrushKey", "Tool-window borders must use Visual Studio theme brushes.");
         RequireContains(view, "SystemColors.HighlightTextBrushKey", "Selected list items must use system highlight text for contrast.");
-        RequireContains(view, "MessageTextBoxStyle", "Read-only chat message text must have its own themed style.");
+        RequireContains(view, "controls:MarkdownTextBlock", "Chat messages must render Markdown instead of showing raw Markdown source.");
+        RequireContains(view, "Markdown=\"{Binding Content}\"", "The Markdown renderer must bind directly to chat message content.");
+        RequireContains(view, "TargetType=\"{x:Type controls:MarkdownTextBlock}\"", "Rendered Markdown must use Visual Studio themed text resources.");
+        RequireContains(ReadText("src/VSCodex/Controls/MarkdownTextBlock.cs"), "Hyperlink", "Rendered Markdown must support clickable Markdown links.");
         RequireContains(viewModel, "RateLimits", "Rate-limit rows must be backed by view-model state.");
+        RequireContains(viewModel, "StartRunProgress", "Run must add immediate in-chat feedback before long Codex calls complete.");
+        RequireContains(viewModel, "VSCodex is working", "Run progress feedback must be visible in the conversation transcript.");
+        RequireContains(viewModel, "Observable.Interval(TimeSpan.FromSeconds(15)", "Long-running requests must refresh visible progress periodically.");
+        RequireContains(viewModel, "RefreshRateLimitsAsync", "The tool window must refresh real Codex rate-limit telemetry on startup and workspace refresh.");
+        RequireContains(viewModel, "_codex.GetRateLimitsAsync", "Rate-limit rows must be fed by the Codex bridge, not synthetic usage estimates.");
+        RequireContains(viewModel, "Fetching Codex telemetry", "Users must see visible progress while rate-limit telemetry is loading.");
+        RequireContains(viewModel, "Codex telemetry unavailable", "Users must see explicit telemetry failure state instead of stale waiting text.");
         RequireContains(viewModel, "UpdateRateLimitsFromJson", "SDK rate-limit telemetry must update the visible rate-limit rows.");
+        RequireContains(viewModel, "Status = \"Running VSCodex...\"", "Run must give immediate visible feedback when a task starts.");
         RequireContains(viewModel, "Label = \"5h\"", "Rate-limit UI must expose the Codex five-hour window rather than a one-hour label.");
         RequireContains(viewModel, "FindRateLimitToken", "Rate-limit parsing must accept explicit remaining/reset telemetry when the SDK emits it.");
         RequireContains(viewModel, "\"primary\"", "Rate-limit parsing must understand the Codex primary five-hour telemetry window.");
         RequireContains(viewModel, "\"secondary\"", "Rate-limit parsing must understand the Codex secondary weekly telemetry window.");
         RequireContains(viewModel, "used_percent", "Rate-limit parsing must consume Codex used-percent telemetry.");
+        RequireContains(viewModel, "usedPercent", "Rate-limit parsing must consume the current Codex app-server camelCase telemetry shape.");
+        RequireContains(viewModel, "rateLimitsByLimitId.codex", "Rate-limit parsing must support the current Codex app-server multi-bucket payload.");
         RequireContains(viewModel, "100 - usedPercent.Value", "Codex used-percent telemetry must be converted to the remaining percentage shown by Codex.");
         RequireContains(viewModel, "FormatRateLimitReset", "Rate-limit reset times must be formatted to match the Codex UI.");
         RequireDoesNotContain(viewModel, "FindUsageToken", "Rate-limit rows must not fall back to synthetic usage-token estimates.");
@@ -471,6 +581,7 @@ public sealed class VsixSurfaceTests
         RequireDoesNotContain(viewModel, "used \" + FormatTokenCount", "Observed token usage must not be surfaced as the real Codex rate-limit value.");
         RequireContains(viewModel, "CanEditSettings => !IsRunning", "Settings must not be editable while a task is running.");
         RequireContains(viewModel, "CanChangeSetting", "The view model must reject setting changes even if a delayed binding fires while a task is running.");
+        RequireContains(viewModel, "Math.Max(32d", "The persisted prompt height must accept the same one-line minimum as the mouse resize grip.");
         RequireContains(viewModel, "VSCodex settings are locked while a task is running", "Blocked setting changes must produce visible user feedback.");
         RequireContains(viewModel, "IsSettingsPanelOpen = true", "The settings command must open the controls panel on demand.");
         RequireContains(viewModel, "PromptSuggestions", "The view model must expose inline prompt suggestions.");
@@ -492,6 +603,8 @@ public sealed class VsixSurfaceTests
         RequireContains(codeBehind, "BrowseAndInsertFileReferences", "The prompt UI must turn the @ browse suggestion into a file picker.");
         RequireContains(codeBehind, "OpenFileDialog", "Disk-backed @ references must use a native Windows file picker.");
         RequireContains(codeBehind, "ClosePromptSuggestions", "Esc must close prompt suggestions before cancelling a run.");
+        RequireContains(codeBehind, "OnPromptResizeDragDelta", "The prompt resize grip must be handled by the view.");
+        RequireContains(codeBehind, "SetCurrentValue(HeightProperty, nextHeight)", "Prompt resizing must adjust the current text-box height without replacing the binding.");
         RequireContains(codeBehind, "Key.Escape", "Esc must cancel the active VSCodex request.");
         RequireContains(codeBehind, "OnCloseSettingsPanelClick", "The controls panel close button must update the view model.");
         RequireContains(codeBehind, "ApplyVisualStudioThemeToComboBoxes", "Code-behind must repair WPF editable combo-box template parts with Visual Studio theme resources.");

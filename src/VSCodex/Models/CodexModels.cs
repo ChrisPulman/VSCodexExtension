@@ -182,6 +182,10 @@ public sealed class CodexRunRequest
     public string Prompt { get; set; } = string.Empty;
     public string? ThreadId { get; set; }
     public string WorkspaceRoot { get; set; } = string.Empty;
+    public string WorkspaceName { get; set; } = string.Empty;
+    public string WorkspaceSolutionPath { get; set; } = string.Empty;
+    public string WorkspaceMemoryRoot { get; set; } = string.Empty;
+    public WorkspaceIdentity WorkspaceIdentity { get; set; } = new WorkspaceIdentity();
     public CodexRunOptions Options { get; set; } = new CodexRunOptions();
     public IReadOnlyList<CodexAttachment> Attachments { get; set; } = Array.Empty<CodexAttachment>();
     public IReadOnlyList<SkillDefinition> Skills { get; set; } = Array.Empty<SkillDefinition>();
@@ -189,6 +193,17 @@ public sealed class CodexRunRequest
     public IReadOnlyList<McpServerDefinition> McpServers { get; set; } = Array.Empty<McpServerDefinition>();
     public IReadOnlyList<WorkspaceFileReference> WorkspaceFiles { get; set; } = Array.Empty<WorkspaceFileReference>();
     public IReadOnlyList<AgentRoleDefinition> AgentRoles { get; set; } = Array.Empty<AgentRoleDefinition>();
+}
+
+public sealed class WorkspaceIdentity
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string RootPath { get; set; } = string.Empty;
+    public string SolutionPath { get; set; } = string.Empty;
+    public string SolutionRelativePath { get; set; } = string.Empty;
+    public string RepositoryRemote { get; set; } = string.Empty;
+    public string MemoryRoot { get; set; } = string.Empty;
 }
 
 public sealed class CodexRunResult

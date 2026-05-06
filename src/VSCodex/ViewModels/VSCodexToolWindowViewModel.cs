@@ -29,6 +29,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private readonly ISkillIndexService _skillIndex;
     private readonly IMcpConfigService _mcpConfig;
     private readonly IMcpToolCatalogService _mcpTools;
+    private readonly IReactiveMemoryService _reactiveMemory;
     private readonly IWorkspaceContextService _workspace;
     private readonly ISessionStore _sessionStore;
     private readonly ICodexOrchestrator _codex;
@@ -42,6 +43,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private readonly IDisposable _subscriptions;
     private readonly CodexSessionDocument _session;
     private int _promptChangeRevision;
+    private string _lastWorkspaceIdentityId = string.Empty;
 
     private string _prompt = string.Empty;
     private string _status = "Ready";
@@ -65,6 +67,9 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private string _rateLimitUpdatedAt = "Waiting for Codex rate-limit telemetry";
     private string _codexSetupSummary = "Checking VSCodex prerequisites...";
     private string _codexSetupInstructions = string.Empty;
+    private ChatMessage? _activeProgressMessage;
+    private DateTimeOffset _activeRunStartedAt;
+    private string _activeRunStage = string.Empty;
     private CodexEnvironmentReport? _lastEnvironmentReport;
     private ApprovalPolicy _approvalPolicy;
     private SandboxMode _sandboxMode;
@@ -81,6 +86,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         ISkillIndexService skillIndex,
         IMcpConfigService mcpConfig,
         IMcpToolCatalogService mcpTools,
+        IReactiveMemoryService reactiveMemory,
         IWorkspaceContextService workspace,
         ISessionStore sessionStore,
         ICodexOrchestrator codex,
@@ -95,6 +101,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         _skillIndex = skillIndex;
         _mcpConfig = mcpConfig;
         _mcpTools = mcpTools;
+        _reactiveMemory = reactiveMemory;
         _workspace = workspace;
         _sessionStore = sessionStore;
         _codex = codex;
@@ -158,8 +165,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         RefreshCommand = ReactiveCommand.Create(Refresh, outputScheduler: _uiScheduler);
         RefreshAnalyticsCommand = ReactiveCommand.Create(() => UpdateAnalytics(Prompt), outputScheduler: _uiScheduler);
         ApplyRecommendedModelCommand = ReactiveCommand.Create(ApplyRecommendedModel, outputScheduler: _uiScheduler);
-        AddUserMemoryCommand = ReactiveCommand.Create(() => AddMemory("user"), canSavePrompt, _uiScheduler);
-        AddWorkspaceMemoryCommand = ReactiveCommand.Create(() => AddMemory("workspace"), canSavePrompt, _uiScheduler);
+        AddUserMemoryCommand = ReactiveCommand.CreateFromTask(() => AddMemoryAsync("user"), canSavePrompt, _uiScheduler);
+        AddWorkspaceMemoryCommand = ReactiveCommand.CreateFromTask(() => AddMemoryAsync("workspace"), canSavePrompt, _uiScheduler);
         AddImageAttachmentCommand = ReactiveCommand.Create(AddImageAttachment, outputScheduler: _uiScheduler);
         ClearAttachmentsCommand = ReactiveCommand.Create(() => Attachments.Clear(), outputScheduler: _uiScheduler);
         SelectMcpServerCommand = ReactiveCommand.CreateFromTask<McpServerDefinition>(SelectMcpServerAsync, null, _uiScheduler);
@@ -184,7 +191,11 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
         Refresh();
         UpdateAnalytics(Prompt);
-        _joinableTaskFactory.RunAsync(async () => await CheckPrerequisitesAsync().ConfigureAwait(true)).Task.FireAndForget();
+        _joinableTaskFactory.RunAsync(async () =>
+        {
+            await CheckPrerequisitesAsync().ConfigureAwait(true);
+            await RefreshRateLimitsAsync().ConfigureAwait(true);
+        }).Task.FireAndForget();
     }
 
     public ObservableCollection<ChatMessage> Messages { get; }
@@ -311,12 +322,24 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             return;
         }
 
+        Refresh();
+        if (!EnsureWorkspaceReadyForRun())
+        {
+            return;
+        }
+
         Prompt = string.Empty;
         IsRunning = true;
         Status = "Running VSCodex...";
         AddMessage(CodexMessageRole.User, userPrompt);
+        var progressSubscription = StartRunProgress("Preparing request for " + _workspace.CurrentWorkspaceRoot);
         try
         {
+            SetRunProgress("Updating ReactiveMemory context");
+            var memoryReaction = await _reactiveMemory.ReactToPromptAsync(userPrompt, _workspace.CurrentWorkspaceIdentity, ThreadId).ConfigureAwait(false);
+            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            SetRunProgress(memoryReaction.Success ? memoryReaction.Message : "ReactiveMemory unavailable; continuing with local context");
+            SetRunProgress("Resolving VSCodex references and attachments");
             var workspaceFiles = _workspace.ResolveMentions(userPrompt, 12000)
                 .Concat(_workspace.ResolveHashReferences(userPrompt, 0))
                 .GroupBy(x => string.IsNullOrWhiteSpace(x.ReferenceKey) ? x.Path : x.ReferenceKey, StringComparer.OrdinalIgnoreCase)
@@ -340,15 +363,18 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
                 BudgetDrivenModelSelection = BudgetDrivenModelSelection,
                 BudgetModel = BudgetModel
             };
-            var request = new CodexRunRequest { Prompt = userPrompt, ThreadId = ThreadId, WorkspaceRoot = _workspace.CurrentWorkspaceRoot, Options = options, Attachments = Attachments.ToList(), Skills = Skills.Where(x => x.IsEnabled).ToList(), Memories = _memoryStore.Search(userPrompt, 10), McpServers = McpServers.Where(x => x.IsEnabled).ToList(), WorkspaceFiles = workspaceFiles, AgentRoles = selectedAgents };
+            var request = new CodexRunRequest { Prompt = userPrompt, ThreadId = ThreadId, WorkspaceRoot = _workspace.CurrentWorkspaceRoot, WorkspaceName = _workspace.CurrentWorkspaceName, WorkspaceSolutionPath = _workspace.CurrentSolutionPath, WorkspaceMemoryRoot = _workspace.CurrentWorkspaceMemoryRoot, WorkspaceIdentity = _workspace.CurrentWorkspaceIdentity, Options = options, Attachments = Attachments.ToList(), Skills = Skills.Where(x => x.IsEnabled).ToList(), Memories = _memoryStore.Search(userPrompt, 10), McpServers = McpServers.Where(x => x.IsEnabled).ToList(), WorkspaceFiles = workspaceFiles, AgentRoles = selectedAgents };
             ModelEstimate = _modelAnalytics.Estimate(request);
             this.RaisePropertyChanged(nameof(AnalyticsSummary));
             this.RaisePropertyChanged(nameof(AnalyticsRecommendation));
+            SetRunProgress("Sending request to Codex. Longer project analysis can take several minutes.");
             var result = await (UseMultiAgentOrchestration ? _taskOrchestrator.RunAsync(request) : _codex.RunAsync(request)).ConfigureAwait(false);
             await _joinableTaskFactory.SwitchToMainThreadAsync();
             UpdateRateLimitsFromJson(result.RawJson);
             ThreadId = result.ThreadId ?? ThreadId;
             AddMessage(CodexMessageRole.Assistant, result.FinalResponse);
+            _ = _reactiveMemory.WriteDiaryAsync(userPrompt, result.FinalResponse, _workspace.CurrentWorkspaceIdentity, ThreadId);
+            FinishRunProgress(result.UsedFallback ? "Completed using CLI fallback" : "Completed");
             Status = result.UsedFallback ? "Complete using CLI fallback" : "Complete";
             _session.ThreadId = ThreadId;
             _sessionStore.Save(_session);
@@ -356,20 +382,55 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         catch (Exception ex)
         {
             await _joinableTaskFactory.SwitchToMainThreadAsync();
+            FinishRunProgress("Failed: " + ex.Message);
             AddMessage(CodexMessageRole.Error, ex.ToString());
             Status = "Failed: " + ex.Message;
         }
         finally
         {
             await _joinableTaskFactory.SwitchToMainThreadAsync();
+            progressSubscription.Dispose();
             IsRunning = false;
         }
     }
 
     private void Refresh()
     {
-        try { _workspace.Refresh(); _memoryStore.LoadWorkspace(_workspace.CurrentWorkspaceRoot); _skillIndex.Refresh(_settingsStore.Current.SkillRoots.Concat(new[] { System.IO.Path.Combine(_workspace.CurrentWorkspaceRoot ?? string.Empty, ".codex", "skills") })); _mcpConfig.Refresh(); Status = "Refreshed VSCodex context"; }
+        try
+        {
+            var previousIdentity = _lastWorkspaceIdentityId;
+            _workspace.Refresh();
+            var currentIdentity = _workspace.CurrentWorkspaceIdentity.Id;
+            if (!string.IsNullOrWhiteSpace(previousIdentity) && !string.Equals(previousIdentity, currentIdentity, StringComparison.OrdinalIgnoreCase))
+            {
+                ThreadId = null;
+                _codex.Cancel();
+            }
+
+            _lastWorkspaceIdentityId = currentIdentity;
+            _memoryStore.LoadWorkspace(_workspace.CurrentWorkspaceRoot);
+            _skillIndex.Refresh(_settingsStore.Current.SkillRoots.Concat(new[] { System.IO.Path.Combine(_workspace.CurrentWorkspaceRoot ?? string.Empty, ".codex", "skills") }));
+            _mcpConfig.Refresh();
+            Status = string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot) ? "Visual Studio solution context is still loading" : "Refreshed VSCodex context for " + _workspace.CurrentWorkspaceRoot;
+            RefreshRateLimitsInBackground();
+        }
         catch (Exception ex) { Status = "Refresh failed: " + ex.Message; }
+    }
+
+    private bool EnsureWorkspaceReadyForRun()
+    {
+        var root = _workspace.CurrentWorkspaceRoot;
+        if (!string.IsNullOrWhiteSpace(root)
+            && Directory.Exists(root)
+            && !root.StartsWith(LocalPaths.ExtensionInstallRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var message = "VSCodex cannot run yet because Visual Studio has not provided a solution or project workspace root. Wait for the solution to finish loading, open a solution/project, or use @ references after a workspace is available. The installed VSIX folder will not be used as the execution root.";
+        AddMessage(CodexMessageRole.System, message);
+        Status = "VSCodex waiting for Visual Studio solution context";
+        return false;
     }
 
     private async Task SelectMcpServerAsync(McpServerDefinition server)
@@ -501,7 +562,21 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         Status = status;
     }
 
-    private void AddMemory(string scope) { _memoryStore.Add(Prompt, scope); Status = $"Saved {scope} memory"; }
+    private async Task AddMemoryAsync(string scope)
+    {
+        var text = Prompt;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        var memory = await _reactiveMemory.AddMemoryAsync(text, scope, _workspace.CurrentWorkspaceIdentity).ConfigureAwait(false);
+        await _joinableTaskFactory.SwitchToMainThreadAsync();
+        _memoryStore.Add(text, scope);
+        Status = memory.Success
+            ? memory.Message
+            : (scope.Equals("workspace", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceName) ? $"Saved workspace memory locally for {_workspace.CurrentWorkspaceName}; {memory.Message}" : $"Saved {scope} memory locally; {memory.Message}");
+    }
     private void AddImageAttachment()
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Title = "Attach files for VSCodex", Filter = "Supported files|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.txt;*.md;*.cs;*.xaml;*.json;*.xml|Images|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp|Documents|*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.txt;*.md|All files|*.*", Multiselect = true };
@@ -529,6 +604,56 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         var report = await _environment.CheckAsync(_settingsStore.Current).ConfigureAwait(false);
         await _joinableTaskFactory.SwitchToMainThreadAsync();
         ApplyEnvironmentReport(report, showSystemMessage: !report.CanRunSdkBridge);
+    }
+
+    private void RefreshRateLimitsInBackground()
+    {
+        _joinableTaskFactory.RunAsync(async () => await RefreshRateLimitsAsync().ConfigureAwait(true)).Task.FireAndForget();
+    }
+
+    private async Task RefreshRateLimitsAsync()
+    {
+        var report = _lastEnvironmentReport;
+        if (report != null && !report.CanRunSdkBridge)
+        {
+            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            SetRateLimitsUnavailable("Codex SDK unavailable");
+            return;
+        }
+
+        await _joinableTaskFactory.SwitchToMainThreadAsync();
+        SetRateLimitRows("Fetching Codex telemetry", 0, string.Empty);
+        RateLimitUpdatedAt = "Checking Codex rate-limit telemetry";
+        try
+        {
+            var rateLimits = await _codex.GetRateLimitsAsync().ConfigureAwait(false);
+            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            if (rateLimits == null)
+            {
+                SetRateLimitsUnavailable("Codex telemetry unavailable");
+                return;
+            }
+
+            UpdateRateLimitsFromJson(rateLimits.ToString());
+        }
+        catch (Exception ex)
+        {
+            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            SetRateLimitsUnavailable("Codex telemetry unavailable");
+            RateLimitUpdatedAt = "Codex rate-limit check failed: " + ex.Message;
+        }
+    }
+
+    private void SetRateLimitsUnavailable(string text) => SetRateLimitRows(text, 0, string.Empty);
+
+    private void SetRateLimitRows(string remaining, int usagePercent, string resetText)
+    {
+        foreach (var row in RateLimits)
+        {
+            row.Remaining = remaining;
+            row.UsagePercent = usagePercent;
+            row.ResetText = resetText;
+        }
     }
 
     private async Task<bool> EnsureCodexSdkReadyForRunAsync()
@@ -667,6 +792,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             UpdateRateLimitsFromJson(ev.RawJson);
             if (ev.Type == "stdout" || ev.Type == "message") AddMessage(CodexMessageRole.Assistant, ev.Message);
             else if (ev.Type == "fallback" || ev.Type == "stderr" || ev.Type == "bridge-output") AddMessage(CodexMessageRole.System, $"[{ev.Type}] {ev.Message}");
+            else if (ev.Type == "progress") SetRunProgress(ev.Message);
             else Status = ev.Message;
         });
     }
@@ -682,14 +808,72 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         });
     }
 
-    private void AddMessage(CodexMessageRole role, string content)
+    private ChatMessage AddMessage(CodexMessageRole role, string content)
     {
+        var message = new ChatMessage { Role = role, Content = content ?? string.Empty };
         RunOnUiThread(() =>
         {
-            var message = new ChatMessage { Role = role, Content = content ?? string.Empty };
             Messages.Add(message);
             _session.Messages.Add(message);
         });
+        return message;
+    }
+
+    private IDisposable StartRunProgress(string stage)
+    {
+        _activeRunStartedAt = DateTimeOffset.Now;
+        _activeRunStage = stage;
+        _activeProgressMessage = AddMessage(CodexMessageRole.System, BuildRunProgressMessage(stage));
+        return Observable.Interval(TimeSpan.FromSeconds(15), _uiScheduler)
+            .Subscribe(_ => RefreshRunProgress());
+    }
+
+    private void SetRunProgress(string stage)
+    {
+        RunOnUiThread(() =>
+        {
+            _activeRunStage = string.IsNullOrWhiteSpace(stage) ? _activeRunStage : stage;
+            Status = _activeRunStage;
+            RefreshRunProgress();
+        });
+    }
+
+    private void RefreshRunProgress()
+    {
+        if (_activeProgressMessage == null || !IsRunning)
+        {
+            return;
+        }
+
+        _activeProgressMessage.Content = BuildRunProgressMessage(_activeRunStage);
+    }
+
+    private void FinishRunProgress(string stage)
+    {
+        RunOnUiThread(() =>
+        {
+            if (_activeProgressMessage != null)
+            {
+                _activeProgressMessage.Content = BuildRunProgressMessage(stage);
+            }
+
+            _activeProgressMessage = null;
+            _activeRunStage = string.Empty;
+        });
+    }
+
+    private string BuildRunProgressMessage(string stage)
+    {
+        var elapsed = _activeRunStartedAt == default ? TimeSpan.Zero : DateTimeOffset.Now - _activeRunStartedAt;
+        var workspace = string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot) ? "Waiting for Visual Studio workspace" : _workspace.CurrentWorkspaceRoot;
+        return "**VSCodex is working**"
+            + Environment.NewLine
+            + Environment.NewLine
+            + "- Status: " + (string.IsNullOrWhiteSpace(stage) ? "Preparing request" : stage)
+            + Environment.NewLine
+            + "- Elapsed: " + FormatElapsed(elapsed)
+            + Environment.NewLine
+            + "- Workspace: " + workspace;
     }
 
     private void UpdateSkills(IReadOnlyList<SkillDefinition> items) => Replace(Skills, items);
@@ -848,6 +1032,10 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
                 Prompt = prompt ?? string.Empty,
                 ThreadId = ThreadId,
                 WorkspaceRoot = _workspace.CurrentWorkspaceRoot,
+                WorkspaceName = _workspace.CurrentWorkspaceName,
+                WorkspaceSolutionPath = _workspace.CurrentSolutionPath,
+                WorkspaceMemoryRoot = _workspace.CurrentWorkspaceMemoryRoot,
+                WorkspaceIdentity = _workspace.CurrentWorkspaceIdentity,
                 Options = new CodexRunOptions
                 {
                     Mode = Mode,
@@ -918,7 +1106,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     }
 
     private static bool IsMcpDiscoveryPrompt(string prompt) => (prompt ?? string.Empty).Trim().StartsWith("/MCP", StringComparison.OrdinalIgnoreCase);
-    private static double ClampInputHeight(double value) => Math.Max(80d, Math.Min(600d, value <= 0d ? 180d : value));
+    private static double ClampInputHeight(double value) => Math.Max(32d, Math.Min(600d, value <= 0d ? 180d : value));
+    private static string FormatElapsed(TimeSpan elapsed) => elapsed.TotalHours >= 1d ? elapsed.ToString(@"h\:mm\:ss") : elapsed.ToString(@"m\:ss");
     private static IReadOnlyList<RateLimitWindowStatus> BuildDefaultRateLimits()
     {
         return new[]
@@ -1037,8 +1226,11 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             root.SelectToken("result.rate_limits", false),
             root.SelectToken("result.rateLimits.rate_limits", false),
             root.SelectToken("result.rateLimits.rateLimits", false),
+            root.SelectToken("rateLimitsByLimitId.codex", false),
+            root.SelectToken("result.rateLimitsByLimitId.codex", false),
             root.SelectToken("result.result.rateLimits", false),
             root.SelectToken("result.result.rate_limits", false),
+            root.SelectToken("result.result.rateLimitsByLimitId.codex", false),
             root.SelectToken("usage.rateLimits", false),
             root.SelectToken("usage.rate_limits", false),
             root.SelectToken("result.usage.rateLimits", false),

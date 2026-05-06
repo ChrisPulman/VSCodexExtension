@@ -4,9 +4,13 @@ using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using EnvDTE;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
+using Newtonsoft.Json.Linq;
 using VSCodex.Models;
 
 namespace VSCodex.Services;
@@ -15,6 +19,10 @@ public interface IWorkspaceContextService
 {
     IObservable<string> WorkspaceRoot { get; }
     string CurrentWorkspaceRoot { get; }
+    string CurrentWorkspaceName { get; }
+    string CurrentSolutionPath { get; }
+    string CurrentWorkspaceMemoryRoot { get; }
+    WorkspaceIdentity CurrentWorkspaceIdentity { get; }
     void Refresh();
     IReadOnlyList<WorkspaceFileReference> SearchFiles(string query, int limit);
     IReadOnlyList<WorkspaceFileReference> SearchContextReferences(string query, int limit);
@@ -30,6 +38,10 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
     private readonly BehaviorSubject<string> _workspaceRoot = new BehaviorSubject<string>(string.Empty);
     private readonly object _indexGate = new object();
     private List<WorkspaceFileReference> _workspaceFileIndex = new List<WorkspaceFileReference>();
+    private string _workspaceName = string.Empty;
+    private string _solutionPath = string.Empty;
+    private string _workspaceMemoryRoot = string.Empty;
+    private WorkspaceIdentity _workspaceIdentity = new WorkspaceIdentity();
 
     public WorkspaceContextService(IServiceProvider serviceProvider) => _serviceProvider = serviceProvider;
 
@@ -37,12 +49,26 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
 
     public string CurrentWorkspaceRoot => _workspaceRoot.Value;
 
+    public string CurrentWorkspaceName => _workspaceName;
+
+    public string CurrentSolutionPath => _solutionPath;
+
+    public string CurrentWorkspaceMemoryRoot => _workspaceMemoryRoot;
+
+    public WorkspaceIdentity CurrentWorkspaceIdentity => _workspaceIdentity;
+
     public void Refresh()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         var dte = _serviceProvider.GetService(typeof(DTE)) as DTE;
-        var sln = dte?.Solution?.FullName;
-        var root = string.IsNullOrWhiteSpace(sln) ? string.Empty : Path.GetDirectoryName(sln) ?? string.Empty;
+        var solutionPath = GetSolutionPath(dte);
+        var startDirectory = ResolveWorkspaceStartDirectory(solutionPath, GetActiveProjectDirectory(dte), GetActiveDocumentDirectory(dte));
+        var root = ResolveWorkspaceRoot(startDirectory);
+        var identity = BuildWorkspaceIdentity(root, solutionPath);
+        _workspaceIdentity = identity;
+        _solutionPath = solutionPath;
+        _workspaceName = identity.Name;
+        _workspaceMemoryRoot = EnsureWorkspaceProjectSpace(identity);
         _workspaceRoot.OnNext(root);
         RebuildWorkspaceFileIndex(root, dte);
     }
@@ -571,4 +597,309 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
     }
 
     private static string AppendSlash(string path) => path.EndsWith(Path.DirectorySeparatorChar.ToString()) ? path : path + Path.DirectorySeparatorChar;
+
+    private string GetSolutionPath(DTE? dte)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var dteSolution = dte?.Solution?.FullName ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(dteSolution))
+        {
+            return dteSolution;
+        }
+
+        try
+        {
+            var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
+            if (solution != null && Microsoft.VisualStudio.ErrorHandler.Succeeded(solution.GetSolutionInfo(out var directory, out var file, out _)))
+            {
+                if (!string.IsNullOrWhiteSpace(file) && Path.IsPathRooted(file))
+                {
+                    return file;
+                }
+
+                if (!string.IsNullOrWhiteSpace(directory) && !string.IsNullOrWhiteSpace(file))
+                {
+                    return Path.Combine(directory, file);
+                }
+            }
+        }
+        catch
+        {
+            return string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveWorkspaceStartDirectory(string solutionPath, string activeProjectDirectory, string activeDocumentDirectory)
+    {
+        if (!string.IsNullOrWhiteSpace(solutionPath))
+        {
+            var solutionDirectory = Path.GetDirectoryName(solutionPath);
+            if (!string.IsNullOrWhiteSpace(solutionDirectory))
+            {
+                return solutionDirectory;
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(activeProjectDirectory) ? activeProjectDirectory : activeDocumentDirectory;
+    }
+
+    private static string ResolveWorkspaceRoot(string startDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(startDirectory) || !Directory.Exists(startDirectory))
+        {
+            return string.Empty;
+        }
+
+        return FindRepositoryRoot(startDirectory) ?? startDirectory;
+    }
+
+    private static string? FindRepositoryRoot(string startDirectory)
+    {
+        var current = new DirectoryInfo(startDirectory);
+        while (current != null)
+        {
+            var gitPath = Path.Combine(current.FullName, ".git");
+            if (Directory.Exists(gitPath) || File.Exists(gitPath))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return null;
+    }
+
+    private static string BuildWorkspaceName(string workspaceRoot, string solutionPath)
+    {
+        if (!string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            return Path.GetFileName(workspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        }
+
+        return string.IsNullOrWhiteSpace(solutionPath) ? "VSCodex workspace" : Path.GetFileNameWithoutExtension(solutionPath);
+    }
+
+    private static WorkspaceIdentity BuildWorkspaceIdentity(string workspaceRoot, string solutionPath)
+    {
+        var projectSpace = string.IsNullOrWhiteSpace(workspaceRoot) ? string.Empty : Path.Combine(workspaceRoot, ".codex");
+        var solutionRelativePath = MakeRelativeIfContained(workspaceRoot, solutionPath);
+        var repositoryRemote = ReadRepositoryRemote(workspaceRoot);
+        var name = BuildWorkspaceName(workspaceRoot, solutionPath);
+        var id = string.IsNullOrWhiteSpace(workspaceRoot) && string.IsNullOrWhiteSpace(solutionPath)
+            ? string.Empty
+            : ComputeWorkspaceIdentityId(repositoryRemote, workspaceRoot, solutionRelativePath, solutionPath);
+
+        return new WorkspaceIdentity
+        {
+            Id = id,
+            Name = name,
+            RootPath = workspaceRoot,
+            SolutionPath = solutionPath,
+            SolutionRelativePath = solutionRelativePath,
+            RepositoryRemote = repositoryRemote,
+            MemoryRoot = projectSpace
+        };
+    }
+
+    private static string EnsureWorkspaceProjectSpace(WorkspaceIdentity identity)
+    {
+        if (string.IsNullOrWhiteSpace(identity.RootPath) || !Directory.Exists(identity.RootPath))
+        {
+            return string.Empty;
+        }
+
+        var projectSpace = identity.MemoryRoot;
+        Directory.CreateDirectory(projectSpace);
+        Directory.CreateDirectory(Path.Combine(projectSpace, "skills"));
+
+        var metadata = new JObject
+        {
+            ["id"] = identity.Id,
+            ["name"] = identity.Name,
+            ["workspaceRoot"] = identity.RootPath,
+            ["solutionPath"] = identity.SolutionPath,
+            ["solutionRelativePath"] = identity.SolutionRelativePath,
+            ["repositoryRemote"] = identity.RepositoryRemote,
+            ["memoryRoot"] = identity.MemoryRoot,
+            ["memoryFile"] = Path.Combine(projectSpace, "memory.json"),
+            ["updatedAt"] = DateTimeOffset.Now.ToString("O")
+        };
+
+        File.WriteAllText(Path.Combine(projectSpace, "vscodex-workspace.json"), metadata.ToString());
+        return projectSpace;
+    }
+
+    private static string GetActiveProjectDirectory(DTE? dte)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        try
+        {
+            if (dte?.ActiveSolutionProjects is Array projects)
+            {
+                foreach (var item in projects)
+                {
+                    if (item is Project project)
+                    {
+                        var directory = ProjectPathToDirectory(project.FullName);
+                        if (!string.IsNullOrWhiteSpace(directory))
+                        {
+                            return directory;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            return string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private static string GetActiveDocumentDirectory(DTE? dte)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        try
+        {
+            var path = dte?.ActiveDocument?.FullName ?? string.Empty;
+            return ProjectPathToDirectory(path);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ProjectPathToDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        if (Directory.Exists(path))
+        {
+            return path;
+        }
+
+        return Path.GetDirectoryName(path) ?? string.Empty;
+    }
+
+    private static string MakeRelativeIfContained(string root, string path)
+    {
+        if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(path) || !Path.IsPathRooted(path))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var fullRoot = Path.GetFullPath(AppendSlash(root));
+            var fullPath = Path.GetFullPath(path);
+            if (!fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            return MakeRelative(fullRoot, fullPath);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ReadRepositoryRemote(string workspaceRoot)
+    {
+        var configPath = ResolveGitConfigPath(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var config = File.ReadAllText(configPath);
+            var origin = Regex.Match(config, @"(?ms)^\s*\[remote\s+""origin""\]\s*(?<body>.*?)(?=^\s*\[|\z)");
+            var body = origin.Success ? origin.Groups["body"].Value : config;
+            var url = Regex.Match(body, @"(?m)^\s*url\s*=\s*(?<url>.+?)\s*$");
+            return url.Success ? url.Groups["url"].Value.Trim() : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ResolveGitConfigPath(string workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            return string.Empty;
+        }
+
+        var gitPath = Path.Combine(workspaceRoot, ".git");
+        if (Directory.Exists(gitPath))
+        {
+            return Path.Combine(gitPath, "config");
+        }
+
+        if (!File.Exists(gitPath))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var gitFile = File.ReadAllText(gitPath).Trim();
+            const string prefix = "gitdir:";
+            if (!gitFile.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            var gitDirectory = gitFile.Substring(prefix.Length).Trim();
+            if (!Path.IsPathRooted(gitDirectory))
+            {
+                gitDirectory = Path.GetFullPath(Path.Combine(workspaceRoot, gitDirectory));
+            }
+
+            return Path.Combine(gitDirectory, "config");
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ComputeWorkspaceIdentityId(params string[] parts)
+    {
+        var key = string.Join("|", parts.Where(part => !string.IsNullOrWhiteSpace(part)).Select(NormalizeIdentityPart));
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        using (var sha = SHA256.Create())
+        {
+            return ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes(key)), 12);
+        }
+    }
+
+    private static string NormalizeIdentityPart(string value) => value.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).Trim().ToLowerInvariant();
+
+    private static string ToHex(byte[] bytes, int byteCount)
+    {
+        var builder = new StringBuilder(byteCount * 2);
+        for (var i = 0; i < Math.Min(bytes.Length, byteCount); i++)
+        {
+            builder.Append(bytes[i].ToString("x2"));
+        }
+
+        return builder.ToString();
+    }
 }

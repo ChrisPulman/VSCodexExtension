@@ -2,11 +2,12 @@ using System;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using VSCodex.Models;
 
 namespace VSCodex.Services;
 
-public interface ICodexOrchestrator { IObservable<CodexEvent> Events { get; } Task<CodexRunResult> RunAsync(CodexRunRequest request); void Cancel(); }
+public interface ICodexOrchestrator { IObservable<CodexEvent> Events { get; } Task<CodexRunResult> RunAsync(CodexRunRequest request); Task<JObject?> GetRateLimitsAsync(); void Cancel(); }
 public sealed class CodexOrchestrator : ICodexOrchestrator
 {
     private readonly PromptBuilder _promptBuilder = new PromptBuilder(); private readonly ICodexClient _sdk; private readonly ICodexClient _cli; private readonly Subject<CodexEvent> _events = new Subject<CodexEvent>();
@@ -14,7 +15,7 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
     public IObservable<CodexEvent> Events => _events.AsObservable();
     public async Task<CodexRunResult> RunAsync(CodexRunRequest request)
     {
-        var enriched = new CodexRunRequest { Prompt = _promptBuilder.Build(request), ThreadId = request.ThreadId, WorkspaceRoot = request.WorkspaceRoot, Options = request.Options, Attachments = request.Attachments, Skills = request.Skills, Memories = request.Memories, McpServers = request.McpServers, WorkspaceFiles = request.WorkspaceFiles, AgentRoles = request.AgentRoles };
+        var enriched = new CodexRunRequest { Prompt = _promptBuilder.Build(request), ThreadId = request.ThreadId, WorkspaceRoot = request.WorkspaceRoot, WorkspaceName = request.WorkspaceName, WorkspaceSolutionPath = request.WorkspaceSolutionPath, WorkspaceMemoryRoot = request.WorkspaceMemoryRoot, WorkspaceIdentity = request.WorkspaceIdentity, Options = request.Options, Attachments = request.Attachments, Skills = request.Skills, Memories = request.Memories, McpServers = request.McpServers, WorkspaceFiles = request.WorkspaceFiles, AgentRoles = request.AgentRoles };
         try { return await (request.Options.Transport == CodexTransportKind.CliFallback ? _cli : _sdk).RunAsync(enriched).ConfigureAwait(false); }
         catch (Exception ex) when (request.Options.Transport == CodexTransportKind.SdkBridge)
         {
@@ -33,6 +34,11 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
             _events.OnNext(new CodexEvent { Type = "fallback", Message = "SDK bridge failed; using CLI fallback: " + ex.Message });
             return await RunCliFallbackAsync(enriched, ex).ConfigureAwait(false);
         }
+    }
+    public async Task<JObject?> GetRateLimitsAsync()
+    {
+        try { return await _sdk.GetRateLimitsAsync().ConfigureAwait(false); }
+        catch { return await _cli.GetRateLimitsAsync().ConfigureAwait(false); }
     }
     public void Cancel() { _sdk.CancelActiveRun(); _cli.CancelActiveRun(); }
 
@@ -85,6 +91,10 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
             Prompt = request.Prompt,
             ThreadId = request.ThreadId,
             WorkspaceRoot = request.WorkspaceRoot,
+            WorkspaceName = request.WorkspaceName,
+            WorkspaceSolutionPath = request.WorkspaceSolutionPath,
+            WorkspaceMemoryRoot = request.WorkspaceMemoryRoot,
+            WorkspaceIdentity = request.WorkspaceIdentity,
             Options = options,
             Attachments = request.Attachments,
             Skills = request.Skills,

@@ -4,7 +4,7 @@ import sys
 import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 SOLUTION = 'src/VSCodex.slnx'
-REQUIRED = [SOLUTION,'docs/PLAN.md','scripts/install-vsix-experimental.ps1','src/VSCodex/VSCodex.csproj','src/VSCodex/source.extension.vsixmanifest','src/VSCodex/VSCodexExtensionPackage.cs','src/VSCodex/ToolWindows/VSCodexToolWindowPane.cs','src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs','src/VSCodex/Views/VSCodexToolWindowControl.xaml','src/VSCodex/Resources/codex-bridge.mjs']
+REQUIRED = [SOLUTION,'docs/PLAN.md','scripts/install-vsix-experimental.ps1','src/VSCodex/VSCodex.csproj','src/VSCodex/source.extension.vsixmanifest','src/VSCodex/VSCodexPackage.cs','src/VSCodex/ToolWindows/VSCodexToolWindowPane.cs','src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs','src/VSCodex/Views/VSCodexToolWindowControl.xaml','src/VSCodex/Resources/codex-bridge.mjs']
 def fail(msg): print('FAIL:', msg); sys.exit(1)
 solution_files = sorted(str(p.relative_to(ROOT)).replace('\\', '/') for p in ROOT.rglob('*.sln*') if '.vs' not in p.parts and 'bin' not in p.parts and 'obj' not in p.parts)
 if solution_files != [SOLUTION]: fail(f'expected only {SOLUTION}, found {solution_files}')

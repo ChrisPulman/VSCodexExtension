@@ -14,6 +14,7 @@ namespace VSCodex.Services;
 public interface IMcpToolCatalogService
 {
     Task<IReadOnlyList<McpToolDefinition>> DiscoverToolsAsync(McpServerDefinition server);
+    Task<JObject?> InvokeToolAsync(McpServerDefinition server, string toolName, JObject arguments);
     string BuildInvocationPrompt(McpServerDefinition server, McpToolDefinition tool);
 }
 
@@ -75,28 +76,46 @@ public sealed class McpToolCatalogService : IMcpToolCatalogService
         return sb.ToString().Trim();
     }
 
+    public async Task<JObject?> InvokeToolAsync(McpServerDefinition server, string toolName, JObject arguments)
+    {
+        if (server == null || string.IsNullOrWhiteSpace(server.Command) || string.IsNullOrWhiteSpace(toolName))
+        {
+            return null;
+        }
+
+        using (var process = CreateServerProcess(server))
+        {
+            process.Start();
+            WriteRpc(process.StandardInput, 1, "initialize", new JObject
+            {
+                ["protocolVersion"] = "2024-11-05",
+                ["capabilities"] = new JObject(),
+                ["clientInfo"] = new JObject { ["name"] = "VSCodex", ["version"] = "0.1.12" }
+            });
+            WriteNotification(process.StandardInput, "notifications/initialized", new JObject());
+            WriteRpc(process.StandardInput, 2, "tools/call", new JObject
+            {
+                ["name"] = toolName,
+                ["arguments"] = arguments ?? new JObject()
+            });
+
+            var response = await ReadResponseAsync(process, 2, TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+            TryKill(process);
+            if (response?["error"] != null)
+            {
+                throw new InvalidOperationException(JsonConvert.SerializeObject(response["error"]));
+            }
+
+            return response?["result"] as JObject ?? response;
+        }
+    }
+
     private static async Task<IReadOnlyList<McpToolDefinition>> ProbeServerToolsAsync(McpServerDefinition server)
     {
         if (string.IsNullOrWhiteSpace(server.Command)) return Array.Empty<McpToolDefinition>();
 
-        using (var process = new Process())
+        using (var process = CreateServerProcess(server))
         {
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = server.Command,
-                Arguments = string.Join(" ", server.Args.Select(QuoteArg)),
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            foreach (var pair in server.Env)
-            {
-                process.StartInfo.EnvironmentVariables[pair.Key] = pair.Value;
-            }
-
             process.Start();
             WriteRpc(process.StandardInput, 1, "initialize", new JObject
             {
@@ -134,6 +153,58 @@ public sealed class McpToolCatalogService : IMcpToolCatalogService
         }
 
         return Array.Empty<McpToolDefinition>();
+    }
+
+    private static Process CreateServerProcess(McpServerDefinition server)
+    {
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = server.Command,
+                Arguments = string.Join(" ", server.Args.Select(QuoteArg)),
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+
+        foreach (var pair in server.Env)
+        {
+            process.StartInfo.EnvironmentVariables[pair.Key] = pair.Value;
+        }
+
+        return process;
+    }
+
+    private static async Task<JObject?> ReadResponseAsync(Process process, int id, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        var lineTask = process.StandardOutput.ReadLineAsync();
+        while (DateTimeOffset.UtcNow < deadline && !process.HasExited)
+        {
+            var completed = await Task.WhenAny(lineTask, Task.Delay(TimeSpan.FromMilliseconds(500))).ConfigureAwait(false);
+            if (completed != lineTask) continue;
+            var line = await lineTask.ConfigureAwait(false);
+            if (line == null) break;
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                lineTask = process.StandardOutput.ReadLineAsync();
+                continue;
+            }
+
+            var json = JObject.Parse(line);
+            if ((int?)json["id"] == id)
+            {
+                return json;
+            }
+
+            lineTask = process.StandardOutput.ReadLineAsync();
+        }
+
+        return null;
     }
 
     private static IReadOnlyList<McpToolDefinition> ParseTools(string serverName, JArray? tools)

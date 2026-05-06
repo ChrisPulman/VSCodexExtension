@@ -1,6 +1,8 @@
+using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -106,6 +108,16 @@ public partial class VSCodexToolWindowControl : UserControl
 
     private void OnCloseSettingsPanelClick(object sender, RoutedEventArgs e) => ViewModel?.IsSettingsPanelOpen = false;
 
+    private void OnRunControlClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel == null)
+        {
+            return;
+        }
+
+        ExecuteIfAvailable(ViewModel.IsRunning ? ViewModel.CancelCommand : ViewModel.RunCommand);
+    }
+
     private void OnReferenceSuggestionDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (sender is not ListBox listBox || listBox.SelectedItem is not WorkspaceFileReference reference || ViewModel == null)
@@ -130,6 +142,27 @@ public partial class VSCodexToolWindowControl : UserControl
     private void OnPromptSuggestionDoubleClick(object sender, MouseButtonEventArgs e)
     {
         InsertSelectedPromptSuggestion();
+        e.Handled = true;
+    }
+
+    private void OnPromptResizeDragDelta(object sender, DragDeltaEventArgs e)
+    {
+        var currentHeight = double.IsNaN(PromptTextBox.Height) || PromptTextBox.Height <= 0d
+            ? PromptTextBox.ActualHeight
+            : PromptTextBox.Height;
+        if (currentHeight <= 0d)
+        {
+            currentHeight = ViewModel?.InputAreaHeight ?? PromptTextBox.MinHeight;
+        }
+
+        var maxHeight = double.IsNaN(PromptTextBox.MaxHeight) || double.IsInfinity(PromptTextBox.MaxHeight)
+            ? 600d
+            : PromptTextBox.MaxHeight;
+        var nextHeight = Math.Max(PromptTextBox.MinHeight, Math.Min(maxHeight, currentHeight - e.VerticalChange));
+
+        PromptTextBox.SetCurrentValue(HeightProperty, nextHeight);
+        if (ViewModel != null) ViewModel.InputAreaHeight = nextHeight;
+
         e.Handled = true;
     }
 

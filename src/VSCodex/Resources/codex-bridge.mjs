@@ -85,7 +85,13 @@ async function ensureCodex() { if (codex) return codex; const Codex = await load
 async function getThread(request) {
   const c = await ensureCodex();
   const options = buildThreadOptions(request);
-  if (request.threadId) { if (!threads.has(request.threadId)) threads.set(request.threadId, c.resumeThread(request.threadId, options)); return threads.get(request.threadId); }
+  if (request.threadId) {
+    const cached = threads.get(request.threadId);
+    if (cached && cached.workspaceRoot === request.workspaceRoot) return cached.thread;
+    const thread = c.resumeThread(request.threadId, options);
+    threads.set(request.threadId, { thread, workspaceRoot: request.workspaceRoot });
+    return thread;
+  }
   return c.startThread ? c.startThread(options) : await c.thread_start?.(options);
 }
 function buildThreadOptions(request) {
@@ -117,12 +123,14 @@ function normalizeSandboxMode(value) {
 }
 async function handle(request) {
   if (request.command === 'cancel') { activeAbort?.abort?.(); return { cancelled: true }; }
+  if (request.command === 'getRateLimits') return await getRateLimits();
+  if (!request.workspaceRoot) throw new Error('VSCodex workspaceRoot is required. Wait for Visual Studio to finish loading a solution or project before running Codex.');
   const thread = await getThread(request);
   activeAbort = new AbortController();
   try {
     const result = await runSdkThread(thread, request);
     const threadId = result?.threadId ?? thread.id ?? request.threadId;
-    if (threadId) threads.set(threadId, thread);
+    if (threadId) threads.set(threadId, { thread, workspaceRoot: request.workspaceRoot });
     return result;
   } catch (error) {
     if (!isSdkJsonNoiseError(error)) throw error;
@@ -136,6 +144,7 @@ async function runSdkThread(thread, request) {
     const streamed = await thread.runStreamed(buildInput(request), buildRunOptions(request));
     for await (const event of streamed.events) {
       processCodexEventObject(event, state);
+      emitCodexProgress(event);
     }
 
     state.threadId = state.threadId ?? thread.id ?? request.threadId;
@@ -145,6 +154,98 @@ async function runSdkThread(thread, request) {
   const result = await thread.run(buildInput(request), buildRunOptions(request));
   const threadId = result?.threadId ?? result?.thread_id ?? thread.id ?? request.threadId;
   return { threadId, finalResponse: result?.final_response ?? result?.finalResponse ?? String(result ?? ''), result };
+}
+
+async function getRateLimits() {
+  const child = spawn(resolveCodexExecutable(), ['app-server', '--listen', 'stdio://'], {
+    env: process.env,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  let stderr = '';
+  child.stderr.on('data', data => { stderr += data.toString(); });
+  const rpc = createJsonRpcClient(child, 15000);
+  try {
+    await rpc.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'VSCodex', version: '0.1.12' }, capabilities: { experimentalApi: true } } });
+    const response = await rpc.send({ jsonrpc: '2.0', id: 2, method: 'account/rateLimits/read' });
+    if (response.error) throw new Error(JSON.stringify(response.error));
+    if (!response.result && stderr) throw new Error(stderr.trim());
+    return response.result ?? {};
+  } finally {
+    rpc.close();
+    try { child.kill(); } catch {}
+  }
+}
+
+function createJsonRpcClient(child, timeoutMs) {
+  const stdout = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+  const pending = new Map();
+  let closed = false;
+
+  const rejectAll = error => {
+    for (const entry of pending.values()) {
+      clearTimeout(entry.timer);
+      entry.reject(error);
+    }
+    pending.clear();
+  };
+
+  child.once('error', rejectAll);
+  child.once('close', code => {
+    if (code !== 0) rejectAll(new Error('Codex app-server exited before returning rate limits. Exit code: ' + code));
+  });
+
+  stdout.on('line', line => {
+    if (!line.trim().startsWith('{')) return;
+    let item;
+    try { item = JSON.parse(line); } catch { return; }
+    if (item.method === 'account/rateLimits/updated') emit({ type: 'rate-limits', message: 'Codex rate limits updated', rateLimits: item.params?.rateLimits ?? item.params });
+    const entry = pending.get(item.id);
+    if (!entry) return;
+    pending.delete(item.id);
+    clearTimeout(entry.timer);
+    entry.resolve(item);
+  });
+
+  return {
+    send(request) {
+      if (closed) return Promise.reject(new Error('Codex app-server JSON-RPC client is closed.'));
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pending.delete(request.id);
+          reject(new Error('Timed out reading Codex account rate limits.'));
+        }, timeoutMs);
+        pending.set(request.id, { resolve, reject, timer });
+        child.stdin.write(JSON.stringify(request) + '\n');
+      });
+    },
+    close() {
+      closed = true;
+      stdout.close();
+      try { child.stdin.end(); } catch {}
+      rejectAll(new Error('Codex app-server JSON-RPC client closed.'));
+    }
+  };
+}
+
+function emitCodexProgress(event) {
+  if (!event || typeof event !== 'object') return;
+  if (event.type === 'codex.rate_limits' || event.rate_limits || event.rateLimits) {
+    emit({ type: 'rate-limits', message: 'Codex rate limits updated', rateLimits: event.rate_limits ?? event.rateLimits ?? event });
+    return;
+  }
+
+  const message = describeCodexEvent(event);
+  if (message) emit({ type: 'progress', message, event });
+}
+
+function describeCodexEvent(event) {
+  if (event.type === 'thread.started') return 'Started Codex thread';
+  if (event.type === 'turn.started') return 'Codex is working...';
+  if (event.type === 'item.started') return 'Codex started ' + (event.item?.type ?? 'an item');
+  if (event.type === 'item.completed' && event.item?.type !== 'agent_message') return 'Codex completed ' + (event.item?.type ?? 'an item');
+  if (event.type === 'turn.completed') return 'Codex turn completed';
+  return '';
 }
 
 function isSdkJsonNoiseError(error) {
@@ -196,7 +297,7 @@ function isProcessTerminationNoise(line) {
 
 async function runResilientCodexExec(request) {
   const child = spawn(resolveCodexExecutable(), buildCodexExecArgs(request), {
-    cwd: request.workspaceRoot || process.cwd(),
+    cwd: request.workspaceRoot,
     env: process.env,
     signal: activeAbort?.signal,
     stdio: ['pipe', 'pipe', 'pipe']

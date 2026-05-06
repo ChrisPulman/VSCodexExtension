@@ -36,15 +36,20 @@ public sealed class McpConfigService : IMcpConfigService
     private static void EnsureReactiveMemoryDefault(string path)
     {
         var text = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-        if (text.IndexOf("[mcp_servers.reactivememory]", StringComparison.OrdinalIgnoreCase) >= 0
-            || text.IndexOf("ReactiveMemory.MCP.Server", StringComparison.OrdinalIgnoreCase) >= 0
-            || text.IndexOf("CP.ReactiveMemory.Mcp.Server", StringComparison.OrdinalIgnoreCase) >= 0)
+        var existingBlock = Regex.Match(text, @"(?ms)^\s*\[mcp_servers\.reactivememory\](?<body>.*?)(?=^\s*\[|\z)");
+        if (existingBlock.Success)
         {
+            if (Regex.IsMatch(existingBlock.Groups["body"].Value, @"(?im)^\s*enabled\s*=\s*false\s*$"))
+            {
+                text = Regex.Replace(text, @"(?ims)(^\s*\[mcp_servers\.reactivememory\].*?^\s*enabled\s*=\s*)false(\s*$)", "$1true$2");
+                File.WriteAllText(path, text);
+            }
+
             return;
         }
 
         var args = BuildReactiveMemoryArgs();
-        var block = Environment.NewLine
+        var defaultBlock = Environment.NewLine
             + "# VSCodex default durable memory system." + Environment.NewLine
             + "[mcp_servers.reactivememory]" + Environment.NewLine
             + "command = \"dotnet\"" + Environment.NewLine
@@ -53,7 +58,7 @@ public sealed class McpConfigService : IMcpConfigService
 
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-        File.AppendAllText(path, block);
+        File.AppendAllText(path, defaultBlock);
     }
 
     private static IReadOnlyList<string> BuildReactiveMemoryArgs()

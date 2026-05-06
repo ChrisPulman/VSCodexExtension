@@ -13,7 +13,7 @@ using VSCodex.Models;
 
 namespace VSCodex.Services;
 
-public interface ICodexClient { IObservable<CodexEvent> Events { get; } Task<CodexRunResult> RunAsync(CodexRunRequest request); void CancelActiveRun(); }
+public interface ICodexClient { IObservable<CodexEvent> Events { get; } Task<CodexRunResult> RunAsync(CodexRunRequest request); Task<JObject?> GetRateLimitsAsync(); void CancelActiveRun(); }
 public sealed class CodexSdkJsonClient : ICodexClient, IDisposable
 {
     private readonly ISettingsStore _settings;
@@ -24,6 +24,7 @@ public sealed class CodexSdkJsonClient : ICodexClient, IDisposable
     public IObservable<CodexEvent> Events => _events.AsObservable();
     public async Task<CodexRunResult> RunAsync(CodexRunRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.WorkspaceRoot)) throw new InvalidOperationException("VSCodex cannot run because Visual Studio has not provided a solution or project workspace root yet.");
         await EnsureBridgeAsync().ConfigureAwait(false);
         var payload = new JObject
         {
@@ -38,10 +39,19 @@ public sealed class CodexSdkJsonClient : ICodexClient, IDisposable
             ["approvalPolicy"] = request.Options.ApprovalPolicy.ToString(),
             ["sandboxMode"] = request.Options.SandboxMode.ToString(),
             ["workspaceRoot"] = request.WorkspaceRoot,
+            ["workspaceName"] = request.WorkspaceName,
+            ["workspaceSolutionPath"] = request.WorkspaceSolutionPath,
+            ["workspaceMemoryRoot"] = request.WorkspaceMemoryRoot,
+            ["workspaceIdentity"] = JObject.FromObject(request.WorkspaceIdentity ?? new WorkspaceIdentity()),
             ["images"] = JArray.FromObject(request.Attachments)
         };
         var response = await SendAsync(payload).ConfigureAwait(false);
         return new CodexRunResult { ThreadId = response.Value<string>("threadId"), FinalResponse = response.Value<string>("finalResponse") ?? ToCompactJson(response), RawJson = ToCompactJson(response) };
+    }
+    public async Task<JObject?> GetRateLimitsAsync()
+    {
+        await EnsureBridgeAsync().ConfigureAwait(false);
+        return await SendAsync(new JObject { ["command"] = "getRateLimits" }).ConfigureAwait(false);
     }
     public void CancelActiveRun() { _ = SendAsync(new JObject { ["command"] = "cancel" }); }
     private async Task<JObject> SendAsync(JObject payload)

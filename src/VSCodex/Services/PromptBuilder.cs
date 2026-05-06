@@ -9,9 +9,13 @@ public sealed class PromptBuilder
     public string Build(CodexRunRequest request)
     {
         var sb = new StringBuilder();
+        var identity = request.WorkspaceIdentity ?? new WorkspaceIdentity();
         sb.AppendLine("You are Codex running inside Visual Studio. Prefer deterministic, minimal, buildable changes.");
         sb.AppendLine($"Mode: {request.Options.Mode}");
-        sb.AppendLine($"Workspace: {request.WorkspaceRoot}");
+        sb.AppendLine($"Workspace root: {request.WorkspaceRoot}");
+        if (!string.IsNullOrWhiteSpace(identity.Id)) sb.AppendLine($"Workspace identity: {identity.Name} ({identity.Id})");
+        if (!string.IsNullOrWhiteSpace(identity.SolutionRelativePath)) sb.AppendLine($"Solution: {identity.SolutionRelativePath}");
+        if (!string.IsNullOrWhiteSpace(request.WorkspaceMemoryRoot)) sb.AppendLine($"Project memory root: {request.WorkspaceMemoryRoot}");
         sb.AppendLine($"Approval policy: {request.Options.ApprovalPolicy}; Sandbox: {request.Options.SandboxMode}");
         if (!string.IsNullOrWhiteSpace(request.Options.FailoverModel)) sb.AppendLine($"Model failover: {request.Options.FailoverModel}");
         sb.AppendLine();
@@ -20,6 +24,7 @@ public sealed class PromptBuilder
         {
             sb.AppendLine("## ReactiveMemory MCP hooks");
             sb.AppendLine($"Use MCP server `{reactiveMemory.Name}` as the durable memory system.");
+            if (!string.IsNullOrWhiteSpace(identity.Id)) sb.AppendLine($"Scope all memory operations to workspace identity `{identity.Id}` for `{identity.Name}` at `{identity.RootPath}`.");
             sb.AppendLine("At session start call `reactivememory_status`.");
             sb.AppendLine("For every user prompt, call `reactivememory_react_to_prompt` before answering so related memories, entities, duplicates, and checkpoints are handled automatically.");
             sb.AppendLine("Before relying on persisted facts, call `reactivememory_search`, `reactivememory_search_relays`, or `reactivememory_facts_query` and prefer retrieved data over assumptions.");
