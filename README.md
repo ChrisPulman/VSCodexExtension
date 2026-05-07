@@ -43,6 +43,8 @@ dotnet test src\VSCodex.slnx --configuration Release --no-build
 python scripts\validate_structure.py
 ```
 
+The Release build writes `VSCodex.vsix`, `Install-VSCodex.cmd`, and `Install-VSCodex.ps1` to `src/VSCodex/bin/Release/net48`. If double-clicking `VSCodex.vsix` does not open Visual Studio's installer because the Windows `.vsix` file association is broken, run `Install-VSCodex.cmd`; it resolves `VSIXInstaller.exe` from the installed Visual Studio instance and launches the installer directly. To launch the visible installer as part of a command-line Release build, add `/p:VSCodexLaunchVsixInstaller=true`.
+
 Debugging from Visual Studio installs the VSIX into the Experimental instance through `scripts/install-vsix-experimental.ps1`. The project intentionally disables the older raw VSSDK deployment path and uses VSIXInstaller so command tables, runtime assemblies, and VSIX assets are installed consistently.
 
 ## Main Tool Window
@@ -148,7 +150,7 @@ The repository includes Marketplace packaging assets and a publish workflow:
 - `src/VSCodex/Resources/VSCodexIcon-128.png` is used as the Visual Studio Marketplace icon.
 - `src/VSCodex/Resources/VSCodexIcon-256.png` is used as the Marketplace preview image.
 - `marketplace/vs-publish.json` is the VSIX publish manifest and uses this README as the Marketplace overview.
-- `.github/workflows/publish-vsix.yml` builds the Release VSIX, uploads it as an artifact, and can publish it to the Visual Studio Marketplace.
+- `.github/workflows/publish-vsix.yml` builds the Release VSIX, uploads the VSIX plus `Install-VSCodex.cmd` and `Install-VSCodex.ps1` as an installer artifact, and can publish the VSIX to the Visual Studio Marketplace.
 
 Publishing requires a Visual Studio Marketplace personal access token stored as the `VS_MARKETPLACE_PAT` GitHub secret. The workflow publishes when a `v*` tag is pushed or when it is run manually with the `publish` input enabled.
 

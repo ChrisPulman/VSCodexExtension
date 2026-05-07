@@ -49,13 +49,27 @@ jobs:
             throw "No VSIX was produced under $env:VSIX_PROJECT_DIR for $env:CONFIGURATION."
           }
 
-          "path=$($vsix.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $installerCommand = Join-Path $vsix.DirectoryName "Install-VSCodex.cmd"
+          $installerScript = Join-Path $vsix.DirectoryName "Install-VSCodex.ps1"
 
-      - name: Upload VSIX artifact
+          foreach ($installerFile in @($installerCommand, $installerScript)) {
+            if (-not (Test-Path -LiteralPath $installerFile -PathType Leaf)) {
+              throw "Release installer launcher was not produced: $installerFile"
+            }
+          }
+
+          "path=$($vsix.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "installer_command=$installerCommand" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "installer_script=$installerScript" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload VSIX installer artifact
         uses: actions/upload-artifact@v7
         with:
-          name: VSCodex-vsix
-          path: ${{ steps.vsix.outputs.path }}
+          name: VSCodex-vsix-installer
+          path: |
+            ${{ steps.vsix.outputs.path }}
+            ${{ steps.vsix.outputs.installer_command }}
+            ${{ steps.vsix.outputs.installer_script }}
           if-no-files-found: error
 
       - name: Publish to Visual Studio Marketplace
