@@ -209,7 +209,7 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "SelectedIndex=\"{Binding SelectedToolTabIndex, Mode=TwoWay}\"", "The settings tab selection must be bound.");
         RequireContains(view, "Header=\"Settings\"", "The model and execution controls must be hosted as the VSCodex settings tab.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.1.12\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.1.14\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
     }
 
@@ -246,6 +246,9 @@ public sealed class VsixSurfaceTests
         RequireContains(publishManifest, "\"internalName\": \"VSCodex\"", "The Marketplace internal name must be stable.");
         RequireContains(workflow, "microsoft/setup-msbuild@v3", "The Marketplace workflow must build with MSBuild on Windows.");
         RequireContains(workflow, "actions/upload-artifact@v7", "The Marketplace workflow must publish the built VSIX as an artifact.");
+        RequireContains(workflow, "Install-VSCodex.cmd", "The Marketplace workflow artifact must include the Release installer command launcher.");
+        RequireContains(workflow, "Install-VSCodex.ps1", "The Marketplace workflow artifact must include the Release installer PowerShell launcher.");
+        RequireContains(workflow, "VSCodex-vsix-installer", "The Marketplace workflow artifact must package the VSIX and launcher files together.");
         RequireContains(workflow, "VsixPublisher.exe", "The Marketplace workflow must publish through the supported Visual Studio Marketplace CLI.");
         RequireContains(workflow, "VS_MARKETPLACE_PAT", "The Marketplace workflow must authenticate with a secret PAT.");
         RequireContains(workflow, "marketplace/vs-publish.json", "The Marketplace workflow must use the repository publish manifest.");
@@ -617,6 +620,7 @@ public sealed class VsixSurfaceTests
     {
         var project = ReadText("src/VSCodex/VSCodex.csproj");
         var installerScript = ReadText("scripts/install-vsix-experimental.ps1");
+        var launcherScript = ReadText("scripts/launch-vsix-installer.ps1");
 
         RequireContains(project, "<TargetFramework>net48</TargetFramework>", "The in-process AsyncPackage VSIX should target .NET Framework 4.8, not net472.");
         RequireDoesNotContain(project, "<TargetFramework>net8.0-windows", "Moving to net8 requires the out-of-process VisualStudio.Extensibility model, not a classic in-process VSPackage TFM swap.");
@@ -626,15 +630,28 @@ public sealed class VsixSurfaceTests
         RequireContains(project, "<DeployExtension>false</DeployExtension>", "The broken raw VSSDK local deploy target must stay disabled.");
         RequireContains(project, "<VSSDKTargetPlatformRegRootSuffix Condition=\"'$(VSSDKTargetPlatformRegRootSuffix)' == ''\">Exp</VSSDKTargetPlatformRegRootSuffix>", "VSIX debugging must target the Experimental hive.");
         RequireContains(project, "<DebuggerFlavor Condition=\"'$(Configuration)' == 'Debug'\">VsixDebugger</DebuggerFlavor>", "Debugging must use the VSIX debugger.");
-        RequireContains(project, "InstallVSCodexVsixForDebugging", "Debug builds must install the VSIX before launching the experimental instance.");
+        RequireContains(project, "InstallVSCodexVsixWithInstaller", "VSIX builds must have a shared VSIXInstaller deployment hook.");
         RequireContains(project, "DeployVSCodexVsixWithInstaller", "Command-line validation must be able to exercise the VSIXInstaller deployment hook.");
-        RequireContains(project, "install-vsix-experimental.ps1", "Debug deployment must use the VSIXInstaller-based script.");
+        RequireContains(project, "'$(DeployVSCodexVsixWithInstaller)' == 'true'", "Release builds must be able to launch VSIXInstaller when deployment is explicitly requested.");
+        RequireContains(project, "'$(Configuration)' == 'Debug' and '$(BuildingInsideVisualStudio)' == 'true'", "Debug builds inside Visual Studio must still install the VSIX before launching the experimental instance.");
+        RequireContains(project, "install-vsix-experimental.ps1", "VSIX deployment must use the VSIXInstaller-based script.");
+        RequireContains(project, "CreateVSCodexVsixInstallerLauncher", "Release output must include a launcher that bypasses broken .vsix file associations.");
+        RequireContains(project, "Install-VSCodex.cmd", "Release output must include a command launcher beside VSCodex.vsix.");
+        RequireContains(project, "Install-VSCodex.ps1", "Release output must include a PowerShell launcher beside VSCodex.vsix.");
+        RequireContains(project, "LaunchVSCodexVsixInstaller", "Command-line Release builds must be able to invoke the visible Visual Studio installer.");
+        RequireContains(project, "VSCodexLaunchVsixInstaller", "Installer launch must be controlled by an explicit MSBuild property.");
         RequireContains(project, "IncludeVSCodexCommandTableInVsix", "The compiled VSCT command table must be packaged into the VSIX.");
         RequireContains(project, "CodexCommands.cto", "The generated Codex command table must be copied from the intermediate output.");
         RequireContains(project, "Menus.ctmenu", "The packaged command table must match ProvideMenuResource(\"Menus.ctmenu\", 1).");
         RequireContains(installerScript, "/rootSuffix:$RootSuffix", "VSIXInstaller must install into the requested Visual Studio root suffix.");
         RequireContains(installerScript, "/instanceIds:$InstanceId", "VSIXInstaller must support targeting the current Visual Studio instance.");
         RequireContains(installerScript, "PerUserEnabledExtensionsCache", "The installer script must wait for the extension to be enabled, not only copied.");
+        RequireContains(launcherScript, "VSIXInstaller.exe", "The visible Release launcher must invoke Visual Studio VSIXInstaller directly.");
+        RequireContains(launcherScript, "Start-Process", "The visible Release launcher must start the installer UI.");
+        RequireContains(launcherScript, "ResolveOnly", "The visible Release launcher must support non-interactive validation.");
+        RequireContains(launcherScript, "vswhere.exe", "The visible Release launcher must resolve Visual Studio instances through vswhere.");
+        RequireContains(launcherScript, "foreach ($major in @('18', '2022'))", "The visible Release launcher must support Visual Studio 18 and 2022 installer paths.");
+        RequireContains(launcherScript, "-like '*\\Microsoft Visual Studio\\*'", "The visible Release launcher must ignore VS-shell products that are not Visual Studio installs.");
         RequireContains(project, "<None Update=\"source.extension.vsixmanifest\">", "The source manifest must be a VSIX source manifest, not a packaged payload.");
         RequireDoesNotContain(project, "<Content Include=\"source.extension.vsixmanifest\"", "The source VSIX manifest must not be packaged as extension content.");
         RequireContains(project, "IncludeVSCodexRuntimeAssembliesInVsix", "Private runtime dependencies must be explicitly packaged in the VSIX.");

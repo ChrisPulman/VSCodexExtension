@@ -95,11 +95,33 @@
     </ItemGroup>
   </Target>
 
-  <Target Name="InstallVSCodexVsixForDebugging" AfterTargets="CreateVsixContainer" Condition="'$(Configuration)' == 'Debug' and '$(CreateVsixContainer)' == 'true' and '$(TargetVsixContainer)' != '' and '$(VSCodexUseVsixInstallerDeployment)' == 'true' and ('$(BuildingInsideVisualStudio)' == 'true' or '$(DeployVSCodexVsixWithInstaller)' == 'true')">
+  <Target Name="InstallVSCodexVsixWithInstaller" AfterTargets="CreateVsixContainer" Condition="'$(CreateVsixContainer)' == 'true' and '$(TargetVsixContainer)' != '' and '$(VSCodexUseVsixInstallerDeployment)' == 'true' and ('$(DeployVSCodexVsixWithInstaller)' == 'true' or ('$(Configuration)' == 'Debug' and '$(BuildingInsideVisualStudio)' == 'true'))">
     <PropertyGroup>
       <_VSCodexVsixInstallLog>$(IntermediateOutputPath)VSCodex.vsixinstall.log</_VSCodexVsixInstallLog>
     </PropertyGroup>
 
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\install-vsix-experimental.ps1&quot; -VsixPath &quot;$(TargetVsixContainer)&quot; -VsixInstallerPath &quot;$(VSCodexVsixInstallerPath)&quot; -RootSuffix &quot;$(VSSDKTargetPlatformRegRootSuffix)&quot; -InstanceId &quot;$(DeployTargetInstanceId)&quot; -LogFile &quot;$(_VSCodexVsixInstallLog)&quot;" />
+  </Target>
+
+  <Target Name="CreateVSCodexVsixInstallerLauncher" AfterTargets="CreateVsixContainer" Condition="'$(CreateVsixContainer)' == 'true' and '$(TargetVsixContainer)' != ''">
+    <PropertyGroup>
+      <_VSCodexVsixLauncherScript>$(OutputPath)Install-VSCodex.ps1</_VSCodexVsixLauncherScript>
+      <_VSCodexVsixLauncherCommand>$(OutputPath)Install-VSCodex.cmd</_VSCodexVsixLauncherCommand>
+    </PropertyGroup>
+
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\..\scripts\launch-vsix-installer.ps1" DestinationFiles="$(_VSCodexVsixLauncherScript)" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <_VSCodexVsixLauncherCommandLine Include="@echo off" />
+      <_VSCodexVsixLauncherCommandLine Include="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;%~dp0Install-VSCodex.ps1&quot; -VsixPath &quot;%~dp0VSCodex.vsix&quot;" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_VSCodexVsixLauncherCommand)" Lines="@(_VSCodexVsixLauncherCommandLine)" Overwrite="true" Encoding="ASCII" />
+    <ItemGroup>
+      <FileWrites Include="$(_VSCodexVsixLauncherScript)" />
+      <FileWrites Include="$(_VSCodexVsixLauncherCommand)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="LaunchVSCodexVsixInstaller" AfterTargets="CreateVSCodexVsixInstallerLauncher" Condition="'$(CreateVsixContainer)' == 'true' and '$(TargetVsixContainer)' != '' and '$(VSCodexLaunchVsixInstaller)' == 'true'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(OutputPath)Install-VSCodex.ps1&quot; -VsixPath &quot;$(TargetVsixContainer)&quot; -VsixInstallerPath &quot;$(VSCodexVsixInstallerPath)&quot;" />
   </Target>
 </Project>
