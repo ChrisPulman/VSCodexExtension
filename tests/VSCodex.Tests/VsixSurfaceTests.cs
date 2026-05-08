@@ -26,10 +26,13 @@ public sealed class VsixSurfaceTests
     {
         var vsct = XDocument.Load(PathFor("src/VSCodex/Commands/CodexCommands.vsct"));
         var commandSource = ReadText("src/VSCodex/Commands/OpenVSCodexToolWindowCommand.cs");
+        var assistantSource = ReadText("src/VSCodex/Services/CodingAssistantContextService.cs");
+        var menuBridge = ReadText("src/VSCodex/Services/VisualStudioMenuIntegrationService.cs");
+        var packageSource = ReadText("src/VSCodex/VSCodexPackage.cs");
 
         RequireMenuParent(vsct, "VSCodexTopLevelMenu", "guidCommandSet", "VSCodexExtensionsMenuGroup");
         RequireMenuParent(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "VSCodexCodeWindowContextMenuGroup");
-        RequireGroupParent(vsct, "VSCodexExtensionsMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_ADDINS");
+        RequireGroupParent(vsct, "VSCodexExtensionsMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_EXTENSIONS");
         RequireGroupParent(vsct, "VSCodexTopLevelMenuGroup", "guidCommandSet", "VSCodexTopLevelMenu");
         RequireGroupParent(vsct, "CodexToolsMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_TOOLS");
         RequireGroupParent(vsct, "CodexViewMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_VIEW");
@@ -44,7 +47,7 @@ public sealed class VsixSurfaceTests
         RequireGroupParent(vsct, "CodexErrorListContextMenuGroup", "guidSHLMainMenu", "IDM_VS_CTXT_ERRORLIST");
         RequireGroupParent(vsct, "CodexErrorCorrectionContextMenuGroup", "guidSHLMainMenu", "IDM_VS_CTXT_ERROR_CORRECTION");
 
-        RequireButtonParent(vsct, "OpenToolWindowCommandId", "guidSHLMainMenu", "IDG_VS_WNDO_OTRWNDWS1");
+        RequireButtonParent(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexViewMenuGroup");
         RequireButtonParent(vsct, "OpenOptionsCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
         RequireButtonParent(vsct, "AskCodexCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
         RequireButtonParent(vsct, "ExplainSelectionCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
@@ -53,15 +56,23 @@ public sealed class VsixSurfaceTests
         RequireButtonParent(vsct, "OptimizeSelectionCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
         RequireButtonParent(vsct, "GenerateDocsCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
         RequireButtonParent(vsct, "CreateTestFromSelectionCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
+        RequireButtonParent(vsct, "FixActiveExceptionCommandId", "guidCommandSet", "CodexDebugMenuGroup");
+        RequireButtonParent(vsct, "FixActiveErrorCommandId", "guidCommandSet", "CodexErrorListContextMenuGroup");
+        RequireButtonParent(vsct, "FixTestFailureCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexToolsMenuGroup");
-        RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexViewMenuGroup");
+        RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidSHLMainMenu", "IDG_VS_WNDO_OTRWNDWS1");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexProjectContextMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexSolutionContextMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexItemContextMenuGroup");
+        RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexErrorListContextMenuGroup");
+        RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
         RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "VSCodexEditorAllContextMenuGroup");
         RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexEditorContextMenuGroup");
+        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexProjectContextMenuGroup");
+        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexSolutionContextMenuGroup");
+        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexItemContextMenuGroup");
         RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidSHLMainMenu", "IDG_VS_CTXT_EDITOR_ALL");
         RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
         RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
@@ -82,6 +93,24 @@ public sealed class VsixSurfaceTests
         RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
         RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidSHLMainMenu", "IDG_VS_CTXT_ERROR_CORRECTION");
         RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidSHLMainMenu", "IDG_VS_ERRORLIST");
+        RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
+        RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
+        RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
+        RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
+        RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidSHLMainMenu", "IDG_VS_CTXT_ERROR_CORRECTION");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "CodexToolsMenuGroup");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "CodexProjectContextMenuGroup");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "CodexSolutionContextMenuGroup");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "CodexItemContextMenuGroup");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidSHLMainMenu", "IDG_VS_CTXT_ERROR_CORRECTION");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidSHLMainMenu", "IDG_VS_ERRORLIST");
+        RequireCommandPlacement(vsct, "FixTestFailureCommandId", "guidCommandSet", "CodexToolsMenuGroup");
+        RequireCommandPlacement(vsct, "FixTestFailureCommandId", "guidCommandSet", "CodexProjectContextMenuGroup");
+        RequireCommandPlacement(vsct, "FixTestFailureCommandId", "guidCommandSet", "CodexSolutionContextMenuGroup");
+        RequireCommandPlacement(vsct, "FixTestFailureCommandId", "guidCommandSet", "CodexItemContextMenuGroup");
         RequireCommandPlacement(vsct, "CreatePlanCommandId", "guidCommandSet", "CodexProjectContextMenuGroup");
         RequireCommandPlacement(vsct, "CreatePlanCommandId", "guidCommandSet", "CodexSolutionContextMenuGroup");
         RequireCommandPlacement(vsct, "CreatePlanCommandId", "guidCommandSet", "CodexItemContextMenuGroup");
@@ -100,6 +129,9 @@ public sealed class VsixSurfaceTests
         RequireIdSymbol(vsct, "OptimizeSelectionCommandId");
         RequireIdSymbol(vsct, "GenerateDocsCommandId");
         RequireIdSymbol(vsct, "ConfigureMemoryCommandId");
+        RequireIdSymbol(vsct, "FixActiveExceptionCommandId");
+        RequireIdSymbol(vsct, "FixActiveErrorCommandId");
+        RequireIdSymbol(vsct, "FixTestFailureCommandId");
         RequireIdSymbol(vsct, "CodexDebugMenuGroup");
         RequireIdSymbol(vsct, "CodexErrorListContextMenuGroup");
         RequireIdSymbol(vsct, "CodexErrorCorrectionContextMenuGroup");
@@ -113,6 +145,21 @@ public sealed class VsixSurfaceTests
         RequireContains(commandSource, "QueryEditorContextCommandStatus", "Editor selection actions must be query-status aware.");
         RequireContains(commandSource, "QueryDebugCommandStatus", "Debug With VSCodex must adapt to runtime exception break mode.");
         RequireContains(commandSource, "Debug Exception with VSCodex", "Runtime exception break mode must show a specific VSCodex debug command label.");
+        RequireContains(commandSource, "QueryActiveExceptionCommandStatus", "Active exception fixes must be query-status aware.");
+        RequireContains(commandSource, "QueryActiveErrorCommandStatus", "Error-list fixes must be query-status aware.");
+        RequireContains(commandSource, "QueryTestFailureCommandStatus", "Test failure fixes must be query-status aware.");
+        RequireContains(commandSource, "Fix Active Exception with VSCodex", "Active exception context must show a specific VSCodex fix label.");
+        RequireContains(commandSource, "Fix with VSCodex", "Error and vulnerability contexts must show the expected VSCodex fix label.");
+        RequireContains(commandSource, "Fix Test Failure with VSCodex", "Test failure context must show a specific VSCodex fix label.");
+        RequireContains(commandSource, "BuildTestFailurePrompt", "Test failure commands must use a dedicated test failure prompt.");
+        RequireContains(assistantSource, "BuildTestFailurePrompt", "Coding assistant context must know how to build a test failure prompt.");
+        RequireContains(assistantSource, "Fix the active Visual Studio test failure", "Test failure prompt must be scoped to Visual Studio test-failure assistance.");
+        RequireContains(packageSource, "VisualStudioMenuIntegrationService.InitializeAsync(this)", "Package load must install visible VSCodex menu entries even if command-cache placement is stale.");
+        RequireContains(menuBridge, "View.VSCodex", "Runtime menu bridge must expose the VSCodex tool window in the Visual Studio View menu.");
+        RequireContains(menuBridge, "VSCodex Actions", "Runtime menu bridge must expose VSCodex Actions on editor and Solution Explorer context menus.");
+        RequireContains(menuBridge, "Fix with VSCodex", "Runtime menu bridge must expose the requested vulnerability/error fix action.");
+        RequireContains(menuBridge, "Code Window", "Runtime menu bridge must target the editor context menu.");
+        RequireContains(menuBridge, "SolutionExplorerContextBars", "Runtime menu bridge must target Solution Explorer context menus.");
     }
 
     [Test]
@@ -129,6 +176,9 @@ public sealed class VsixSurfaceTests
         var analytics = ReadText("src/VSCodex/Services/ModelAnalyticsService.cs");
 
         RequireContains(models, "DefaultFailoverModel", "Settings must expose a failover model.");
+        RequireContains(models, "CodexAccessLevel", "Settings must expose a friendly access level abstraction over sandbox modes.");
+        RequireContains(models, "EnabledSkillPaths", "Settings must persist enabled skill selections across refreshes.");
+        RequireContains(models, "ContextRemainingPercent", "Model analytics must expose remaining context percentage.");
         RequireContains(models, "gpt-5.5", "Primary model defaults must include the current flagship coding model.");
         RequireContains(models, "gpt-5.4-mini", "Budget defaults must include a cheaper model option.");
         RequireContains(promptBuilder, "reactivememory_status", "Prompt builder must inject ReactiveMemory session-start hooks.");
@@ -136,6 +186,8 @@ public sealed class VsixSurfaceTests
         RequireContains(mcpConfig, "[mcp_servers.reactivememory]", "MCP config service must install ReactiveMemory as the default memory server.");
         RequireContains(mcpConfig, "existingBlock.Success", "MCP config service must validate the real ReactiveMemory server block instead of matching unrelated text.");
         RequireContains(mcpConfig, "enabled\\s*=\\s*false", "MCP config service must re-enable the default ReactiveMemory server when it is explicitly disabled.");
+        RequireContains(mcpConfig, "void Save(IEnumerable<McpServerDefinition> servers)", "MCP config service must persist user-managed MCP server edits.");
+        RequireContains(mcpConfig, "CreateTemplate(string transportType)", "MCP config service must create stdio and URL MCP server drafts from the UI.");
         RequireContains(mcpConfig, "CP.ReactiveMemory.Mcp.Server", "MCP config service must know the ReactiveMemory package identity.");
         RequireContains(mcpTools, "InvokeToolAsync", "MCP tooling must expose runtime tool invocation, not only tool discovery.");
         RequireContains(mcpTools, "tools/call", "MCP tooling must call MCP tools through the JSON-RPC tools/call method.");
@@ -148,9 +200,21 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "_reactiveMemory.ReactToPromptAsync", "Run must update ReactiveMemory context before calling Codex.");
         RequireContains(viewModel, "_reactiveMemory.WriteDiaryAsync", "Run completion must write a ReactiveMemory diary entry.");
         RequireContains(viewModel, "_reactiveMemory.AddMemoryAsync", "Memory buttons must persist through ReactiveMemory.");
+        RequireContains(viewModel, "AddMcpStdioServerCommand", "Tool window must expose an Add stdio MCP server command.");
+        RequireContains(viewModel, "AddMcpUrlServerCommand", "Tool window must expose an Add URL MCP server command.");
+        RequireContains(viewModel, "SaveMcpServersCommand", "Tool window must persist MCP server edits back to Codex config.");
+        RequireContains(viewModel, "CreateSkillCommand", "Tool window must let developers create local Codex skills.");
+        RequireContains(viewModel, "SaveSkillsCommand", "Tool window must persist enabled skill selections.");
+        RequireContains(viewModel, "AccessLevelFromSandbox", "Tool window must map friendly access levels to Codex sandbox modes.");
+        RequireContains(viewModel, "ContextRemainingSummary", "Tool window must expose context-size and remaining-context summary text.");
         RequireContains(view, "Header=\"Analytics\"", "Tool window must expose model/cost analytics.");
+        RequireContains(view, "Access level", "Tool window must expose a friendly access level selector.");
+        RequireContains(view, "Add stdio", "Tool window must expose add-MCP server controls.");
+        RequireContains(view, "Create skill", "Tool window must expose skill creation controls.");
+        RequireContains(view, "ContextRemainingSummary", "Tool window must show remaining context percentage.");
         RequireContains(view, "FailoverModel", "Tool window must expose failover model control.");
         RequireContains(analytics, "EstimatedSavingsPercent", "Analytics must estimate whether a cheaper model can be used.");
+        RequireContains(analytics, "ContextRemainingTokens", "Analytics must estimate context remaining tokens.");
     }
 
     [Test]
@@ -209,7 +273,7 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "SelectedIndex=\"{Binding SelectedToolTabIndex, Mode=TwoWay}\"", "The settings tab selection must be bound.");
         RequireContains(view, "Header=\"Settings\"", "The model and execution controls must be hosted as the VSCodex settings tab.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.1.14\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.1.16\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
     }
 
@@ -645,6 +709,8 @@ public sealed class VsixSurfaceTests
         RequireContains(project, "Menus.ctmenu", "The packaged command table must match ProvideMenuResource(\"Menus.ctmenu\", 1).");
         RequireContains(installerScript, "/rootSuffix:$RootSuffix", "VSIXInstaller must install into the requested Visual Studio root suffix.");
         RequireContains(installerScript, "/instanceIds:$InstanceId", "VSIXInstaller must support targeting the current Visual Studio instance.");
+        RequireContains(installerScript, "/UpdateConfiguration", "VSIXInstaller deployment must refresh the Visual Studio package cache after replacing extension folders.");
+        RequireContains(installerScript, "extensions.configurationchanged", "VSIXInstaller deployment must mark the extension cache dirty before refreshing configuration.");
         RequireContains(installerScript, "PerUserEnabledExtensionsCache", "The installer script must wait for the extension to be enabled, not only copied.");
         RequireContains(launcherScript, "VSIXInstaller.exe", "The visible Release launcher must invoke Visual Studio VSIXInstaller directly.");
         RequireContains(launcherScript, "Start-Process", "The visible Release launcher must start the installer UI.");

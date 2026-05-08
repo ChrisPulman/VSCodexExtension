@@ -41,11 +41,18 @@ public sealed class ModelAnalyticsService : IModelAnalyticsService
         var primaryCost = EstimateCost(primary, inputTokens, outputTokens);
         var budgetCost = EstimateCost(budget, inputTokens, outputTokens);
         var savings = primaryCost <= 0d ? 0d : Math.Max(0d, (primaryCost - budgetCost) / primaryCost * 100d);
+        var contextWindow = Math.Max(1, primary.ContextWindowTokens);
+        var contextUsedPercent = Math.Max(0, Math.Min(100, (int)Math.Round(inputTokens / (double)contextWindow * 100d)));
+        var contextRemainingTokens = Math.Max(0, contextWindow - inputTokens);
 
         return new ModelUsageEstimate
         {
             EstimatedInputTokens = inputTokens,
             EstimatedOutputTokens = outputTokens,
+            ContextWindowTokens = contextWindow,
+            ContextRemainingTokens = contextRemainingTokens,
+            ContextUsedPercent = contextUsedPercent,
+            ContextRemainingPercent = Math.Max(0, 100 - contextUsedPercent),
             PrimaryModel = primary.Id,
             FailoverModel = failover.Id,
             BudgetModel = budget.Id,

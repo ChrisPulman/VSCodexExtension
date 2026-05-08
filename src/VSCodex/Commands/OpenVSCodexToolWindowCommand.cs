@@ -30,6 +30,9 @@ internal sealed class OpenVSCodexToolWindowCommand
         AddCommand(commandService, CodexCommandIds.DebugWithCodexCommandId, ExecuteDebugWithCodex, QueryDebugCommandStatus);
         AddCommand(commandService, CodexCommandIds.CreatePlanCommandId, ExecuteCreatePlan, QueryEditorContextCommandStatus);
         AddCommand(commandService, CodexCommandIds.ConfigureMemoryCommandId, ExecuteConfigureMemory);
+        AddCommand(commandService, CodexCommandIds.FixActiveExceptionCommandId, ExecuteFixActiveException, QueryActiveExceptionCommandStatus);
+        AddCommand(commandService, CodexCommandIds.FixActiveErrorCommandId, ExecuteFixActiveError, QueryActiveErrorCommandStatus);
+        AddCommand(commandService, CodexCommandIds.FixTestFailureCommandId, ExecuteFixTestFailure, QueryTestFailureCommandStatus);
     }
 
     private static void AddCommand(OleMenuCommandService commandService, int commandId, EventHandler execute, EventHandler? beforeQueryStatus = null)
@@ -125,6 +128,24 @@ internal sealed class OpenVSCodexToolWindowCommand
         ShowPromptFromContext(x => x.BuildReactiveMemorySetupPrompt());
     }
 
+    private void ExecuteFixActiveException(object sender, EventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        ShowPromptFromContext(x => x.BuildDebugPrompt());
+    }
+
+    private void ExecuteFixActiveError(object sender, EventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        ShowPromptFromContext(x => x.BuildFixPrompt());
+    }
+
+    private void ExecuteFixTestFailure(object sender, EventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        ShowPromptFromContext(x => x.BuildTestFailurePrompt());
+    }
+
     private void QueryEditorContextCommandStatus(object sender, EventArgs e)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
@@ -144,6 +165,39 @@ internal sealed class OpenVSCodexToolWindowCommand
             command.Visible = true;
             command.Enabled = HasActiveDocument() || inBreakMode;
             command.Text = inBreakMode ? "Debug Exception with VSCodex" : "Debug With VSCodex";
+        }
+    }
+
+    private void QueryActiveExceptionCommandStatus(object sender, EventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (sender is OleMenuCommand command)
+        {
+            command.Visible = true;
+            command.Enabled = HasActiveDocument() || IsDebuggerInBreakMode();
+            command.Text = "Fix Active Exception with VSCodex";
+        }
+    }
+
+    private void QueryActiveErrorCommandStatus(object sender, EventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (sender is OleMenuCommand command)
+        {
+            command.Visible = true;
+            command.Enabled = true;
+            command.Text = "Fix with VSCodex";
+        }
+    }
+
+    private void QueryTestFailureCommandStatus(object sender, EventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (sender is OleMenuCommand command)
+        {
+            command.Visible = true;
+            command.Enabled = HasActiveDocument();
+            command.Text = "Fix Test Failure with VSCodex";
         }
     }
 

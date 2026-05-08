@@ -14,7 +14,7 @@ using VSCodex.ToolWindows;
 namespace VSCodex;
 
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.1.13")]
+[InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.1.16")]
 [ProvideMenuResource("Menus.ctmenu", 1)]
 [ProvideToolWindow(typeof(VSCodexToolWindowPane), Style = VsDockStyle.Tabbed, Window = EnvDTE.Constants.vsWindowKindOutput)]
 [ProvideAutoLoad(VSConstants.UICONTEXT.NoSolution_string, PackageAutoLoadFlags.BackgroundLoad)]
@@ -29,6 +29,7 @@ public sealed class VSCodexPackage : AsyncPackage
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await OpenVSCodexToolWindowCommand.InitializeAsync(this).ConfigureAwait(true);
+        await Services.VisualStudioMenuIntegrationService.InitializeAsync(this).ConfigureAwait(true);
         ScheduleShowToolWindowOnFirstLaunch();
     }
 

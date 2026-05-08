@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using ReactiveUI;
 
 namespace VSCodex.Models;
@@ -8,6 +9,7 @@ public enum CodexRunMode { Chat, Plan, Build }
 public enum CodexMessageRole { System, User, Assistant, Tool, Approval, Error, Memory, Skill, Mcp }
 public enum ApprovalPolicy { Untrusted, OnFailure, OnRequest, Never }
 public enum SandboxMode { ReadOnly, WorkspaceWrite, DangerFullAccess }
+public enum CodexAccessLevel { ReadOnly, Workspace, FullAccess }
 public enum CodexTransportKind { SdkBridge, CliFallback }
 public enum AgentExecutionStrategy { Sequential, PlannerThenParallel, ReviewGate }
 public enum AgentModelSelectionMode { Explicit, BudgetDriven }
@@ -31,6 +33,10 @@ public sealed class ModelUsageEstimate : ReactiveObject
 {
     public int EstimatedInputTokens { get; set; }
     public int EstimatedOutputTokens { get; set; }
+    public int ContextWindowTokens { get; set; }
+    public int ContextRemainingTokens { get; set; }
+    public int ContextUsedPercent { get; set; }
+    public int ContextRemainingPercent { get; set; }
     public string PrimaryModel { get; set; } = string.Empty;
     public string FailoverModel { get; set; } = string.Empty;
     public string BudgetModel { get; set; } = string.Empty;
@@ -255,12 +261,34 @@ public sealed class MemoryEntry : ReactiveObject
 public sealed class McpServerDefinition : ReactiveObject
 {
     private bool _isEnabled = true;
-    public string Name { get; set; } = string.Empty;
-    public string Command { get; set; } = string.Empty;
+    private string _name = string.Empty;
+    private string _transportType = "stdio";
+    private string _command = string.Empty;
+    private string _url = string.Empty;
+    private string _argumentsText = string.Empty;
+    private string _health = "unknown";
+    public string Name { get => _name; set => this.RaiseAndSetIfChanged(ref _name, value ?? string.Empty); }
+    public string TransportType { get => _transportType; set => this.RaiseAndSetIfChanged(ref _transportType, string.IsNullOrWhiteSpace(value) ? "stdio" : value.Trim()); }
+    public string Command { get => _command; set => this.RaiseAndSetIfChanged(ref _command, value ?? string.Empty); }
+    public string Url { get => _url; set => this.RaiseAndSetIfChanged(ref _url, value ?? string.Empty); }
     public List<string> Args { get; set; } = new List<string>();
+    public string ArgumentsText
+    {
+        get => string.IsNullOrWhiteSpace(_argumentsText) ? string.Join(Environment.NewLine, Args ?? new List<string>()) : _argumentsText;
+        set
+        {
+            var text = value ?? string.Empty;
+            this.RaiseAndSetIfChanged(ref _argumentsText, text);
+            Args = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
+        }
+    }
     public Dictionary<string, string> Env { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     public bool IsEnabled { get => _isEnabled; set => this.RaiseAndSetIfChanged(ref _isEnabled, value); }
-    public string Health { get; set; } = "unknown";
+    public string Health { get => _health; set => this.RaiseAndSetIfChanged(ref _health, value ?? string.Empty); }
+    public string EndpointSummary => string.Equals(TransportType, "url", StringComparison.OrdinalIgnoreCase) ? Url : Command;
 }
 
 public sealed class McpToolInputField : ReactiveObject
@@ -336,6 +364,7 @@ public sealed class ExtensionSettings : ReactiveObject
     public List<string> CustomReasoningEfforts { get; set; } = new List<string> { "minimal", "low", "medium", "high", "xhigh" };
     public List<string> CustomVerbosityOptions { get; set; } = new List<string> { "low", "medium", "high" };
     public List<string> SkillRoots { get; set; } = new List<string>();
+    public List<string> EnabledSkillPaths { get; set; } = new List<string>();
     public bool DefaultUseMultiAgentOrchestration { get; set; }
     public int DefaultMaxAgentConcurrency { get; set; } = 1;
     public AgentExecutionStrategy DefaultAgentStrategy { get; set; } = AgentExecutionStrategy.ReviewGate;

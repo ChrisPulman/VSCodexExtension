@@ -445,6 +445,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <WrapPanel Grid.Row="0" VerticalAlignment="Center">
@@ -542,6 +543,34 @@
                         ItemTemplate="{StaticResource RateLimitTemplate}"
                         ItemsSource="{Binding RateLimits}"
                         ToolTip="{Binding RateLimitUpdatedAt}" />
+                </Grid>
+
+                <Grid Grid.Row="3" Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        Grid.Column="0"
+                        Margin="0,1,8,0"
+                        VerticalAlignment="Center"
+                        FontWeight="SemiBold"
+                        Text="Context" />
+                    <ProgressBar
+                        Grid.Column="1"
+                        Height="4"
+                        VerticalAlignment="Center"
+                        Maximum="100"
+                        ToolTip="{Binding ContextWindowSummary}"
+                        Value="{Binding ModelEstimate.ContextRemainingPercent}" />
+                    <TextBlock
+                        Grid.Column="2"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        FontSize="11"
+                        Opacity="0.78"
+                        Text="{Binding ContextRemainingSummary}" />
                 </Grid>
             </Grid>
         </Border>
@@ -735,6 +764,8 @@
                                 <ComboBox ItemsSource="{Binding ReasoningOptions}" SelectedItem="{Binding SelectedReasoning}" />
                                 <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Verbosity" />
                                 <ComboBox ItemsSource="{Binding VerbosityOptions}" SelectedItem="{Binding SelectedVerbosity}" />
+                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Access level" />
+                                <ComboBox ItemsSource="{Binding AccessLevelOptions}" SelectedItem="{Binding AccessLevel}" ToolTip="ReadOnly blocks writes, Workspace allows project edits, FullAccess allows unrestricted local filesystem access." />
                                 <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Approval" />
                                 <ComboBox ItemsSource="{Binding ApprovalOptions}" SelectedItem="{Binding ApprovalPolicy}" />
                                 <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Sandbox" />
@@ -796,19 +827,88 @@
                     </TabItem>
 
                     <TabItem Header="Skills">
-                        <ListBox ItemsSource="{Binding Skills}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Margin="6">
-                                        <CheckBox
-                                            Content="{Binding Name}"
+                        <DockPanel Margin="8">
+                            <StackPanel DockPanel.Dock="Top">
+                                <WrapPanel>
+                                    <Button
+                                        Command="{Binding SaveSkillsCommand}"
+                                        Content="Save enabled skills"
+                                        Style="{StaticResource CompactButtonStyle}" />
+                                    <Button
+                                        Command="{Binding OpenSkillsFolderCommand}"
+                                        Content="Open skills folder"
+                                        Style="{StaticResource CompactButtonStyle}" />
+                                </WrapPanel>
+                                <TextBlock
+                                    Margin="0,2,0,6"
+                                    Opacity="0.72"
+                                    Text="{Binding UserSkillsRoot}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <Border
+                                    Margin="0,0,0,8"
+                                    Padding="8"
+                                    BorderBrush="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}"
+                                    BorderThickness="1"
+                                    CornerRadius="3">
+                                    <StackPanel>
+                                        <TextBlock
                                             FontWeight="SemiBold"
-                                            IsChecked="{Binding IsEnabled}" />
-                                        <TextBlock Opacity="0.72" Text="{Binding Description}" />
+                                            Text="Create skill" />
+                                        <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Name" />
+                                        <TextBox
+                                            AcceptsReturn="False"
+                                            Text="{Binding NewSkillName, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Description" />
+                                        <TextBox
+                                            MinHeight="58"
+                                            Text="{Binding NewSkillDescription, UpdateSourceTrigger=PropertyChanged}" />
+                                        <Button
+                                            HorizontalAlignment="Left"
+                                            Command="{Binding CreateSkillCommand}"
+                                            Content="Create skill"
+                                            Style="{StaticResource CompactButtonStyle}" />
                                     </StackPanel>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                                </Border>
+                                <Border
+                                    Margin="0,0,0,8"
+                                    Padding="8"
+                                    BorderBrush="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}"
+                                    BorderThickness="1"
+                                    CornerRadius="3">
+                                    <StackPanel>
+                                        <TextBlock
+                                            FontWeight="SemiBold"
+                                            Text="Additional skill root" />
+                                        <TextBox
+                                            AcceptsReturn="False"
+                                            Text="{Binding SkillRootPathInput, UpdateSourceTrigger=PropertyChanged}" />
+                                        <Button
+                                            HorizontalAlignment="Left"
+                                            Command="{Binding AddSkillRootCommand}"
+                                            Content="Add folder"
+                                            Style="{StaticResource CompactButtonStyle}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                            <ListBox ItemsSource="{Binding Skills}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="6">
+                                            <CheckBox
+                                                Content="{Binding Name}"
+                                                FontWeight="SemiBold"
+                                                IsChecked="{Binding IsEnabled}" />
+                                            <TextBlock Opacity="0.72" Text="{Binding Description}" />
+                                            <TextBlock
+                                                FontSize="11"
+                                                Opacity="0.58"
+                                                Text="{Binding MarkdownPath}"
+                                                TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
                     </TabItem>
 
                     <TabItem Header="MCP">
@@ -823,27 +923,75 @@
                                 Grid.Row="0"
                                 Margin="0,0,0,8"
                                 Header="Servers">
-                                <ListBox ItemsSource="{Binding McpServers}" SelectedItem="{Binding SelectedMcpServer}">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Margin="4">
-                                                <CheckBox
-                                                    Content="{Binding Name}"
-                                                    FontWeight="SemiBold"
-                                                    IsChecked="{Binding IsEnabled}" />
-                                                <TextBlock
-                                                    Opacity="0.72"
-                                                    Text="{Binding Command}"
-                                                    TextTrimming="CharacterEllipsis" />
-                                                <Button
-                                                    Command="{Binding DataContext.SelectMcpServerCommand, ElementName=Root}"
-                                                    CommandParameter="{Binding}"
-                                                    Content="List tools"
-                                                    Style="{StaticResource CompactButtonStyle}" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
+                                <DockPanel>
+                                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                                        <Button
+                                            Command="{Binding AddMcpStdioServerCommand}"
+                                            Content="Add stdio"
+                                            Style="{StaticResource CompactButtonStyle}" />
+                                        <Button
+                                            Command="{Binding AddMcpUrlServerCommand}"
+                                            Content="Add URL"
+                                            Style="{StaticResource CompactButtonStyle}" />
+                                        <Button
+                                            Command="{Binding SaveMcpServersCommand}"
+                                            Content="Save MCP"
+                                            Style="{StaticResource CompactButtonStyle}" />
+                                        <Button
+                                            Command="{Binding OpenCodexConfigCommand}"
+                                            Content="Open config"
+                                            Style="{StaticResource CompactButtonStyle}" />
+                                    </WrapPanel>
+                                    <ListBox ItemsSource="{Binding McpServers}" SelectedItem="{Binding SelectedMcpServer}">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Margin="4">
+                                                    <DockPanel LastChildFill="False">
+                                                        <CheckBox
+                                                            VerticalAlignment="Center"
+                                                            Content="{Binding Name}"
+                                                            FontWeight="SemiBold"
+                                                            IsChecked="{Binding IsEnabled}" />
+                                                        <Button
+                                                            DockPanel.Dock="Right"
+                                                            Command="{Binding DataContext.RemoveMcpServerCommand, ElementName=Root}"
+                                                            CommandParameter="{Binding}"
+                                                            Content="Remove"
+                                                            Style="{StaticResource CompactButtonStyle}" />
+                                                    </DockPanel>
+                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Name" />
+                                                    <TextBox
+                                                        AcceptsReturn="False"
+                                                        Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Transport" />
+                                                    <ComboBox
+                                                        SelectedValue="{Binding TransportType, UpdateSourceTrigger=PropertyChanged}"
+                                                        SelectedValuePath="Content">
+                                                        <ComboBoxItem Content="stdio" />
+                                                        <ComboBoxItem Content="url" />
+                                                    </ComboBox>
+                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Command" />
+                                                    <TextBox
+                                                        AcceptsReturn="False"
+                                                        Text="{Binding Command, UpdateSourceTrigger=PropertyChanged}" />
+                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Arguments (one per line)" />
+                                                    <TextBox
+                                                        MinHeight="46"
+                                                        Text="{Binding ArgumentsText, UpdateSourceTrigger=PropertyChanged}" />
+                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="URL" />
+                                                    <TextBox
+                                                        AcceptsReturn="False"
+                                                        Text="{Binding Url, UpdateSourceTrigger=PropertyChanged}" />
+                                                    <Button
+                                                        Command="{Binding DataContext.SelectMcpServerCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="List tools"
+                                                        Style="{StaticResource CompactButtonStyle}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </DockPanel>
                             </GroupBox>
 
                             <GroupBox

@@ -9,7 +9,13 @@ using VSCodex.Models;
 
 namespace VSCodex.Services;
 
-public interface ISkillIndexService { IObservable<IReadOnlyList<SkillDefinition>> Skills { get; } IReadOnlyList<SkillDefinition> Snapshot { get; } void Refresh(IEnumerable<string> roots); }
+public interface ISkillIndexService
+{
+    IObservable<IReadOnlyList<SkillDefinition>> Skills { get; }
+    IReadOnlyList<SkillDefinition> Snapshot { get; }
+    void Refresh(IEnumerable<string> roots);
+    string CreateSkill(string root, string name, string description);
+}
 public sealed class SkillIndexService : ISkillIndexService
 {
     private readonly BehaviorSubject<IReadOnlyList<SkillDefinition>> _skills = new BehaviorSubject<IReadOnlyList<SkillDefinition>>(Array.Empty<SkillDefinition>());
@@ -26,6 +32,26 @@ public sealed class SkillIndexService : ISkillIndexService
         }
         _skills.OnNext(results.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList());
     }
+
+    public string CreateSkill(string root, string name, string description)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            throw new ArgumentException("A skill root folder is required.", nameof(root));
+        }
+
+        var normalizedName = NormalizeSkillName(name);
+        var skillRoot = Path.Combine(root, normalizedName);
+        Directory.CreateDirectory(skillRoot);
+        var skillPath = Path.Combine(skillRoot, "SKILL.md");
+        if (!File.Exists(skillPath))
+        {
+            File.WriteAllText(skillPath, BuildSkillTemplate(normalizedName, description), new System.Text.UTF8Encoding(false));
+        }
+
+        return skillPath;
+    }
+
     private static string? ReadFrontmatter(string content, string key)
     {
         var match = Regex.Match(content, "^---\\s*(.*?)\\s*---", RegexOptions.Singleline); if (!match.Success) return null;
@@ -34,4 +60,36 @@ public sealed class SkillIndexService : ISkillIndexService
         return null;
     }
     private static string FirstParagraph(string content) => content.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries).Skip(1).FirstOrDefault()?.Trim() ?? string.Empty;
+
+    private static string NormalizeSkillName(string name)
+    {
+        var value = (name ?? string.Empty).Trim();
+        if (value.Length == 0 || !char.IsLetterOrDigit(value[0]) || value.Any(ch => !(char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-')))
+        {
+            throw new ArgumentException("Skill names must start with a letter or digit and can contain letters, digits, '.', '_' or '-'.", nameof(name));
+        }
+
+        return value;
+    }
+
+    private static string BuildSkillTemplate(string name, string description)
+    {
+        var summary = string.IsNullOrWhiteSpace(description) ? "Describe when VSCodex should use this skill." : description.Trim();
+        return "---" + Environment.NewLine
+            + "name: " + name + Environment.NewLine
+            + "description: " + summary.Replace(Environment.NewLine, " ") + Environment.NewLine
+            + "---" + Environment.NewLine
+            + Environment.NewLine
+            + "# " + name + Environment.NewLine
+            + Environment.NewLine
+            + summary + Environment.NewLine
+            + Environment.NewLine
+            + "## When To Use" + Environment.NewLine
+            + "- Use this skill when the request matches the description above." + Environment.NewLine
+            + Environment.NewLine
+            + "## Workflow" + Environment.NewLine
+            + "1. Inspect the local context needed for the request." + Environment.NewLine
+            + "2. Apply the project conventions already in use." + Environment.NewLine
+            + "3. Verify the result with the narrowest meaningful checks." + Environment.NewLine;
+    }
 }

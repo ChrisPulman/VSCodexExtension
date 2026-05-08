@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reactive;
@@ -64,6 +65,9 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private string _budgetModel;
     private ModelUsageEstimate _modelEstimate = new ModelUsageEstimate();
     private string _mcpInputPrompt = string.Empty;
+    private string _newSkillName = string.Empty;
+    private string _newSkillDescription = string.Empty;
+    private string _skillRootPathInput = string.Empty;
     private string _rateLimitUpdatedAt = "Waiting for Codex rate-limit telemetry";
     private string _codexSetupSummary = "Checking VSCodex prerequisites...";
     private string _codexSetupInstructions = string.Empty;
@@ -73,6 +77,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private CodexEnvironmentReport? _lastEnvironmentReport;
     private ApprovalPolicy _approvalPolicy;
     private SandboxMode _sandboxMode;
+    private CodexAccessLevel _accessLevel;
     private CodexTransportKind _transport = CodexTransportKind.SdkBridge;
     private McpServerDefinition? _selectedMcpServer;
     private McpToolDefinition? _selectedMcpTool;
@@ -121,6 +126,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         _selectedVerbosity = settings.DefaultVerbosity;
         _approvalPolicy = settings.DefaultApprovalPolicy;
         _sandboxMode = settings.DefaultSandboxMode;
+        _accessLevel = AccessLevelFromSandbox(settings.DefaultSandboxMode);
         _useMultiAgentOrchestration = settings.DefaultUseMultiAgentOrchestration;
         _maxAgentConcurrency = settings.DefaultMaxAgentConcurrency;
         _agentStrategy = settings.DefaultAgentStrategy;
@@ -150,6 +156,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         ModeOptions = new ObservableCollection<CodexRunMode>((CodexRunMode[])Enum.GetValues(typeof(CodexRunMode)));
         ApprovalOptions = new ObservableCollection<ApprovalPolicy>((ApprovalPolicy[])Enum.GetValues(typeof(ApprovalPolicy)));
         SandboxOptions = new ObservableCollection<SandboxMode>((SandboxMode[])Enum.GetValues(typeof(SandboxMode)));
+        AccessLevelOptions = new ObservableCollection<CodexAccessLevel>((CodexAccessLevel[])Enum.GetValues(typeof(CodexAccessLevel)));
         TransportOptions = new ObservableCollection<CodexTransportKind>((CodexTransportKind[])Enum.GetValues(typeof(CodexTransportKind)));
         AgentStrategyOptions = new ObservableCollection<AgentExecutionStrategy>((AgentExecutionStrategy[])Enum.GetValues(typeof(AgentExecutionStrategy)));
         AgentModelSelectionModeOptions = new ObservableCollection<AgentModelSelectionMode>((AgentModelSelectionMode[])Enum.GetValues(typeof(AgentModelSelectionMode)));
@@ -172,6 +179,15 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         SelectMcpServerCommand = ReactiveCommand.CreateFromTask<McpServerDefinition>(SelectMcpServerAsync, null, _uiScheduler);
         SelectMcpToolCommand = ReactiveCommand.Create<McpToolDefinition>(SelectMcpTool, outputScheduler: _uiScheduler);
         InsertMcpToolCommand = ReactiveCommand.Create(InsertMcpToolInvocation, outputScheduler: _uiScheduler);
+        AddMcpStdioServerCommand = ReactiveCommand.Create(() => AddMcpServer("stdio"), this.WhenAnyValue(x => x.CanEditSettings).ObserveOn(_uiScheduler), _uiScheduler);
+        AddMcpUrlServerCommand = ReactiveCommand.Create(() => AddMcpServer("url"), this.WhenAnyValue(x => x.CanEditSettings).ObserveOn(_uiScheduler), _uiScheduler);
+        RemoveMcpServerCommand = ReactiveCommand.Create<McpServerDefinition>(RemoveMcpServer, null, _uiScheduler);
+        SaveMcpServersCommand = ReactiveCommand.Create(SaveMcpServers, this.WhenAnyValue(x => x.CanEditSettings).ObserveOn(_uiScheduler), _uiScheduler);
+        CreateSkillCommand = ReactiveCommand.Create(CreateSkill, this.WhenAnyValue(x => x.NewSkillName, x => x.CanEditSettings, (name, canEdit) => canEdit && IsValidSkillName(name)).ObserveOn(_uiScheduler), _uiScheduler);
+        SaveSkillsCommand = ReactiveCommand.Create(SaveSkillSelection, this.WhenAnyValue(x => x.CanEditSettings).ObserveOn(_uiScheduler), _uiScheduler);
+        AddSkillRootCommand = ReactiveCommand.Create(AddSkillRoot, this.WhenAnyValue(x => x.SkillRootPathInput, x => x.CanEditSettings, (path, canEdit) => canEdit && Directory.Exists(path ?? string.Empty)).ObserveOn(_uiScheduler), _uiScheduler);
+        OpenSkillsFolderCommand = ReactiveCommand.Create(OpenSkillsFolder, outputScheduler: _uiScheduler);
+        OpenCodexConfigCommand = ReactiveCommand.Create(OpenCodexConfig, outputScheduler: _uiScheduler);
         DebugSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildDebugPrompt(); }, outputScheduler: _uiScheduler);
         CreateTestForSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildTestPrompt(); }, outputScheduler: _uiScheduler);
         CreatePlanCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildPlanPrompt(Prompt, BuildAgentSummary()); Mode = CodexRunMode.Plan; }, outputScheduler: _uiScheduler);
@@ -218,6 +234,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ObservableCollection<CodexRunMode> ModeOptions { get; }
     public ObservableCollection<ApprovalPolicy> ApprovalOptions { get; }
     public ObservableCollection<SandboxMode> SandboxOptions { get; }
+    public ObservableCollection<CodexAccessLevel> AccessLevelOptions { get; }
     public ObservableCollection<CodexTransportKind> TransportOptions { get; }
     public ObservableCollection<AgentExecutionStrategy> AgentStrategyOptions { get; }
     public ObservableCollection<AgentModelSelectionMode> AgentModelSelectionModeOptions { get; }
@@ -237,6 +254,15 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<McpServerDefinition, Unit> SelectMcpServerCommand { get; }
     public ReactiveCommand<McpToolDefinition, Unit> SelectMcpToolCommand { get; }
     public ReactiveCommand<Unit, Unit> InsertMcpToolCommand { get; }
+    public ReactiveCommand<Unit, Unit> AddMcpStdioServerCommand { get; }
+    public ReactiveCommand<Unit, Unit> AddMcpUrlServerCommand { get; }
+    public ReactiveCommand<McpServerDefinition, Unit> RemoveMcpServerCommand { get; }
+    public ReactiveCommand<Unit, Unit> SaveMcpServersCommand { get; }
+    public ReactiveCommand<Unit, Unit> CreateSkillCommand { get; }
+    public ReactiveCommand<Unit, Unit> SaveSkillsCommand { get; }
+    public ReactiveCommand<Unit, Unit> AddSkillRootCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenSkillsFolderCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenCodexConfigCommand { get; }
     public ReactiveCommand<Unit, Unit> DebugSelectionCommand { get; }
     public ReactiveCommand<Unit, Unit> CreateTestForSelectionCommand { get; }
     public ReactiveCommand<Unit, Unit> CreatePlanCommand { get; }
@@ -273,17 +299,55 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public string SelectedVerbosity { get => _selectedVerbosity; set { if (!CanChangeSetting(_selectedVerbosity, value)) return; this.RaiseAndSetIfChanged(ref _selectedVerbosity, value); SaveModelSettings(); } }
     public string OrchestrationModel { get => _orchestrationModel; set { if (!CanChangeSetting(_orchestrationModel, value)) return; this.RaiseAndSetIfChanged(ref _orchestrationModel, value); SaveModelSettings(); } }
     public string BudgetModel { get => _budgetModel; set { if (!CanChangeSetting(_budgetModel, value)) return; this.RaiseAndSetIfChanged(ref _budgetModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
-    public ModelUsageEstimate ModelEstimate { get => _modelEstimate; set => this.RaiseAndSetIfChanged(ref _modelEstimate, value); }
+    public ModelUsageEstimate ModelEstimate
+    {
+        get => _modelEstimate;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _modelEstimate, value ?? new ModelUsageEstimate());
+            this.RaisePropertyChanged(nameof(AnalyticsSummary));
+            this.RaisePropertyChanged(nameof(AnalyticsRecommendation));
+            this.RaisePropertyChanged(nameof(ContextWindowSummary));
+            this.RaisePropertyChanged(nameof(ContextRemainingSummary));
+        }
+    }
     public string AnalyticsSummary => ModelEstimate.Summary;
     public string AnalyticsRecommendation => ModelEstimate.RecommendationReason;
+    public string ContextWindowSummary => ModelEstimate.ContextWindowTokens <= 0
+        ? "Context size unavailable"
+        : $"{FormatTokenCount(ModelEstimate.EstimatedInputTokens)} / {FormatTokenCount(ModelEstimate.ContextWindowTokens)} context tokens";
+    public string ContextRemainingSummary => ModelEstimate.ContextWindowTokens <= 0
+        ? string.Empty
+        : $"{ModelEstimate.ContextRemainingPercent}% remaining ({FormatTokenCount(ModelEstimate.ContextRemainingTokens)})";
     public string McpInputPrompt { get => _mcpInputPrompt; set => this.RaiseAndSetIfChanged(ref _mcpInputPrompt, value); }
+    public string NewSkillName { get => _newSkillName; set => this.RaiseAndSetIfChanged(ref _newSkillName, value ?? string.Empty); }
+    public string NewSkillDescription { get => _newSkillDescription; set => this.RaiseAndSetIfChanged(ref _newSkillDescription, value ?? string.Empty); }
+    public string SkillRootPathInput { get => _skillRootPathInput; set => this.RaiseAndSetIfChanged(ref _skillRootPathInput, value ?? string.Empty); }
+    public string UserSkillsRoot => LocalPaths.UserSkillsRoot;
+    public string CodexConfigPath => LocalPaths.UserCodexConfig;
     public string RateLimitUpdatedAt { get => _rateLimitUpdatedAt; set => this.RaiseAndSetIfChanged(ref _rateLimitUpdatedAt, value); }
     public string CodexSetupSummary { get => _codexSetupSummary; set => this.RaiseAndSetIfChanged(ref _codexSetupSummary, value); }
     public string CodexSetupInstructions { get => _codexSetupInstructions; set => this.RaiseAndSetIfChanged(ref _codexSetupInstructions, value); }
     public PromptSuggestionItem? SelectedPromptSuggestion { get => _selectedPromptSuggestion; set => this.RaiseAndSetIfChanged(ref _selectedPromptSuggestion, value); }
     public bool IsPromptSuggestionOpen { get => _isPromptSuggestionOpen; set => this.RaiseAndSetIfChanged(ref _isPromptSuggestionOpen, value); }
     public ApprovalPolicy ApprovalPolicy { get => _approvalPolicy; set { if (!CanChangeSetting(_approvalPolicy, value)) return; this.RaiseAndSetIfChanged(ref _approvalPolicy, value); SaveModelSettings(); } }
-    public SandboxMode SandboxMode { get => _sandboxMode; set { if (!CanChangeSetting(_sandboxMode, value)) return; this.RaiseAndSetIfChanged(ref _sandboxMode, value); SaveModelSettings(); } }
+    public SandboxMode SandboxMode { get => _sandboxMode; set { if (!CanChangeSetting(_sandboxMode, value)) return; this.RaiseAndSetIfChanged(ref _sandboxMode, value); AccessLevel = AccessLevelFromSandbox(value); SaveModelSettings(); } }
+    public CodexAccessLevel AccessLevel
+    {
+        get => _accessLevel;
+        set
+        {
+            if (!CanChangeSetting(_accessLevel, value)) return;
+            this.RaiseAndSetIfChanged(ref _accessLevel, value);
+            var sandbox = SandboxFromAccessLevel(value);
+            if (!EqualityComparer<SandboxMode>.Default.Equals(_sandboxMode, sandbox))
+            {
+                this.RaiseAndSetIfChanged(ref _sandboxMode, sandbox, nameof(SandboxMode));
+            }
+
+            SaveModelSettings();
+        }
+    }
     public CodexTransportKind Transport { get => _transport; set { if (!CanChangeSetting(_transport, value)) return; this.RaiseAndSetIfChanged(ref _transport, value); } }
     public McpServerDefinition? SelectedMcpServer { get => _selectedMcpServer; set => this.RaiseAndSetIfChanged(ref _selectedMcpServer, value); }
     public McpToolDefinition? SelectedMcpTool { get => _selectedMcpTool; set => this.RaiseAndSetIfChanged(ref _selectedMcpTool, value); }
@@ -463,6 +527,141 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         var invocation = _mcpTools.BuildInvocationPrompt(SelectedMcpServer, SelectedMcpTool);
         Prompt = string.IsNullOrWhiteSpace(Prompt) ? invocation : Prompt.TrimEnd() + Environment.NewLine + invocation;
         Status = "Inserted MCP tool invocation into prompt";
+    }
+
+    private void AddMcpServer(string transportType)
+    {
+        if (!CanEditSettings)
+        {
+            Status = "VSCodex settings are locked while a task is running";
+            return;
+        }
+
+        var server = _mcpConfig.CreateTemplate(transportType);
+        McpServers.Add(server);
+        SelectedMcpServer = server;
+        Status = "Added MCP server draft. Fill in the details, then save MCP servers.";
+    }
+
+    private void RemoveMcpServer(McpServerDefinition server)
+    {
+        if (server == null || !CanEditSettings)
+        {
+            return;
+        }
+
+        McpServers.Remove(server);
+        if (ReferenceEquals(SelectedMcpServer, server))
+        {
+            SelectedMcpServer = McpServers.FirstOrDefault();
+        }
+
+        Status = "Removed MCP server draft. Save MCP servers to update Codex config.";
+    }
+
+    private void SaveMcpServers()
+    {
+        if (!CanEditSettings)
+        {
+            Status = "VSCodex settings are locked while a task is running";
+            return;
+        }
+
+        _mcpConfig.Save(McpServers.ToList());
+        Status = "Saved MCP servers to " + LocalPaths.UserCodexConfig;
+    }
+
+    private void CreateSkill()
+    {
+        if (!CanEditSettings)
+        {
+            Status = "VSCodex settings are locked while a task is running";
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(LocalPaths.UserSkillsRoot);
+            var skillPath = _skillIndex.CreateSkill(LocalPaths.UserSkillsRoot, NewSkillName, NewSkillDescription);
+            NewSkillName = string.Empty;
+            NewSkillDescription = string.Empty;
+            Refresh();
+            Status = "Created skill " + skillPath;
+            OpenPath(skillPath);
+        }
+        catch (Exception ex)
+        {
+            Status = "Create skill failed: " + ex.Message;
+        }
+    }
+
+    private void SaveSkillSelection()
+    {
+        if (!CanEditSettings)
+        {
+            Status = "VSCodex settings are locked while a task is running";
+            return;
+        }
+
+        var settings = _settingsStore.Current;
+        settings.EnabledSkillPaths = Skills
+            .Where(x => x.IsEnabled)
+            .Select(x => x.MarkdownPath)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        _settingsStore.Save(settings);
+        Status = $"Saved {settings.EnabledSkillPaths.Count} enabled skill(s)";
+        UpdateAnalytics(Prompt);
+    }
+
+    private void AddSkillRoot()
+    {
+        if (!CanEditSettings)
+        {
+            Status = "VSCodex settings are locked while a task is running";
+            return;
+        }
+
+        var path = SkillRootPathInput.Trim();
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            Status = "Enter an existing folder to add a skill root";
+            return;
+        }
+
+        var settings = _settingsStore.Current;
+        if (!settings.SkillRoots.Any(x => string.Equals(x, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            settings.SkillRoots.Add(path);
+            _settingsStore.Save(settings);
+        }
+
+        SkillRootPathInput = string.Empty;
+        Refresh();
+        Status = "Added skill root " + path;
+    }
+
+    private void OpenSkillsFolder()
+    {
+        Directory.CreateDirectory(LocalPaths.UserSkillsRoot);
+        OpenPath(LocalPaths.UserSkillsRoot);
+    }
+
+    private void OpenCodexConfig()
+    {
+        var directory = Path.GetDirectoryName(LocalPaths.UserCodexConfig);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        if (!File.Exists(LocalPaths.UserCodexConfig))
+        {
+            File.WriteAllText(LocalPaths.UserCodexConfig, string.Empty);
+        }
+
+        OpenPath(LocalPaths.UserCodexConfig);
     }
 
     private void OnPromptChanged(string prompt)
@@ -778,6 +977,57 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private string EffectiveMainModel() => BudgetDrivenModelSelection && !string.IsNullOrWhiteSpace(BudgetModel) ? BudgetModel : SelectedModel;
     private string EffectiveOrchestrationModel() => BudgetDrivenModelSelection && !string.IsNullOrWhiteSpace(BudgetModel) ? BudgetModel : OrchestrationModel;
 
+    private static CodexAccessLevel AccessLevelFromSandbox(SandboxMode sandbox)
+    {
+        if (sandbox == SandboxMode.DangerFullAccess) return CodexAccessLevel.FullAccess;
+        if (sandbox == SandboxMode.ReadOnly) return CodexAccessLevel.ReadOnly;
+        return CodexAccessLevel.Workspace;
+    }
+
+    private static SandboxMode SandboxFromAccessLevel(CodexAccessLevel accessLevel)
+    {
+        if (accessLevel == CodexAccessLevel.FullAccess) return SandboxMode.DangerFullAccess;
+        if (accessLevel == CodexAccessLevel.ReadOnly) return SandboxMode.ReadOnly;
+        return SandboxMode.WorkspaceWrite;
+    }
+
+    private static bool IsValidSkillName(string? name)
+    {
+        var value = (name ?? string.Empty).Trim();
+        return value.Length > 0
+            && char.IsLetterOrDigit(value[0])
+            && value.All(ch => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-');
+    }
+
+    private static string FormatTokenCount(int tokens)
+    {
+        if (tokens >= 1000000)
+        {
+            return (tokens / 1000000d).ToString("0.#M");
+        }
+
+        if (tokens >= 1000)
+        {
+            return (tokens / 1000d).ToString("0.#k");
+        }
+
+        return tokens.ToString();
+    }
+
+    private static void OpenPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = path,
+            UseShellExecute = true
+        });
+    }
+
     private string BuildAgentSummary()
     {
         var sb = new StringBuilder();
@@ -876,7 +1126,16 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             + "- Workspace: " + workspace;
     }
 
-    private void UpdateSkills(IReadOnlyList<SkillDefinition> items) => Replace(Skills, items);
+    private void UpdateSkills(IReadOnlyList<SkillDefinition> items)
+    {
+        var enabledPaths = new HashSet<string>(_settingsStore.Current.EnabledSkillPaths ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            item.IsEnabled = enabledPaths.Contains(item.MarkdownPath);
+        }
+
+        Replace(Skills, items);
+    }
     private void UpdateMemories(IReadOnlyList<MemoryEntry> items) => Replace(Memories, items);
     private void UpdateMcpServers(IReadOnlyList<McpServerDefinition> items) => Replace(McpServers, items);
     private void UpdateReferenceSuggestions(string prompt)
