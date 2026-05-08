@@ -49,6 +49,75 @@ function Resolve-VsixInstaller {
     throw "Could not locate VSIXInstaller.exe. Set VSCodexVsixInstallerPath to the Visual Studio VSIXInstaller path."
 }
 
+function Resolve-Devenv {
+    param([string]$VsixInstallerPath)
+
+    if (-not [string]::IsNullOrWhiteSpace($VsixInstallerPath)) {
+        $candidate = Join-Path (Split-Path -Parent $VsixInstallerPath) "devenv.exe"
+        if (Test-Path -LiteralPath $candidate) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:DevEnvDir)) {
+        $candidate = Join-Path $env:DevEnvDir "devenv.exe"
+        if (Test-Path -LiteralPath $candidate) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:VSINSTALLDIR)) {
+        $candidate = Join-Path $env:VSINSTALLDIR "Common7\IDE\devenv.exe"
+        if (Test-Path -LiteralPath $candidate) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    return $null
+}
+
+function Invoke-UpdateConfiguration {
+    param(
+        [string]$DevenvPath,
+        [string]$RootSuffix
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DevenvPath)) {
+        Write-Warning "Could not locate devenv.exe to refresh the Visual Studio package cache."
+        return
+    }
+
+    Write-Host "Refreshing Visual Studio package cache for root suffix '$RootSuffix'."
+    $arguments = @("/RootSuffix", $RootSuffix, "/UpdateConfiguration")
+    $process = Start-Process -FilePath $DevenvPath -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
+    if ($process.ExitCode -ne 0) {
+        throw "devenv /UpdateConfiguration failed with exit code $($process.ExitCode)."
+    }
+}
+
+function Touch-ExtensionsConfigurationChanged {
+    param(
+        [string]$RootSuffix,
+        [string]$InstanceId
+    )
+
+    $visualStudioRoot = Join-Path $env:LOCALAPPDATA "Microsoft\VisualStudio"
+    if (-not (Test-Path -LiteralPath $visualStudioRoot)) {
+        return
+    }
+
+    $instancePattern = if ([string]::IsNullOrWhiteSpace($InstanceId)) { "*$RootSuffix" } else { "*_$InstanceId$RootSuffix" }
+    Get-ChildItem -LiteralPath $visualStudioRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like $instancePattern } |
+        ForEach-Object {
+            $marker = Join-Path (Join-Path $_.FullName "Extensions") "extensions.configurationchanged"
+            $directory = Split-Path -Parent $marker
+            if (Test-Path -LiteralPath $directory) {
+                New-Item -ItemType File -Force -Path $marker | Out-Null
+            }
+        }
+}
+
 function Write-LogTail {
     param([string]$Path)
 
@@ -135,6 +204,7 @@ function Test-ExtensionInstalled {
 
 $resolvedVsix = Resolve-Path -LiteralPath $VsixPath
 $installer = Resolve-VsixInstaller -ConfiguredPath $VsixInstallerPath
+$devenv = Resolve-Devenv -VsixInstallerPath $installer
 $extensionId = Get-VsixIdentifier -Path $resolvedVsix.Path
 
 if ([string]::IsNullOrWhiteSpace($LogFile)) {
@@ -196,6 +266,9 @@ if ($installerExitCode -ne 0) {
     Write-LogTail -Path $LogFile
     throw "VSIXInstaller failed with exit code $installerExitCode."
 }
+
+Touch-ExtensionsConfigurationChanged -RootSuffix $RootSuffix -InstanceId $InstanceId
+Invoke-UpdateConfiguration -DevenvPath $devenv -RootSuffix $RootSuffix
 
 if (Test-Path -LiteralPath $LogFile) {
     $logText = Get-Content -LiteralPath $LogFile -Raw

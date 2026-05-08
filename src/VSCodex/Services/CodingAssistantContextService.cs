@@ -17,6 +17,7 @@ public interface ICodingAssistantContextService
     string BuildDocumentationPrompt();
     string BuildDebugPrompt();
     string BuildTestPrompt();
+    string BuildTestFailurePrompt();
     string BuildPlanPrompt(string userGoal, string agentSummary);
     string BuildReactiveMemorySetupPrompt();
 }
@@ -140,6 +141,32 @@ public sealed class CodingAssistantContextService : ICodingAssistantContextServi
         {
             sb.AppendLine("No editor selection was available; inspect the active solution and propose the best test target.");
         }
+        return sb.ToString().Trim();
+    }
+
+    public string BuildTestFailurePrompt()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var debug = CaptureDebugContext();
+        var selection = _workspace.GetCurrentSelectionReference(12000);
+        var sb = new StringBuilder();
+        sb.AppendLine("Fix the active Visual Studio test failure or the most relevant failing test for this context.");
+        sb.AppendLine("Use the active debugger exception, stack frame, selected code, and solution context to identify the failing behavior, then propose the smallest safe fix and the exact tests to rerun.");
+        if (!string.IsNullOrWhiteSpace(debug.BreakReason)) sb.AppendLine("Break reason: " + debug.BreakReason);
+        if (!string.IsNullOrWhiteSpace(debug.ExceptionDescription)) sb.AppendLine("Exception: " + debug.ExceptionDescription);
+        if (!string.IsNullOrWhiteSpace(debug.StackSummary)) { sb.AppendLine("Stack:"); sb.AppendLine(debug.StackSummary); }
+        if (selection != null)
+        {
+            sb.AppendLine($"Selected code: {selection.RelativePath} lines {selection.StartLine}-{selection.EndLine}");
+            sb.AppendLine("```");
+            sb.AppendLine(selection.Preview);
+            sb.AppendLine("```");
+        }
+        else
+        {
+            sb.AppendLine("No editor selection was available; inspect the active solution, test projects, recent failures, and active document context.");
+        }
+
         return sb.ToString().Trim();
     }
 

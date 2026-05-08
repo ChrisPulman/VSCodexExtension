@@ -47,6 +47,17 @@ public sealed class SettingsStore : ISettingsStore
             settings.DefaultBudgetModel = "gpt-5.4-mini";
         }
 
+        settings.SkillRoots = (settings.SkillRoots ?? new List<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        settings.EnabledSkillPaths = (settings.EnabledSkillPaths ?? new List<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         var defaults = new[] { "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex", "gpt-5-codex" };
         settings.CustomModels = (settings.CustomModels ?? new List<string>())
             .Concat(defaults)

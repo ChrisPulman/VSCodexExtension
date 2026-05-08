@@ -15,6 +15,9 @@ internal static class CodexCommandIds
     public const int OptimizeSelectionCommandId = 0x0109;
     public const int GenerateDocsCommandId = 0x010A;
     public const int ConfigureMemoryCommandId = 0x010B;
+    public const int FixActiveExceptionCommandId = 0x010C;
+    public const int FixActiveErrorCommandId = 0x010D;
+    public const int FixTestFailureCommandId = 0x010E;
     public const int CodexToolsMenuGroup = 0x1020;
     public const int CodexEditorContextMenuGroup = 0x1021;
     public const int CodexViewMenuGroup = 0x1022;
