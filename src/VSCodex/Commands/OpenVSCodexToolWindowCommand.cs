@@ -5,6 +5,7 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Task = System.Threading.Tasks.Task;
 using VSCodex.Infrastructure;
+using VSCodex.Options;
 using VSCodex.Services;
 using VSCodex.ToolWindows;
 
@@ -65,7 +66,11 @@ internal sealed class OpenVSCodexToolWindowCommand
     private void ExecuteOpenSettings(object sender, EventArgs e)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        RunVSCodexCommand(() => OpenToolWindowAsync(window => window.ShowSettings()));
+        RunVSCodexCommand(() =>
+        {
+            _package.ShowOptionPage(typeof(OptionsProvider.GeneralOptions));
+            return Task.CompletedTask;
+        });
     }
 
     private void ExecuteCreateTestFromSelection(object sender, EventArgs e)

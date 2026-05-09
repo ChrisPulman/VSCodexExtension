@@ -12,6 +12,13 @@
           <CommandName>VSCodex</CommandName>
         </Strings>
       </Menu>
+      <Menu guid="guidCommandSet" id="VSCodexViewMenu" priority="0x0100" type="Menu">
+        <Parent guid="guidCommandSet" id="CodexViewMenuGroup" />
+        <Strings>
+          <ButtonText>VSCodex</ButtonText>
+          <CommandName>VSCodex View Menu</CommandName>
+        </Strings>
+      </Menu>
       <Menu guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100" type="Menu">
         <Parent guid="guidCommandSet" id="VSCodexCodeWindowContextMenuGroup" />
         <Strings>
@@ -33,6 +40,9 @@
       </Group>
       <Group guid="guidCommandSet" id="CodexViewMenuGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW" />
+      </Group>
+      <Group guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" priority="0x0100">
+        <Parent guid="guidCommandSet" id="VSCodexViewMenu" />
       </Group>
       <Group guid="guidCommandSet" id="CodexProjectContextMenuGroup" priority="0x0700">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_PROJNODE" />
@@ -68,7 +78,7 @@
 
     <Buttons>
       <Button guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100" type="Button">
-        <Parent guid="guidCommandSet" id="CodexViewMenuGroup" />
+        <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
         <Strings>
           <ButtonText>VSCodex Tool Window</ButtonText>
           <CommandName>Open VSCodex Tool Window</CommandName>
@@ -205,6 +215,33 @@
   </Commands>
 
   <CommandPlacements>
+    <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="AskCodexCommandId" priority="0x0115">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreateTestFromSelectionCommandId" priority="0x0120">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="FixTestFailureCommandId" priority="0x0121">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="FixActiveExceptionCommandId" priority="0x0131">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="FixActiveErrorCommandId" priority="0x0132">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="CreatePlanCommandId" priority="0x0140">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="ConfigureMemoryCommandId" priority="0x0150">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
       <Parent guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" />
     </CommandPlacement>
@@ -436,6 +473,7 @@
       <IDSymbol name="FixActiveErrorCommandId" value="0x010D" />
       <IDSymbol name="FixTestFailureCommandId" value="0x010E" />
       <IDSymbol name="VSCodexTopLevelMenu" value="0x1010" />
+      <IDSymbol name="VSCodexViewMenu" value="0x1013" />
       <IDSymbol name="VSCodexExtensionsMenuGroup" value="0x1011" />
       <IDSymbol name="VSCodexTopLevelMenuGroup" value="0x1012" />
       <IDSymbol name="CodexToolsMenuGroup" value="0x1020" />
@@ -451,6 +489,7 @@
       <IDSymbol name="VSCodexCodeWindowContextMenuGroup" value="0x1031" />
       <IDSymbol name="VSCodexEditorAllContextMenuGroup" value="0x1032" />
       <IDSymbol name="VSCodexEditorContextMenuActionsGroup" value="0x1033" />
+      <IDSymbol name="VSCodexViewMenuCommandsGroup" value="0x1034" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

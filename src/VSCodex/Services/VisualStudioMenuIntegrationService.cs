@@ -106,7 +106,12 @@ internal static class VisualStudioMenuIntegrationService
         var viewMenu = FindControlByCaption(menuBar, "View");
         if (viewMenu != null)
         {
-            AddCommands(dte, GetPopupCommandBar(viewMenu), new[] { OpenToolWindow });
+            var viewCommandBar = GetPopupCommandBar(viewMenu);
+            var viewPopup = viewCommandBar == null ? null : EnsurePopup(viewCommandBar, "VSCodex");
+            if (viewPopup != null)
+            {
+                AddCommands(dte, GetPopupCommandBar(viewPopup), CoreActions);
+            }
         }
 
         var toolsMenu = FindControlByCaption(menuBar, "Tools");
@@ -218,7 +223,11 @@ internal static class VisualStudioMenuIntegrationService
 
             try
             {
-                dteCommand.AddControl(commandBar, position++);
+                var addedControl = dteCommand.AddControl(commandBar, position++);
+                if (addedControl != null)
+                {
+                    SetVisible(addedControl);
+                }
             }
             catch (Exception ex)
             {
@@ -279,6 +288,7 @@ internal static class VisualStudioMenuIntegrationService
 
             SetProperty(popup, "Caption", caption);
             SetProperty(popup, "TooltipText", caption);
+            SetVisible(popup);
             return popup;
         }
         catch (Exception ex)
@@ -375,6 +385,17 @@ internal static class VisualStudioMenuIntegrationService
     private static void SetProperty(object target, string propertyName, object value)
     {
         target.GetType().InvokeMember(propertyName, BindingFlags.SetProperty, null, target, new[] { value });
+    }
+
+    private static void SetVisible(object target)
+    {
+        try
+        {
+            SetProperty(target, "Visible", true);
+        }
+        catch
+        {
+        }
     }
 
     private static IEnumerable<object> EnumerateControls(object controls)

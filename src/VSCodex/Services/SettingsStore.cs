@@ -11,19 +11,37 @@ namespace VSCodex.Services;
 public interface ISettingsStore { IObservable<ExtensionSettings> SettingsChanged { get; } ExtensionSettings Current { get; } void Save(ExtensionSettings settings); }
 public sealed class SettingsStore : ISettingsStore
 {
-    private readonly JsonFileStore _store = new JsonFileStore();
+    private static readonly object Sync = new object();
+    private static readonly JsonFileStore Store = new JsonFileStore();
+    private static BehaviorSubject<ExtensionSettings>? SharedSettings;
     private readonly BehaviorSubject<ExtensionSettings> _settings;
     public SettingsStore()
     {
-        var settings = _store.ReadOrCreate<ExtensionSettings>(LocalPaths.SettingsFile);
-        Normalize(settings);
-        if (settings.SkillRoots.Count == 0) settings.SkillRoots.Add(LocalPaths.UserSkillsRoot);
-        _store.Write(LocalPaths.SettingsFile, settings);
-        _settings = new BehaviorSubject<ExtensionSettings>(settings);
+        lock (Sync)
+        {
+            if (SharedSettings == null)
+            {
+                var settings = Store.ReadOrCreate<ExtensionSettings>(LocalPaths.SettingsFile);
+                Normalize(settings);
+                if (settings.SkillRoots.Count == 0) settings.SkillRoots.Add(LocalPaths.UserSkillsRoot);
+                Store.Write(LocalPaths.SettingsFile, settings);
+                SharedSettings = new BehaviorSubject<ExtensionSettings>(settings);
+            }
+
+            _settings = SharedSettings;
+        }
     }
     public IObservable<ExtensionSettings> SettingsChanged => _settings.AsObservable();
     public ExtensionSettings Current => _settings.Value;
-    public void Save(ExtensionSettings settings) { _store.Write(LocalPaths.SettingsFile, settings); _settings.OnNext(settings); }
+    public void Save(ExtensionSettings settings)
+    {
+        lock (Sync)
+        {
+            Normalize(settings);
+            Store.Write(LocalPaths.SettingsFile, settings);
+            _settings.OnNext(settings);
+        }
+    }
 
     private static void Normalize(ExtensionSettings settings)
     {
