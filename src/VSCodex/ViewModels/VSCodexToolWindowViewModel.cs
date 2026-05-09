@@ -203,6 +203,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             _skillIndex.Skills.ObserveOnSafe(_uiScheduler).Subscribe(UpdateSkills),
             _memoryStore.Memories.ObserveOnSafe(_uiScheduler).Subscribe(UpdateMemories),
             _mcpConfig.Servers.ObserveOnSafe(_uiScheduler).Subscribe(UpdateMcpServers),
+            _settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore),
             this.WhenAnyValue(x => x.Prompt).ThrottleDistinct(TimeSpan.FromMilliseconds(180), _uiScheduler).Subscribe(OnPromptChanged));
 
         Refresh();
@@ -362,6 +363,55 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
         Status = "VSCodex settings are locked while a task is running";
         return false;
+    }
+
+    private void ApplySettingsFromStore(ExtensionSettings settings)
+    {
+        if (settings == null)
+        {
+            return;
+        }
+
+        SetPropertyFromSettings(ref _selectedModel, settings.DefaultModel, nameof(SelectedModel));
+        SetPropertyFromSettings(ref _failoverModel, string.IsNullOrWhiteSpace(settings.DefaultFailoverModel) ? "gpt-5.3-codex" : settings.DefaultFailoverModel, nameof(FailoverModel));
+        SetPropertyFromSettings(ref _selectedReasoning, settings.DefaultReasoningEffort, nameof(SelectedReasoning));
+        SetPropertyFromSettings(ref _selectedVerbosity, settings.DefaultVerbosity, nameof(SelectedVerbosity));
+        SetPropertyFromSettings(ref _approvalPolicy, settings.DefaultApprovalPolicy, nameof(ApprovalPolicy));
+        SetPropertyFromSettings(ref _sandboxMode, settings.DefaultSandboxMode, nameof(SandboxMode));
+        SetPropertyFromSettings(ref _accessLevel, AccessLevelFromSandbox(settings.DefaultSandboxMode), nameof(AccessLevel));
+        SetPropertyFromSettings(ref _useMultiAgentOrchestration, settings.DefaultUseMultiAgentOrchestration, nameof(UseMultiAgentOrchestration));
+        SetPropertyFromSettings(ref _maxAgentConcurrency, Math.Max(1, settings.DefaultMaxAgentConcurrency), nameof(MaxAgentConcurrency));
+        SetPropertyFromSettings(ref _agentStrategy, settings.DefaultAgentStrategy, nameof(AgentStrategy));
+        SetPropertyFromSettings(ref _orchestrationModel, string.IsNullOrWhiteSpace(settings.DefaultOrchestrationModel) ? settings.DefaultModel : settings.DefaultOrchestrationModel, nameof(OrchestrationModel));
+        SetPropertyFromSettings(ref _budgetDrivenModelSelection, settings.DefaultBudgetDrivenModelSelection, nameof(BudgetDrivenModelSelection));
+        SetPropertyFromSettings(ref _budgetModel, string.IsNullOrWhiteSpace(settings.DefaultBudgetModel) ? settings.DefaultModel : settings.DefaultBudgetModel, nameof(BudgetModel));
+        SetPropertyFromSettings(ref _inputAreaHeight, ClampInputHeight(settings.DefaultInputAreaHeight), nameof(InputAreaHeight));
+
+        ReplaceCollection(ModelOptions, settings.CustomModels.Distinct(StringComparer.OrdinalIgnoreCase));
+        ReplaceCollection(ReasoningOptions, settings.CustomReasoningEfforts);
+        ReplaceCollection(VerbosityOptions, settings.CustomVerbosityOptions);
+        ReplaceCollection(AgentRoles, settings.AgentRoles ?? new List<AgentRoleDefinition>());
+        UpdateAnalytics(Prompt);
+    }
+
+    private void SetPropertyFromSettings<T>(ref T field, T value, string propertyName)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+        {
+            return;
+        }
+
+        field = value;
+        this.RaisePropertyChanged(propertyName);
+    }
+
+    private static void ReplaceCollection<T>(ObservableCollection<T> collection, IEnumerable<T> values)
+    {
+        collection.Clear();
+        foreach (var value in values ?? Enumerable.Empty<T>())
+        {
+            collection.Add(value);
+        }
     }
 
     private async Task RunAsync()

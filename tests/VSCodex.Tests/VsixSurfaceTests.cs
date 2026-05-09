@@ -31,11 +31,13 @@ public sealed class VsixSurfaceTests
         var packageSource = ReadText("src/VSCodex/VSCodexPackage.cs");
 
         RequireMenuParent(vsct, "VSCodexTopLevelMenu", "guidCommandSet", "VSCodexExtensionsMenuGroup");
+        RequireMenuParent(vsct, "VSCodexViewMenu", "guidCommandSet", "CodexViewMenuGroup");
         RequireMenuParent(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "VSCodexCodeWindowContextMenuGroup");
         RequireGroupParent(vsct, "VSCodexExtensionsMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_EXTENSIONS");
         RequireGroupParent(vsct, "VSCodexTopLevelMenuGroup", "guidCommandSet", "VSCodexTopLevelMenu");
         RequireGroupParent(vsct, "CodexToolsMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_TOOLS");
         RequireGroupParent(vsct, "CodexViewMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_VIEW");
+        RequireGroupParent(vsct, "VSCodexViewMenuCommandsGroup", "guidCommandSet", "VSCodexViewMenu");
         RequireGroupParent(vsct, "CodexProjectContextMenuGroup", "guidSHLMainMenu", "IDM_VS_CTXT_PROJNODE");
         RequireGroupParent(vsct, "CodexSolutionContextMenuGroup", "guidSHLMainMenu", "IDM_VS_CTXT_SOLNNODE");
         RequireGroupParent(vsct, "CodexItemContextMenuGroup", "guidSHLMainMenu", "IDM_VS_CTXT_ITEMNODE");
@@ -47,7 +49,7 @@ public sealed class VsixSurfaceTests
         RequireGroupParent(vsct, "CodexErrorListContextMenuGroup", "guidSHLMainMenu", "IDM_VS_CTXT_ERRORLIST");
         RequireGroupParent(vsct, "CodexErrorCorrectionContextMenuGroup", "guidSHLMainMenu", "IDM_VS_CTXT_ERROR_CORRECTION");
 
-        RequireButtonParent(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexViewMenuGroup");
+        RequireButtonParent(vsct, "OpenToolWindowCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
         RequireButtonParent(vsct, "OpenOptionsCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
         RequireButtonParent(vsct, "AskCodexCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
         RequireButtonParent(vsct, "ExplainSelectionCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
@@ -60,6 +62,15 @@ public sealed class VsixSurfaceTests
         RequireButtonParent(vsct, "FixActiveErrorCommandId", "guidCommandSet", "CodexErrorListContextMenuGroup");
         RequireButtonParent(vsct, "FixTestFailureCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
+        RequireCommandPlacement(vsct, "OpenOptionsCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
+        RequireCommandPlacement(vsct, "AskCodexCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
+        RequireCommandPlacement(vsct, "CreateTestFromSelectionCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
+        RequireCommandPlacement(vsct, "FixTestFailureCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
+        RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
+        RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
+        RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
+        RequireCommandPlacement(vsct, "CreatePlanCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
+        RequireCommandPlacement(vsct, "ConfigureMemoryCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexToolsMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidSHLMainMenu", "IDG_VS_WNDO_OTRWNDWS1");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexProjectContextMenuGroup");
@@ -118,6 +129,8 @@ public sealed class VsixSurfaceTests
         RequireIdSymbol(vsct, "VSCodexTopLevelMenu");
         RequireIdSymbol(vsct, "VSCodexExtensionsMenuGroup");
         RequireIdSymbol(vsct, "VSCodexTopLevelMenuGroup");
+        RequireIdSymbol(vsct, "VSCodexViewMenu");
+        RequireIdSymbol(vsct, "VSCodexViewMenuCommandsGroup");
         RequireIdSymbol(vsct, "CodexViewMenuGroup");
         RequireIdSymbol(vsct, "CodexProjectContextMenuGroup");
         RequireIdSymbol(vsct, "CodexSolutionContextMenuGroup");
@@ -156,6 +169,8 @@ public sealed class VsixSurfaceTests
         RequireContains(assistantSource, "Fix the active Visual Studio test failure", "Test failure prompt must be scoped to Visual Studio test-failure assistance.");
         RequireContains(packageSource, "VisualStudioMenuIntegrationService.InitializeAsync(this)", "Package load must install visible VSCodex menu entries even if command-cache placement is stale.");
         RequireContains(menuBridge, "View.VSCodex", "Runtime menu bridge must expose the VSCodex tool window in the Visual Studio View menu.");
+        RequireContains(menuBridge, "var viewPopup = viewCommandBar == null ? null : EnsurePopup(viewCommandBar, \"VSCodex\")", "Runtime menu bridge must create a visible View > VSCodex submenu instead of adding a lone View command.");
+        RequireContains(menuBridge, "SetVisible", "Runtime menu bridge must force-added menu controls to be visible.");
         RequireContains(menuBridge, "VSCodex Actions", "Runtime menu bridge must expose VSCodex Actions on editor and Solution Explorer context menus.");
         RequireContains(menuBridge, "Fix with VSCodex", "Runtime menu bridge must expose the requested vulnerability/error fix action.");
         RequireContains(menuBridge, "Code Window", "Runtime menu bridge must target the editor context menu.");
@@ -253,25 +268,43 @@ public sealed class VsixSurfaceTests
     }
 
     [Test]
-    public void VSCodex_settings_are_hosted_in_the_tool_window_not_legacy_Tools_Options()
+    public void VSCodex_settings_are_hosted_in_Tools_Options_with_a_modern_theme_aware_page()
     {
         var packageSource = ReadText("src/VSCodex/VSCodexPackage.cs");
         var commandSource = ReadText("src/VSCodex/Commands/OpenVSCodexToolWindowCommand.cs");
-        var toolWindow = ReadText("src/VSCodex/ToolWindows/VSCodexToolWindowPane.cs");
+        var optionsPage = ReadText("src/VSCodex/Options/OptionsProvider.cs");
+        var project = ReadText("src/VSCodex/VSCodex.csproj");
+        var settingsStore = ReadText("src/VSCodex/Services/SettingsStore.cs");
         var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
-        var view = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml");
         var manifest = ReadText("src/VSCodex/source.extension.vsixmanifest");
 
-        RequireDoesNotContain(packageSource, "ProvideOptionPage", "VSCodex settings must not register a legacy DialogPage.");
-        RequireDoesNotContain(packageSource, "ProvideProfile", "VSCodex settings must not register a legacy profile page.");
-        RequireDoesNotExist("src/VSCodex/Options/CodexOptionsPage.cs", "The legacy DialogPage implementation must not ship with VSCodex.");
-        RequireContains(commandSource, "OpenToolWindowAsync(window => window.ShowSettings())", "The settings command must open the VSCodex tool-window settings surface.");
-        RequireContains(toolWindow, "Caption = \"VSCodex\"", "The tool-window caption must be VSCodex.");
-        RequireContains(toolWindow, "ShowSettingsAsync", "The tool window must expose an explicit settings launch path.");
-        RequireContains(viewModel, "SelectedToolTabIndex", "The settings launch path must be able to select the settings tab.");
-        RequireContains(viewModel, "Status = \"VSCodex settings\"", "Opening settings must update status with the VSCodex name.");
-        RequireContains(view, "SelectedIndex=\"{Binding SelectedToolTabIndex, Mode=TwoWay}\"", "The settings tab selection must be bound.");
-        RequireContains(view, "Header=\"Settings\"", "The model and execution controls must be hosted as the VSCodex settings tab.");
+        RequireContains(packageSource, "ProvideOptionPage(typeof(OptionsProvider.GeneralOptions), \"VSCodex\", \"General\"", "VSCodex settings must be registered under Tools > Options > VSCodex with the modern Community options provider.");
+        RequireContains(packageSource, "ProvideProfile(typeof(OptionsProvider.GeneralOptions), \"VSCodex\", \"General\"", "VSCodex settings should participate in Visual Studio profile import/export through the modern options provider.");
+        RequireContains(commandSource, "ShowOptionPage(typeof(OptionsProvider.GeneralOptions))", "The VSCodex Settings menu command must open the modern Tools > Options provider instead of the tool window.");
+        RequireDoesNotContain(commandSource, "OpenToolWindowAsync(window => window.ShowSettings())", "Settings must not be forced into the docked tool-window settings tab.");
+        RequireContains(project, "Community.VisualStudio.Toolkit.17", "Modern Visual Studio settings should use the Community Toolkit Options Page pattern documented by Microsoft.");
+        RequireContains(optionsPage, "BaseOptionPage<VSCodexOptionsModel>", "The options page must use the Community Toolkit modern options provider instead of a hand-built legacy UIElementDialogPage.");
+        RequireContains(optionsPage, "[ComVisible(true)]", "The Community Toolkit DialogPage implementation must remain visible to COM for Visual Studio registration.");
+        RequireContains(optionsPage, "BaseOptionModel<VSCodexOptionsModel>", "The options model must use the Community Toolkit BaseOptionModel pattern.");
+        RequireDoesNotContain(optionsPage, "UIElementDialogPage", "Legacy UIElementDialogPage settings must not be used for VSCodex general settings.");
+        RequireContains(optionsPage, "Category(\"Runtime\")", "The modern settings page must group runtime settings.");
+        RequireContains(optionsPage, "Category(\"Models\")", "The modern settings page must group model settings.");
+        RequireContains(optionsPage, "Category(\"Approvals and sandbox\")", "The modern settings page must group approval and sandbox settings.");
+        RequireContains(optionsPage, "Category(\"Agents\")", "The modern settings page must group agent settings.");
+        RequireContains(optionsPage, "Category(\"Context, skills, and memory\")", "The modern settings page must group context, skill, and memory settings.");
+        RequireContains(optionsPage, "LoadFromSettingsStore", "The modern options model must hydrate from the shared VSCodex settings store.");
+        RequireContains(optionsPage, "SaveToSettingsStore", "The modern options model must persist through the shared VSCodex settings store.");
+        RequireContains(optionsPage, "store.Save(settings)", "Saving modern options must broadcast settings to open VSCodex tool windows.");
+        RequireContains(optionsPage, "DefaultModel", "The options page must configure the primary model.");
+        RequireContains(optionsPage, "DefaultFailoverModel", "The options page must configure model failover.");
+        RequireContains(optionsPage, "DefaultUseMultiAgentOrchestration", "The options page must configure multi-agent orchestration.");
+        RequireContains(optionsPage, "CP.ReactiveMemory.Mcp.Server", "The options page must surface the default ReactiveMemory MCP server identity.");
+        RequireContains(optionsPage, "SaveSettingsToStorage", "The options page must persist settings through the existing VSCodex settings store.");
+        RequireContains(settingsStore, "static BehaviorSubject<ExtensionSettings>? SharedSettings", "Tools > Options and the tool window must share one live settings stream.");
+        RequireContains(settingsStore, "SettingsChanged => _settings.AsObservable()", "Runtime services must observe Tools > Options changes through the shared settings stream.");
+        RequireContains(settingsStore, "Normalize(settings);", "Saved Tools > Options values must be normalized before they are persisted and broadcast.");
+        RequireContains(viewModel, "_settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore)", "An open VSCodex tool window must react to Tools > Options changes without restarting Visual Studio.");
+        RequireContains(viewModel, "ApplySettingsFromStore", "Tools > Options changes must update the live tool-window run settings.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
         RequireContains(manifest, "Version=\"0.1.16\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
