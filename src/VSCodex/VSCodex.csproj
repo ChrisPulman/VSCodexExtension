@@ -44,7 +44,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <VSCTCompile Include="Commands\CodexCommands.vsct" />
+    <VSCTCompile Include="Commands\CodexCommands.vsct">
+      <ResourceName>Menus.ctmenu</ResourceName>
+    </VSCTCompile>
     <None Update="source.extension.vsixmanifest">
       <SubType>Designer</SubType>
     </None>
@@ -87,13 +89,11 @@
     </ItemGroup>
   </Target>
 
-  <Target Name="IncludeVSCodexCommandTableInVsix" AfterTargets="GetVsixSourceItems" DependsOnTargets="VSCTCompile">
-    <Copy SourceFiles="$(IntermediateOutputPath)CodexCommands.cto" DestinationFiles="$(IntermediateOutputPath)Menus.ctmenu" SkipUnchangedFiles="true" Condition="Exists('$(IntermediateOutputPath)CodexCommands.cto')" />
+  <Target Name="IncludeVSCodexCommandTableInVsix" BeforeTargets="GetVsixSourceItems" DependsOnTargets="VSCTCompile">
     <ItemGroup>
-      <VSIXSourceItem Include="$(IntermediateOutputPath)Menus.ctmenu" Condition="Exists('$(IntermediateOutputPath)Menus.ctmenu')">
-        <VSIXSubPath></VSIXSubPath>
+      <VSIXSourceItem Include="$(IntermediateOutputPath)CodexCommands.cto" Condition="Exists('$(IntermediateOutputPath)CodexCommands.cto')">
+        <TargetPath>Menus.ctmenu</TargetPath>
       </VSIXSourceItem>
-      <FileWrites Include="$(IntermediateOutputPath)Menus.ctmenu" Condition="Exists('$(IntermediateOutputPath)Menus.ctmenu')" />
     </ItemGroup>
   </Target>
 

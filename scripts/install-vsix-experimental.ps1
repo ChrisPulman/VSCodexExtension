@@ -118,6 +118,76 @@ function Touch-ExtensionsConfigurationChanged {
         }
 }
 
+function Test-PathUnderDirectory {
+    param(
+        [string]$Path,
+        [string]$Directory
+    )
+
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+    $resolvedDirectory = [System.IO.Path]::GetFullPath($Directory).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    return $resolvedPath.StartsWith($resolvedDirectory, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-TargetVisualStudioInstanceDirectories {
+    param(
+        [string]$RootSuffix,
+        [string]$InstanceId
+    )
+
+    $visualStudioRoot = Join-Path $env:LOCALAPPDATA "Microsoft\VisualStudio"
+    if (-not (Test-Path -LiteralPath $visualStudioRoot)) {
+        return @()
+    }
+
+    $instancePattern = if ([string]::IsNullOrWhiteSpace($InstanceId)) { "*$RootSuffix" } else { "*_$InstanceId$RootSuffix" }
+    return @(Get-ChildItem -LiteralPath $visualStudioRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like $instancePattern })
+}
+
+function Remove-VerifiedDirectory {
+    param(
+        [string]$Path,
+        [string]$ExpectedParent
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+    $resolvedParent = (Resolve-Path -LiteralPath $ExpectedParent).Path
+    if (-not (Test-PathUnderDirectory -Path $resolvedPath -Directory $resolvedParent)) {
+        throw "Refusing to remove '$resolvedPath' because it is outside '$resolvedParent'."
+    }
+
+    Remove-Item -LiteralPath $resolvedPath -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+function Clear-VisualStudioExtensionCaches {
+    param(
+        [string]$RootSuffix,
+        [string]$InstanceId
+    )
+
+    foreach ($instance in Get-TargetVisualStudioInstanceDirectories -RootSuffix $RootSuffix -InstanceId $InstanceId) {
+        Remove-VerifiedDirectory -Path (Join-Path $instance.FullName "ComponentModelCache") -ExpectedParent $instance.FullName
+        Remove-VerifiedDirectory -Path (Join-Path $instance.FullName "MEFCacheBackup") -ExpectedParent $instance.FullName
+
+        $extensionsRoot = Join-Path $instance.FullName "Extensions"
+        if (Test-Path -LiteralPath $extensionsRoot) {
+            Get-ChildItem -LiteralPath $extensionsRoot -Recurse -Filter "ExtensionMetadataCache.mpack" -ErrorAction SilentlyContinue |
+                ForEach-Object {
+                    if (-not (Test-PathUnderDirectory -Path $_.FullName -Directory $extensionsRoot)) {
+                        throw "Refusing to remove '$($_.FullName)' because it is outside '$extensionsRoot'."
+                    }
+
+                    Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+                }
+        }
+    }
+}
+
 function Write-LogTail {
     param([string]$Path)
 
@@ -268,6 +338,7 @@ if ($installerExitCode -ne 0) {
 }
 
 Touch-ExtensionsConfigurationChanged -RootSuffix $RootSuffix -InstanceId $InstanceId
+Clear-VisualStudioExtensionCaches -RootSuffix $RootSuffix -InstanceId $InstanceId
 Invoke-UpdateConfiguration -DevenvPath $devenv -RootSuffix $RootSuffix
 
 if (Test-Path -LiteralPath $LogFile) {

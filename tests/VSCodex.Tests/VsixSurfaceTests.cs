@@ -33,7 +33,7 @@ public sealed class VsixSurfaceTests
         RequireMenuParent(vsct, "VSCodexTopLevelMenu", "guidCommandSet", "VSCodexExtensionsMenuGroup");
         RequireMenuParent(vsct, "VSCodexViewMenu", "guidCommandSet", "CodexViewMenuGroup");
         RequireMenuParent(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "VSCodexCodeWindowContextMenuGroup");
-        RequireGroupParent(vsct, "VSCodexExtensionsMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_EXTENSIONS");
+        RequireGroupParent(vsct, "VSCodexExtensionsMenuGroup", "guidSHLMainMenu", "IDG_VS_MM_TOOLSADDINS");
         RequireGroupParent(vsct, "VSCodexTopLevelMenuGroup", "guidCommandSet", "VSCodexTopLevelMenu");
         RequireGroupParent(vsct, "CodexToolsMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_TOOLS");
         RequireGroupParent(vsct, "CodexViewMenuGroup", "guidSHLMainMenu", "IDM_VS_MENU_VIEW");
@@ -58,6 +58,7 @@ public sealed class VsixSurfaceTests
         RequireKeyBinding(vsct, "OpenToolWindowCommandId", "guidVSStd97", "0xBE", "Control Shift", "C", "Control");
         RequireDoesNotDefineIdSymbol(vsct, "IDM_VS_MENU_VIEW");
         RequireDoesNotDefineIdSymbol(vsct, "IDG_VS_WNDO_OTRWNDWS1");
+        RequireDoesNotDefineIdSymbol(vsct, "IDM_VS_MENU_EXTENSIONS");
         RequireButtonParent(vsct, "OpenOptionsCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
         RequireButtonParent(vsct, "AskCodexCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
         RequireButtonParent(vsct, "ExplainSelectionCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
@@ -81,6 +82,7 @@ public sealed class VsixSurfaceTests
         RequireCommandPlacement(vsct, "CreatePlanCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
         RequireCommandPlacement(vsct, "ConfigureMemoryCommandId", "guidCommandSet", "VSCodexViewMenuCommandsGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexToolsMenuGroup");
+        RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidSHLMainMenu", "IDG_VS_WNDO_OTRWNDWS1");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexProjectContextMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexSolutionContextMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexItemContextMenuGroup");
@@ -163,6 +165,9 @@ public sealed class VsixSurfaceTests
         RequireVisibleCommandStringsUseVSCodex(vsct);
         RequireContains(commandSource, "OleMenuCommand", "VSCodex context commands must participate in Visual Studio query-status routing.");
         RequireContains(commandSource, "BeforeQueryStatus", "VSCodex context commands must update visibility and debug labels when menus open.");
+        RequireContains(commandSource, "FindCommand(commandIdentifier)", "VSCodex command registration must tolerate retries without duplicate command failures.");
+        RequireContains(commandSource, "for (var attempt = 1; attempt <= 10", "VSCodex command registration must retry until IMenuCommandService is available.");
+        RequireContains(commandSource, "IMenuCommandService was unavailable", "Command registration failures must be logged instead of silently leaving visible menu items without handlers.");
         RequireMatches(commandSource, @"AddCommand\s*\(\s*commandService\s*,\s*CodexCommandIds\.OpenToolWindowCommandId\s*,\s*ExecuteOpenToolWindow\s*,\s*QueryOpenToolWindowCommandStatus\s*\)", "The Open VSCodex Tool Window command must have its own query-status handler so it remains visible after the tool window is closed.");
         RequireMatches(commandSource, @"QueryOpenToolWindowCommandStatus[\s\S]*?command\.Visible\s*=\s*true\s*;[\s\S]*?command\.Enabled\s*=\s*true\s*;[\s\S]*?command\.Text\s*=\s*""VSCodex""\s*;", "The Open VSCodex command must stay visible, enabled, and named VSCodex.");
         RequireContains(commandSource, "QueryEditorContextCommandStatus", "Editor selection actions must be query-status aware.");
@@ -178,10 +183,16 @@ public sealed class VsixSurfaceTests
         RequireContains(assistantSource, "BuildTestFailurePrompt", "Coding assistant context must know how to build a test failure prompt.");
         RequireContains(assistantSource, "Fix the active Visual Studio test failure", "Test failure prompt must be scoped to Visual Studio test-failure assistance.");
         RequireContains(packageSource, "VisualStudioMenuIntegrationService.InitializeAsync(this)", "Package load must install visible VSCodex menu entries even if command-cache placement is stale.");
-        RequireContains(packageSource, "[ProvideMenuResource(\"Menus.ctmenu\", 3)]", "The menu resource version must be bumped when VSCT placements change so Visual Studio refreshes the cached command table.");
+        RequireContains(packageSource, "[ProvideMenuResource(\"Menus.ctmenu\", 4)]", "The menu resource version must be bumped when VSCT placements change so Visual Studio refreshes the cached command table.");
         RequireContains(menuBridge, "View.VSCodex", "Runtime menu bridge must expose the VSCodex tool window in the Visual Studio View menu.");
         RequireContains(menuBridge, "var viewPopup = viewCommandBar == null ? null : EnsurePopup(viewCommandBar, \"VSCodex Actions\")", "Runtime menu bridge must create a visible View > VSCodex Actions submenu without conflicting with the direct View > VSCodex command.");
-        RequireMatches(menuBridge, @"var dteCommand = TryGetCommand[\s\S]*?if \(dteCommand == null\)[\s\S]*?continue;[\s\S]*?DeleteControl\(commandBar, command\.Caption\);", "Runtime menu bridge must not delete existing static menu controls until the replacement DTE command is available.");
+        RequireContains(menuBridge, "FindControlByCaption(commandBar, command.Caption)", "Runtime menu bridge must detect existing static menu controls before adding replacements.");
+        RequireContains(menuBridge, "continue;", "Runtime menu bridge must keep existing static menu controls instead of deleting them.");
+        RequireDoesNotContain(menuBridge, "DeleteControl", "Runtime menu bridge must not delete static VSCT controls while repairing menu placement.");
+        RequireContains(menuBridge, "for (var attempt = 1; attempt <= 10", "Runtime menu bridge must retry until the command table is available.");
+        RequireContains(menuBridge, "return openCommandVisible;", "Runtime menu bridge must not mark itself installed unless View > VSCodex is visible.");
+        RequireContains(menuBridge, "CodexCommandIds.CommandSetGuidString", "Runtime menu bridge must fall back to GUID/ID command lookup when VS2026 does not expose canonical DTE names.");
+        RequireContains(menuBridge, "public int CommandId", "Runtime menu bridge command specs must carry command IDs for VS2026 command lookup.");
         RequireContains(menuBridge, "var otherWindowsPopup = viewCommandBar == null ? null : FindControlByCaption(viewCommandBar, \"Other Windows\")", "Runtime menu bridge must also target the canonical View > Other Windows recovery surface.");
         RequireContains(menuBridge, "SetVisible", "Runtime menu bridge must force-added menu controls to be visible.");
         RequireContains(menuBridge, "SetVisible(existing);", "Runtime menu bridge must force existing VSCodex menu popups visible, not only newly-created popups.");
@@ -331,7 +342,7 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "_settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore)", "An open VSCodex tool window must react to Tools > Options changes without restarting Visual Studio.");
         RequireContains(viewModel, "ApplySettingsFromStore", "Tools > Options changes must update the live tool-window run settings.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.1.18\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.1.19\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
     }
 
@@ -771,12 +782,17 @@ public sealed class VsixSurfaceTests
         RequireContains(project, "LaunchVSCodexVsixInstaller", "Command-line Release builds must be able to invoke the visible Visual Studio installer.");
         RequireContains(project, "VSCodexLaunchVsixInstaller", "Installer launch must be controlled by an explicit MSBuild property.");
         RequireContains(project, "IncludeVSCodexCommandTableInVsix", "The compiled VSCT command table must be packaged into the VSIX.");
-        RequireContains(project, "CodexCommands.cto", "The generated Codex command table must be copied from the intermediate output.");
-        RequireContains(project, "Menus.ctmenu", "The packaged command table must match ProvideMenuResource(\"Menus.ctmenu\", 3).");
+        RequireContains(project, "<ResourceName>Menus.ctmenu</ResourceName>", "The VSCT resource name must match ProvideMenuResource(\"Menus.ctmenu\", 4).");
+        RequireContains(project, "BeforeTargets=\"GetVsixSourceItems\"", "The compiled command table must be added before the VSIX source item list is collected.");
+        RequireContains(project, "CodexCommands.cto", "The generated Codex command table must be packaged from the intermediate output.");
+        RequireContains(project, "<TargetPath>Menus.ctmenu</TargetPath>", "The packaged command table must be installed at the VSIX root as Menus.ctmenu.");
+        RequireDoesNotContain(project, "DestinationFiles=\"$(IntermediateOutputPath)Menus.ctmenu\"", "The command table must not depend on an after-the-fact copy that can miss VSIX item collection.");
         RequireContains(installerScript, "/rootSuffix:$RootSuffix", "VSIXInstaller must install into the requested Visual Studio root suffix.");
         RequireContains(installerScript, "/instanceIds:$InstanceId", "VSIXInstaller must support targeting the current Visual Studio instance.");
         RequireContains(installerScript, "/UpdateConfiguration", "VSIXInstaller deployment must refresh the Visual Studio package cache after replacing extension folders.");
         RequireContains(installerScript, "extensions.configurationchanged", "VSIXInstaller deployment must mark the extension cache dirty before refreshing configuration.");
+        RequireContains(installerScript, "Clear-VisualStudioExtensionCaches", "VSIXInstaller deployment must clear stale command and MEF caches before refreshing configuration.");
+        RequireContains(installerScript, "Remove-VerifiedDirectory", "VSIXInstaller deployment cache cleanup must verify paths before recursive deletion.");
         RequireContains(installerScript, "PerUserEnabledExtensionsCache", "The installer script must wait for the extension to be enabled, not only copied.");
         RequireContains(launcherScript, "VSIXInstaller.exe", "The visible Release launcher must invoke Visual Studio VSIXInstaller directly.");
         RequireContains(launcherScript, "Start-Process", "The visible Release launcher must start the installer UI.");

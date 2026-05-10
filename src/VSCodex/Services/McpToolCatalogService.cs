@@ -90,7 +90,7 @@ public sealed class McpToolCatalogService : IMcpToolCatalogService
             {
                 ["protocolVersion"] = "2024-11-05",
                 ["capabilities"] = new JObject(),
-                ["clientInfo"] = new JObject { ["name"] = "VSCodex", ["version"] = "0.1.18" }
+                ["clientInfo"] = new JObject { ["name"] = "VSCodex", ["version"] = "0.1.19" }
             });
             WriteNotification(process.StandardInput, "notifications/initialized", new JObject());
             WriteRpc(process.StandardInput, 2, "tools/call", new JObject
