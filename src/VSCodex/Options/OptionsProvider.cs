@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -59,24 +60,28 @@ public sealed class VSCodexOptionsModel : BaseOptionModel<VSCodexOptionsModel>
     [DisplayName("Default model")]
     [Description("Primary interactive coding model.")]
     [DefaultValue("gpt-5.5")]
+    [TypeConverter(typeof(AvailableModelTypeConverter))]
     public string DefaultModel { get; set; } = "gpt-5.5";
 
     [Category("Models")]
     [DisplayName("Default failover model")]
     [Description("Fallback model used when the primary model is unavailable.")]
     [DefaultValue("gpt-5.3-codex")]
+    [TypeConverter(typeof(AvailableModelTypeConverter))]
     public string DefaultFailoverModel { get; set; } = "gpt-5.3-codex";
 
     [Category("Models")]
     [DisplayName("Reasoning effort")]
     [Description("Default reasoning effort for model requests. Typical values: minimal, low, medium, high, xhigh.")]
     [DefaultValue("medium")]
+    [TypeConverter(typeof(ReasoningEffortTypeConverter))]
     public string DefaultReasoningEffort { get; set; } = "medium";
 
     [Category("Models")]
     [DisplayName("Verbosity")]
     [Description("Default response verbosity. Typical values: low, medium, high.")]
     [DefaultValue("medium")]
+    [TypeConverter(typeof(VerbosityTypeConverter))]
     public string DefaultVerbosity { get; set; } = "medium";
 
     [Category("Models")]
@@ -94,6 +99,7 @@ public sealed class VSCodexOptionsModel : BaseOptionModel<VSCodexOptionsModel>
     [Category("Models")]
     [DisplayName("Custom models")]
     [Description("One model id per line for the model picker.")]
+    [RefreshProperties(RefreshProperties.All)]
     public string CustomModels { get; set; } = string.Empty;
 
     [Category("Approvals and sandbox")]
@@ -130,6 +136,7 @@ public sealed class VSCodexOptionsModel : BaseOptionModel<VSCodexOptionsModel>
     [DisplayName("Orchestration model")]
     [Description("Model used to split, route, and verify multi-agent tasks.")]
     [DefaultValue("gpt-5.5")]
+    [TypeConverter(typeof(AvailableModelTypeConverter))]
     public string DefaultOrchestrationModel { get; set; } = "gpt-5.5";
 
     [Category("Agents")]
@@ -142,6 +149,7 @@ public sealed class VSCodexOptionsModel : BaseOptionModel<VSCodexOptionsModel>
     [DisplayName("Budget model")]
     [Description("Lower-cost model used when budget-driven selection is enabled.")]
     [DefaultValue("gpt-5.4-mini")]
+    [TypeConverter(typeof(AvailableModelTypeConverter))]
     public string DefaultBudgetModel { get; set; } = "gpt-5.4-mini";
 
     [Category("Context, skills, and memory")]
@@ -236,4 +244,138 @@ public sealed class VSCodexOptionsModel : BaseOptionModel<VSCodexOptionsModel>
         var trimmed = (value ?? string.Empty).Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
     }
+}
+
+public sealed class AvailableModelTypeConverter : StringConverter
+{
+    public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
+
+    public override bool GetStandardValuesExclusive(ITypeDescriptorContext? context) => true;
+
+    public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
+        => new StandardValuesCollection(OptionsStandardValues.GetAvailableModels(context).ToArray());
+}
+
+public sealed class ReasoningEffortTypeConverter : StringConverter
+{
+    public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
+
+    public override bool GetStandardValuesExclusive(ITypeDescriptorContext? context) => true;
+
+    public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
+        => new StandardValuesCollection(OptionsStandardValues.GetReasoningEfforts(context).ToArray());
+}
+
+public sealed class VerbosityTypeConverter : StringConverter
+{
+    public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
+
+    public override bool GetStandardValuesExclusive(ITypeDescriptorContext? context) => true;
+
+    public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
+        => new StandardValuesCollection(OptionsStandardValues.GetVerbosityOptions(context).ToArray());
+}
+
+internal static class OptionsStandardValues
+{
+    private static readonly string[] DefaultModels =
+    {
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-5.2-codex",
+        "gpt-5.1-codex",
+        "gpt-5-codex"
+    };
+
+    private static readonly string[] DefaultReasoningEfforts = { "minimal", "low", "medium", "high", "xhigh" };
+    private static readonly string[] DefaultVerbosityOptions = { "low", "medium", "high" };
+
+    public static IEnumerable<string> GetAvailableModels(ITypeDescriptorContext? context)
+    {
+        var values = new List<string>();
+        if (context?.Instance is VSCodexOptionsModel model)
+        {
+            values.AddRange(Lines(model.CustomModels));
+            values.Add(model.DefaultModel);
+            values.Add(model.DefaultFailoverModel);
+            values.Add(model.DefaultOrchestrationModel);
+            values.Add(model.DefaultBudgetModel);
+        }
+
+        var settings = TryGetSettings();
+        if (settings != null)
+        {
+            values.AddRange(settings.CustomModels ?? Enumerable.Empty<string>());
+            values.Add(settings.DefaultModel);
+            values.Add(settings.DefaultFailoverModel);
+            values.Add(settings.DefaultOrchestrationModel);
+            values.Add(settings.DefaultBudgetModel);
+        }
+
+        values.AddRange(DefaultModels);
+        return DistinctValues(values);
+    }
+
+    public static IEnumerable<string> GetReasoningEfforts(ITypeDescriptorContext? context)
+    {
+        var values = new List<string>();
+        if (context?.Instance is VSCodexOptionsModel model)
+        {
+            values.Add(model.DefaultReasoningEffort);
+        }
+
+        var settings = TryGetSettings();
+        if (settings != null)
+        {
+            values.AddRange(settings.CustomReasoningEfforts ?? Enumerable.Empty<string>());
+            values.Add(settings.DefaultReasoningEffort);
+        }
+
+        values.AddRange(DefaultReasoningEfforts);
+        return DistinctValues(values);
+    }
+
+    public static IEnumerable<string> GetVerbosityOptions(ITypeDescriptorContext? context)
+    {
+        var values = new List<string>();
+        if (context?.Instance is VSCodexOptionsModel model)
+        {
+            values.Add(model.DefaultVerbosity);
+        }
+
+        var settings = TryGetSettings();
+        if (settings != null)
+        {
+            values.AddRange(settings.CustomVerbosityOptions ?? Enumerable.Empty<string>());
+            values.Add(settings.DefaultVerbosity);
+        }
+
+        values.AddRange(DefaultVerbosityOptions);
+        return DistinctValues(values);
+    }
+
+    private static ExtensionSettings? TryGetSettings()
+    {
+        try
+        {
+            return new SettingsStore().Current;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IEnumerable<string> Lines(string value)
+        => (value ?? string.Empty)
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim());
+
+    private static IEnumerable<string> DistinctValues(IEnumerable<string> values)
+        => values
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
 }

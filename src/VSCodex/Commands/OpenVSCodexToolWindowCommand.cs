@@ -19,7 +19,7 @@ internal sealed class OpenVSCodexToolWindowCommand
     {
         _package = package ?? throw new ArgumentNullException(nameof(package));
 
-        AddCommand(commandService, CodexCommandIds.OpenToolWindowCommandId, ExecuteOpenToolWindow);
+        AddCommand(commandService, CodexCommandIds.OpenToolWindowCommandId, ExecuteOpenToolWindow, QueryOpenToolWindowCommandStatus);
         AddCommand(commandService, CodexCommandIds.OpenOptionsCommandId, ExecuteOpenSettings);
         AddCommand(commandService, CodexCommandIds.AskCodexCommandId, ExecuteAskCodex, QueryEditorContextCommandStatus);
         AddCommand(commandService, CodexCommandIds.ExplainSelectionCommandId, ExecuteExplainSelection, QueryEditorContextCommandStatus);
@@ -149,6 +149,17 @@ internal sealed class OpenVSCodexToolWindowCommand
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         ShowPromptFromContext(x => x.BuildTestFailurePrompt());
+    }
+
+    private void QueryOpenToolWindowCommandStatus(object sender, EventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (sender is OleMenuCommand command)
+        {
+            command.Visible = true;
+            command.Enabled = true;
+            command.Text = "VSCodex";
+        }
     }
 
     private void QueryEditorContextCommandStatus(object sender, EventArgs e)

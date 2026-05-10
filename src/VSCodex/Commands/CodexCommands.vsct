@@ -7,16 +7,18 @@
     <Menus>
       <Menu guid="guidCommandSet" id="VSCodexTopLevelMenu" priority="0x0200" type="Menu">
         <Parent guid="guidCommandSet" id="VSCodexExtensionsMenuGroup" />
+        <CommandFlag>AlwaysCreate</CommandFlag>
         <Strings>
           <ButtonText>VSCodex</ButtonText>
           <CommandName>VSCodex</CommandName>
         </Strings>
       </Menu>
-      <Menu guid="guidCommandSet" id="VSCodexViewMenu" priority="0x0100" type="Menu">
+      <Menu guid="guidCommandSet" id="VSCodexViewMenu" priority="0x0200" type="Menu">
         <Parent guid="guidCommandSet" id="CodexViewMenuGroup" />
+        <CommandFlag>AlwaysCreate</CommandFlag>
         <Strings>
-          <ButtonText>VSCodex</ButtonText>
-          <CommandName>VSCodex View Menu</CommandName>
+          <ButtonText>VSCodex Actions</ButtonText>
+          <CommandName>VSCodex Actions</CommandName>
         </Strings>
       </Menu>
       <Menu guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100" type="Menu">
@@ -77,11 +79,12 @@
     </Groups>
 
     <Buttons>
-      <Button guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100" type="Button">
-        <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+      <Button guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0050" type="Button">
+        <Parent guid="guidCommandSet" id="CodexViewMenuGroup" />
+        <CommandFlag>DontCache</CommandFlag>
         <Strings>
-          <ButtonText>VSCodex Tool Window</ButtonText>
-          <CommandName>Open VSCodex Tool Window</CommandName>
+          <ButtonText>VSCodex</ButtonText>
+          <CommandName>View.VSCodex</CommandName>
           <LocCanonicalName>View.VSCodex</LocCanonicalName>
         </Strings>
       </Button>
@@ -214,7 +217,14 @@
     </Buttons>
   </Commands>
 
+  <KeyBindings>
+    <KeyBinding guid="guidCommandSet" id="OpenToolWindowCommandId" editor="guidVSStd97" key1="0xBE" mod1="Control Shift" key2="C" mod2="Control" />
+  </KeyBindings>
+
   <CommandPlacements>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
+    </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
       <Parent guid="guidCommandSet" id="VSCodexViewMenuCommandsGroup" />
     </CommandPlacement>
@@ -262,9 +272,6 @@
     </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
       <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
-      <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
     </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
       <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />

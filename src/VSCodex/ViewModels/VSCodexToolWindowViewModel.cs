@@ -42,7 +42,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private readonly Dispatcher _uiDispatcher;
     private readonly IScheduler _uiScheduler;
     private readonly IDisposable _subscriptions;
-    private readonly CodexSessionDocument _session;
+    private CodexSessionDocument _session;
     private int _promptChangeRevision;
     private string _lastWorkspaceIdentityId = string.Empty;
 
@@ -51,10 +51,11 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private bool _isRunning;
     private bool _useMultiAgentOrchestration;
     private bool _budgetDrivenModelSelection;
-    private bool _isSettingsPanelOpen;
+    private bool _isToolPanelOpen;
     private int _maxAgentConcurrency = 1;
     private int _selectedToolTabIndex;
     private double _inputAreaHeight = 180d;
+    private string _historySearchText = string.Empty;
     private AgentExecutionStrategy _agentStrategy = AgentExecutionStrategy.ReviewGate;
     private CodexRunMode _mode = CodexRunMode.Chat;
     private string _selectedModel;
@@ -81,6 +82,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private CodexTransportKind _transport = CodexTransportKind.SdkBridge;
     private McpServerDefinition? _selectedMcpServer;
     private McpToolDefinition? _selectedMcpTool;
+    private SessionHistoryItem? _selectedHistoryItem;
     private PromptSuggestionItem? _selectedPromptSuggestion;
     private bool _isPromptSuggestionOpen;
     private string? _threadId;
@@ -145,6 +147,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         FileSuggestions = new ObservableCollection<WorkspaceFileReference>();
         ContextSuggestions = new ObservableCollection<WorkspaceFileReference>();
         PromptSuggestions = new ObservableCollection<PromptSuggestionItem>();
+        HistoryItems = new ObservableCollection<SessionHistoryItem>();
+        VisibleHistoryItems = new ObservableCollection<SessionHistoryItem>();
         OrchestrationSections = new ObservableCollection<OrchestrationTaskSection>();
         AgentRoles = new ObservableCollection<AgentRoleDefinition>(settings.AgentRoles ?? new List<AgentRoleDefinition>());
         RateLimits = new ObservableCollection<RateLimitWindowStatus>(BuildDefaultRateLimits());
@@ -167,7 +171,13 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         RunCommand = ReactiveCommand.CreateFromTask(RunAsync, canRun, _uiScheduler);
         CancelCommand = ReactiveCommand.Create(() => { _taskOrchestrator.Cancel(); _codex.Cancel(); }, canCancel, _uiScheduler);
         NewThreadCommand = ReactiveCommand.Create(StartNewThread, outputScheduler: _uiScheduler);
-        ShowSettingsCommand = ReactiveCommand.Create(ShowSettings, this.WhenAnyValue(x => x.IsRunning, running => !running).ObserveOn(_uiScheduler), _uiScheduler);
+        ShowHistoryCommand = ReactiveCommand.Create(ShowHistory, this.WhenAnyValue(x => x.IsRunning, running => !running).ObserveOn(_uiScheduler), _uiScheduler);
+        RefreshHistoryCommand = ReactiveCommand.Create(RefreshHistory, outputScheduler: _uiScheduler);
+        LoadHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(LoadHistoryItem, outputScheduler: _uiScheduler);
+        DeleteHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(DeleteHistoryItem, outputScheduler: _uiScheduler);
+        BeginRenameHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(BeginRenameHistoryItem, outputScheduler: _uiScheduler);
+        SaveRenameHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(SaveRenameHistoryItem, outputScheduler: _uiScheduler);
+        CancelRenameHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(CancelRenameHistoryItem, outputScheduler: _uiScheduler);
         CheckPrerequisitesCommand = ReactiveCommand.CreateFromTask(CheckPrerequisitesAsync, null, _uiScheduler);
         RefreshCommand = ReactiveCommand.Create(Refresh, outputScheduler: _uiScheduler);
         RefreshAnalyticsCommand = ReactiveCommand.Create(() => UpdateAnalytics(Prompt), outputScheduler: _uiScheduler);
@@ -225,6 +235,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ObservableCollection<WorkspaceFileReference> FileSuggestions { get; }
     public ObservableCollection<WorkspaceFileReference> ContextSuggestions { get; }
     public ObservableCollection<PromptSuggestionItem> PromptSuggestions { get; }
+    public ObservableCollection<SessionHistoryItem> HistoryItems { get; }
+    public ObservableCollection<SessionHistoryItem> VisibleHistoryItems { get; }
     public ObservableCollection<OrchestrationTaskSection> OrchestrationSections { get; }
     public ObservableCollection<AgentRoleDefinition> AgentRoles { get; }
     public ObservableCollection<RateLimitWindowStatus> RateLimits { get; }
@@ -243,7 +255,13 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> RunCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelCommand { get; }
     public ReactiveCommand<Unit, Unit> NewThreadCommand { get; }
-    public ReactiveCommand<Unit, Unit> ShowSettingsCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowHistoryCommand { get; }
+    public ReactiveCommand<Unit, Unit> RefreshHistoryCommand { get; }
+    public ReactiveCommand<SessionHistoryItem, Unit> LoadHistoryCommand { get; }
+    public ReactiveCommand<SessionHistoryItem, Unit> DeleteHistoryCommand { get; }
+    public ReactiveCommand<SessionHistoryItem, Unit> BeginRenameHistoryCommand { get; }
+    public ReactiveCommand<SessionHistoryItem, Unit> SaveRenameHistoryCommand { get; }
+    public ReactiveCommand<SessionHistoryItem, Unit> CancelRenameHistoryCommand { get; }
     public ReactiveCommand<Unit, Unit> CheckPrerequisitesCommand { get; }
     public ReactiveCommand<Unit, Unit> RefreshCommand { get; }
     public ReactiveCommand<Unit, Unit> RefreshAnalyticsCommand { get; }
@@ -286,11 +304,21 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     }
 
     public bool CanEditSettings => !IsRunning;
-    public bool IsSettingsPanelOpen { get => _isSettingsPanelOpen; set => this.RaiseAndSetIfChanged(ref _isSettingsPanelOpen, value); }
+    public bool IsToolPanelOpen { get => _isToolPanelOpen; set => this.RaiseAndSetIfChanged(ref _isToolPanelOpen, value); }
     public bool UseMultiAgentOrchestration { get => _useMultiAgentOrchestration; set { if (!CanChangeSetting(_useMultiAgentOrchestration, value)) return; this.RaiseAndSetIfChanged(ref _useMultiAgentOrchestration, value); } }
     public bool BudgetDrivenModelSelection { get => _budgetDrivenModelSelection; set { if (!CanChangeSetting(_budgetDrivenModelSelection, value)) return; this.RaiseAndSetIfChanged(ref _budgetDrivenModelSelection, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
     public int MaxAgentConcurrency { get => _maxAgentConcurrency; set { var clamped = Math.Max(1, value); if (!CanChangeSetting(_maxAgentConcurrency, clamped)) return; this.RaiseAndSetIfChanged(ref _maxAgentConcurrency, clamped); } }
     public int SelectedToolTabIndex { get => _selectedToolTabIndex; set => this.RaiseAndSetIfChanged(ref _selectedToolTabIndex, Math.Max(0, value)); }
+    public string HistorySearchText
+    {
+        get => _historySearchText;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _historySearchText, value ?? string.Empty);
+            ApplyHistoryFilter();
+        }
+    }
+    public bool HasVisibleHistory => VisibleHistoryItems.Count > 0;
     public double InputAreaHeight { get => _inputAreaHeight; set { var clamped = ClampInputHeight(value); if (!CanChangeSetting(_inputAreaHeight, clamped)) return; this.RaiseAndSetIfChanged(ref _inputAreaHeight, clamped); SaveInputAreaHeight(clamped); } }
     public AgentExecutionStrategy AgentStrategy { get => _agentStrategy; set { if (!CanChangeSetting(_agentStrategy, value)) return; this.RaiseAndSetIfChanged(ref _agentStrategy, value); } }
     public CodexRunMode Mode { get => _mode; set { if (!CanChangeSetting(_mode, value)) return; this.RaiseAndSetIfChanged(ref _mode, value); } }
@@ -352,6 +380,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public CodexTransportKind Transport { get => _transport; set { if (!CanChangeSetting(_transport, value)) return; this.RaiseAndSetIfChanged(ref _transport, value); } }
     public McpServerDefinition? SelectedMcpServer { get => _selectedMcpServer; set => this.RaiseAndSetIfChanged(ref _selectedMcpServer, value); }
     public McpToolDefinition? SelectedMcpTool { get => _selectedMcpTool; set => this.RaiseAndSetIfChanged(ref _selectedMcpTool, value); }
+    public SessionHistoryItem? SelectedHistoryItem { get => _selectedHistoryItem; set => this.RaiseAndSetIfChanged(ref _selectedHistoryItem, value); }
     public string? ThreadId { get => _threadId; set => this.RaiseAndSetIfChanged(ref _threadId, value); }
 
     private bool CanChangeSetting<T>(T currentValue, T nextValue)
@@ -432,7 +461,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         {
             ShowMcpServerList();
             SelectedToolTabIndex = 3;
-            IsSettingsPanelOpen = true;
+            IsToolPanelOpen = true;
             return;
         }
 
@@ -491,7 +520,13 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             FinishRunProgress(result.UsedFallback ? "Completed using CLI fallback" : "Completed");
             Status = result.UsedFallback ? "Complete using CLI fallback" : "Complete";
             _session.ThreadId = ThreadId;
+            if (string.IsNullOrWhiteSpace(_session.Title))
+            {
+                _session.Title = DeriveSessionTitle(_session);
+            }
+
             _sessionStore.Save(_session);
+            RefreshHistory();
         }
         catch (Exception ex)
         {
@@ -758,9 +793,14 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         var name = command.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
         switch (name.ToLowerInvariant())
         {
+            case "/history":
+            case "/threads":
+                ShowHistory();
+                Prompt = string.Empty;
+                return true;
             case "/settings":
             case "/models":
-                ShowToolPanel(0, "VSCodex settings");
+                Status = "Open Tools > Options > VSCodex to change settings";
                 Prompt = string.Empty;
                 return true;
             case "/context":
@@ -806,7 +846,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
     private void ShowToolPanel(int tabIndex, string status)
     {
-        IsSettingsPanelOpen = true;
+        IsToolPanelOpen = true;
         SelectedToolTabIndex = tabIndex;
         Status = status;
     }
@@ -832,17 +872,18 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         if (dialog.ShowDialog() == true) AttachFiles(dialog.FileNames);
     }
 
-    public void ShowSettings()
+    public void ShowHistory()
     {
         if (IsRunning)
         {
-            Status = "VSCodex settings are locked while a task is running";
+            Status = "VSCodex history is locked while a task is running";
             return;
         }
 
-        IsSettingsPanelOpen = true;
+        RefreshHistory();
+        IsToolPanelOpen = true;
         SelectedToolTabIndex = 0;
-        Status = "VSCodex settings";
+        Status = "VSCodex history";
     }
 
     private async Task CheckPrerequisitesAsync()
@@ -920,10 +961,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             return true;
         }
 
-        SelectedToolTabIndex = 0;
-        IsSettingsPanelOpen = true;
         AddMessage(CodexMessageRole.System, CodexSetupInstructions);
-        Status = "VSCodex setup required: install Codex SDK";
+        Status = "VSCodex setup required. Open Tools > Options > VSCodex to adjust runtime paths.";
         return false;
     }
 
@@ -942,14 +981,221 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
     private void StartNewThread()
     {
+        SaveCurrentSessionIfNeeded();
+        _session = _sessionStore.Create();
         Prompt = string.Empty;
         ThreadId = null;
         Messages.Clear();
-        _session.Messages.Clear();
         Attachments.Clear();
         Status = "New VSCodex thread";
+        RefreshHistory();
         UpdateAnalytics(Prompt);
     }
+
+    private void RefreshHistory()
+    {
+        var items = _sessionStore.LoadRecent(100)
+            .Where(session => session.Messages.Count > 0 || !string.IsNullOrWhiteSpace(session.ThreadId))
+            .Select(BuildHistoryItem)
+            .ToList();
+        Replace(HistoryItems, items);
+        ApplyHistoryFilter(items);
+    }
+
+    private void ApplyHistoryFilter() => ApplyHistoryFilter(HistoryItems.ToList());
+
+    private void ApplyHistoryFilter(IEnumerable<SessionHistoryItem> source)
+    {
+        var query = (HistorySearchText ?? string.Empty).Trim();
+        var items = source ?? Enumerable.Empty<SessionHistoryItem>();
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            items = items.Where(item =>
+                Contains(item.Title, query)
+                || Contains(item.Preview, query)
+                || Contains(item.ThreadId, query));
+        }
+
+        Replace(VisibleHistoryItems, items.ToList());
+        this.RaisePropertyChanged(nameof(HasVisibleHistory));
+    }
+
+    private void LoadHistoryItem(SessionHistoryItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        var loaded = _sessionStore.Load(item.Id);
+        if (loaded == null)
+        {
+            Status = "VSCodex history item could not be loaded";
+            RefreshHistory();
+            return;
+        }
+
+        SaveCurrentSessionIfNeeded();
+        _session = loaded;
+        ThreadId = loaded.ThreadId;
+        Prompt = string.Empty;
+        Messages.Clear();
+        foreach (var message in loaded.Messages ?? new List<ChatMessage>())
+        {
+            Messages.Add(message);
+        }
+
+        Attachments.Clear();
+        SelectedHistoryItem = item;
+        IsToolPanelOpen = false;
+        Status = "Loaded history: " + item.Title;
+        UpdateAnalytics(Prompt);
+    }
+
+    private void DeleteHistoryItem(SessionHistoryItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        var deletingCurrentSession = string.Equals(item.Id, _session.Id, StringComparison.OrdinalIgnoreCase);
+        _sessionStore.Delete(item.Id);
+        if (deletingCurrentSession)
+        {
+            _session = _sessionStore.Create();
+            Prompt = string.Empty;
+            ThreadId = null;
+            Messages.Clear();
+            Attachments.Clear();
+            UpdateAnalytics(Prompt);
+        }
+
+        RefreshHistory();
+        Status = "Deleted history item";
+    }
+
+    private void BeginRenameHistoryItem(SessionHistoryItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.DraftTitle = item.Title;
+        item.IsRenaming = true;
+    }
+
+    private void SaveRenameHistoryItem(SessionHistoryItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        var title = CompactLine(item.DraftTitle, 120);
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            CancelRenameHistoryItem(item);
+            return;
+        }
+
+        var loaded = _sessionStore.Load(item.Id);
+        if (loaded == null)
+        {
+            Status = "VSCodex history item could not be renamed";
+            RefreshHistory();
+            return;
+        }
+
+        loaded.Title = title;
+        if (string.Equals(_session.Id, loaded.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _session.Title = title;
+        }
+
+        _sessionStore.Save(loaded);
+        item.IsRenaming = false;
+        RefreshHistory();
+        Status = "Renamed history item";
+    }
+
+    private static void CancelRenameHistoryItem(SessionHistoryItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.DraftTitle = item.Title;
+        item.IsRenaming = false;
+    }
+
+    private void SaveCurrentSessionIfNeeded()
+    {
+        if (_session.Messages.Count == 0 && string.IsNullOrWhiteSpace(_session.ThreadId))
+        {
+            return;
+        }
+
+        _session.ThreadId = ThreadId;
+        if (string.IsNullOrWhiteSpace(_session.Title))
+        {
+            _session.Title = DeriveSessionTitle(_session);
+        }
+
+        _sessionStore.Save(_session);
+        RefreshHistory();
+    }
+
+    private static SessionHistoryItem BuildHistoryItem(CodexSessionDocument session) => new SessionHistoryItem
+    {
+        Id = session.Id,
+        ThreadId = session.ThreadId,
+        Title = DeriveSessionTitle(session),
+        Preview = DeriveSessionPreview(session),
+        Updated = session.Updated,
+        MessageCount = session.Messages?.Count ?? 0
+    };
+
+    private static string DeriveSessionTitle(CodexSessionDocument session)
+    {
+        if (!string.IsNullOrWhiteSpace(session.Title))
+        {
+            return CompactLine(session.Title, 90);
+        }
+
+        var firstUserMessage = session.Messages?
+            .FirstOrDefault(message => message.Role == CodexMessageRole.User && !string.IsNullOrWhiteSpace(message.Content))
+            ?.Content;
+        if (!string.IsNullOrWhiteSpace(firstUserMessage))
+        {
+            return CompactLine(firstUserMessage, 90);
+        }
+
+        return "VSCodex thread " + session.Created.ToLocalTime().ToString("g");
+    }
+
+    private static string DeriveSessionPreview(CodexSessionDocument session)
+    {
+        var message = session.Messages?
+            .LastOrDefault(item => !string.IsNullOrWhiteSpace(item.Content))
+            ?.Content;
+        return string.IsNullOrWhiteSpace(message) ? "No messages saved" : CompactLine(message, 180);
+    }
+
+    private static string CompactLine(string? value, int maxLength)
+    {
+        var text = string.Join(" ", (value ?? string.Empty).Split(new[] { '\r', '\n', '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries));
+        if (text.Length <= maxLength)
+        {
+            return text;
+        }
+
+        return text.Substring(0, Math.Max(0, maxLength - 1)).TrimEnd() + "...";
+    }
+
+    private static bool Contains(string? value, string query) => (value ?? string.Empty).IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
 
     public void AttachFiles(IEnumerable<string> fileNames)
     {
@@ -1115,6 +1361,11 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         {
             Messages.Add(message);
             _session.Messages.Add(message);
+            _session.Updated = message.Timestamp;
+            if (role == CodexMessageRole.User && string.IsNullOrWhiteSpace(_session.Title))
+            {
+                _session.Title = CompactLine(content, 90);
+            }
         });
         return message;
     }
@@ -1283,13 +1534,14 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         yield return new PromptSuggestionItem { Kind = "Action", DisplayText = "/test", Detail = "Create focused tests for selected code", InsertText = "/test " };
         yield return new PromptSuggestionItem { Kind = "Debug", DisplayText = "/debug", Detail = "Debug current exception, break mode, stack, or selected code", InsertText = "/debug " };
         yield return new PromptSuggestionItem { Kind = "Plan", DisplayText = "/plan", Detail = "Create an agent-oriented implementation plan", InsertText = "/plan " };
+        yield return new PromptSuggestionItem { Kind = "History", DisplayText = "/history", Detail = "Open saved VSCodex conversation history", InsertText = "/history " };
         yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/mcp", Detail = "Open VSCodex MCP server and tool selection", InsertText = "/mcp " };
-        yield return new PromptSuggestionItem { Kind = "Settings", DisplayText = "/settings", Detail = "Open model, sandbox, reasoning, and failover settings", InsertText = "/settings " };
+        yield return new PromptSuggestionItem { Kind = "Options", DisplayText = "/settings", Detail = "Use Tools > Options > VSCodex for model, sandbox, and runtime settings", InsertText = "/settings " };
         yield return new PromptSuggestionItem { Kind = "Context", DisplayText = "/context", Detail = "Open selected-code and repository file context", InsertText = "/context " };
-        yield return new PromptSuggestionItem { Kind = "Settings", DisplayText = "/analytics", Detail = "Open model cost and complexity analytics", InsertText = "/analytics " };
-        yield return new PromptSuggestionItem { Kind = "Settings", DisplayText = "/memory", Detail = "Open ReactiveMemory controls and saved context", InsertText = "/memory " };
-        yield return new PromptSuggestionItem { Kind = "Settings", DisplayText = "/agents", Detail = "Open multi-agent roles and orchestration controls", InsertText = "/agents " };
-        yield return new PromptSuggestionItem { Kind = "Settings", DisplayText = "/skills", Detail = "Open Codex skills controls", InsertText = "/skills " };
+        yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/analytics", Detail = "Open model cost and complexity analytics", InsertText = "/analytics " };
+        yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/memory", Detail = "Open ReactiveMemory controls and saved context", InsertText = "/memory " };
+        yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/agents", Detail = "Open multi-agent roles and orchestration controls", InsertText = "/agents " };
+        yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/skills", Detail = "Open Codex skills controls", InsertText = "/skills " };
         yield return new PromptSuggestionItem { Kind = "Files", DisplayText = "/attachments", Detail = "Open prompt attachments", InsertText = "/attachments " };
     }
 

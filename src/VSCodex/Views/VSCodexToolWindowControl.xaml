@@ -484,37 +484,23 @@
                         </Viewbox>
                     </Button>
                     <Button
-                        Command="{Binding ShowSettingsCommand}"
+                        Command="{Binding ShowHistoryCommand}"
                         Style="{StaticResource IconButtonStyle}"
-                        ToolTip="Open VSCodex model, MCP, memory, and execution settings.">
+                        ToolTip="Open VSCodex conversation history.">
                         <Viewbox Width="15" Height="15" Stretch="Uniform">
                             <Grid Width="16" Height="16">
                                 <Path
-                                    Data="M2,4 L14,4 M2,8 L14,8 M2,12 L14,12"
+                                    Data="M8,2 A6,6 0 1 1 3.8,3.8 M3.8,3.8 L3.8,6.8 M3.8,3.8 L6.8,3.8"
                                     Stroke="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}"
                                     StrokeEndLineCap="Square"
+                                    StrokeLineJoin="Miter"
                                     StrokeThickness="1.4" />
-                                <Ellipse
-                                    Width="3"
-                                    Height="3"
-                                    Margin="5,2.5,0,0"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Top"
-                                    Fill="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
-                                <Ellipse
-                                    Width="3"
-                                    Height="3"
-                                    Margin="9,6.5,0,0"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Top"
-                                    Fill="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
-                                <Ellipse
-                                    Width="3"
-                                    Height="3"
-                                    Margin="4,10.5,0,0"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Top"
-                                    Fill="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+                                <Path
+                                    Data="M8,5 L8,8.2 L11,9.8"
+                                    Stroke="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}"
+                                    StrokeEndLineCap="Square"
+                                    StrokeLineJoin="Miter"
+                                    StrokeThickness="1.4" />
                             </Grid>
                         </Viewbox>
                     </Button>
@@ -653,7 +639,7 @@
                 HorizontalAlignment="Right"
                 Panel.ZIndex="10"
                 Background="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
-                Visibility="{Binding IsSettingsPanelOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+                Visibility="{Binding IsToolPanelOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border
                     Padding="8,6"
                     BorderThickness="0,0,0,1"
@@ -670,7 +656,7 @@
                         <Button
                             Grid.Column="1"
                             Margin="0"
-                            Click="OnCloseSettingsPanelClick"
+                            Click="OnCloseToolPanelClick"
                             Content="Close"
                             Style="{StaticResource CompactButtonStyle}" />
                     </Grid>
@@ -679,114 +665,99 @@
                     Margin="0"
                     IsHitTestVisible="{Binding CanEditSettings}"
                     SelectedIndex="{Binding SelectedToolTabIndex, Mode=TwoWay}">
-                    <TabItem Header="Settings">
-                        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="12">
-                                <TextBlock Style="{StaticResource SectionHeaderTextBlock}" Text="Setup" />
-                                <TextBlock
-                                    Margin="0,0,0,6"
-                                    FontWeight="SemiBold"
-                                    Text="{Binding CodexSetupSummary}" />
-                                <ItemsControl ItemsSource="{Binding Prerequisites}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border
-                                                Margin="0,0,0,6"
-                                                Padding="8"
-                                                BorderThickness="1"
-                                                CornerRadius="3">
-                                                <StackPanel>
-                                                    <DockPanel LastChildFill="True">
-                                                        <TextBlock
-                                                            DockPanel.Dock="Left"
-                                                            FontWeight="SemiBold"
-                                                            Text="{Binding Name}" />
-                                                        <TextBlock
-                                                            HorizontalAlignment="Right"
-                                                            FontWeight="SemiBold"
-                                                            Opacity="0.86"
-                                                            Text="{Binding Status}" />
-                                                    </DockPanel>
-                                                    <TextBlock
-                                                        Margin="0,2,0,0"
-                                                        Opacity="0.72"
-                                                        Text="{Binding Description}" />
-                                                    <TextBlock
-                                                        Margin="0,2,0,0"
-                                                        Opacity="0.72"
-                                                        Text="{Binding Details}" />
-                                                    <TextBlock
-                                                        Margin="0,4,0,0"
-                                                        FontFamily="Consolas"
-                                                        Opacity="0.86"
-                                                        Text="{Binding InstallCommand}" />
-                                                </StackPanel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                    <TabItem Header="History">
+                        <DockPanel Margin="8">
+                            <StackPanel DockPanel.Dock="Top">
                                 <TextBox
-                                    MinHeight="96"
-                                    Margin="0,2,0,8"
-                                    IsReadOnly="True"
-                                    Text="{Binding CodexSetupInstructions}" />
-                                <Button
-                                    HorizontalAlignment="Left"
-                                    Command="{Binding CheckPrerequisitesCommand}"
-                                    Content="Check setup"
-                                    Style="{StaticResource CompactButtonStyle}"
-                                    ToolTip="Check Node.js, npm, @openai/codex-sdk, and optional Codex CLI fallback." />
-
-                                <Border Margin="0,8,0,0" BorderThickness="0,1,0,0" />
-                                <TextBlock Style="{StaticResource SectionHeaderTextBlock}" Text="Model" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Mode" />
-                                <ComboBox ItemsSource="{Binding ModeOptions}" SelectedItem="{Binding Mode}" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Primary" />
-                                <ComboBox
-                                    IsEditable="True"
-                                    ItemsSource="{Binding ModelOptions}"
-                                    Text="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged}" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Failover" />
-                                <ComboBox
-                                    IsEditable="True"
-                                    ItemsSource="{Binding ModelOptions}"
-                                    Text="{Binding FailoverModel, UpdateSourceTrigger=PropertyChanged}" />
-                                <CheckBox Content="Budget driven model selection" IsChecked="{Binding BudgetDrivenModelSelection}" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Budget model" />
-                                <ComboBox
-                                    IsEditable="True"
-                                    ItemsSource="{Binding ModelOptions}"
-                                    Text="{Binding BudgetModel, UpdateSourceTrigger=PropertyChanged}" />
-
-                                <Border Margin="0,8,0,0" BorderThickness="0,1,0,0" />
-                                <TextBlock Style="{StaticResource SectionHeaderTextBlock}" Text="Execution" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Reasoning" />
-                                <ComboBox ItemsSource="{Binding ReasoningOptions}" SelectedItem="{Binding SelectedReasoning}" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Verbosity" />
-                                <ComboBox ItemsSource="{Binding VerbosityOptions}" SelectedItem="{Binding SelectedVerbosity}" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Access level" />
-                                <ComboBox ItemsSource="{Binding AccessLevelOptions}" SelectedItem="{Binding AccessLevel}" ToolTip="ReadOnly blocks writes, Workspace allows project edits, FullAccess allows unrestricted local filesystem access." />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Approval" />
-                                <ComboBox ItemsSource="{Binding ApprovalOptions}" SelectedItem="{Binding ApprovalPolicy}" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Sandbox" />
-                                <ComboBox ItemsSource="{Binding SandboxOptions}" SelectedItem="{Binding SandboxMode}" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Transport" />
-                                <ComboBox ItemsSource="{Binding TransportOptions}" SelectedItem="{Binding Transport}" />
-
-                                <Border Margin="0,8,0,0" BorderThickness="0,1,0,0" />
-                                <TextBlock Style="{StaticResource SectionHeaderTextBlock}" Text="Rate limits" />
-                                <TextBlock
+                                    AcceptsReturn="False"
                                     Margin="0,0,0,8"
-                                    Opacity="0.72"
-                                    Text="{Binding RateLimitUpdatedAt}" />
-                                <ItemsControl ItemTemplate="{StaticResource RateLimitTemplate}" ItemsSource="{Binding RateLimits}" />
-
-                                <Border Margin="0,8,0,0" BorderThickness="0,1,0,0" />
-                                <TextBlock Style="{StaticResource SectionHeaderTextBlock}" Text="Tool Window" />
-                                <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Input height" />
-                                <TextBox AcceptsReturn="False" Text="{Binding InputAreaHeight, UpdateSourceTrigger=LostFocus, StringFormat=F0}" />
+                                    Text="{Binding HistorySearchText, UpdateSourceTrigger=PropertyChanged}"
+                                    ToolTip="Search VSCodex conversation history." />
+                                <WrapPanel>
+                                    <Button
+                                        Command="{Binding NewThreadCommand}"
+                                        Content="New thread"
+                                        Style="{StaticResource CompactButtonStyle}" />
+                                    <Button
+                                        Command="{Binding RefreshHistoryCommand}"
+                                        Content="Refresh"
+                                        Style="{StaticResource CompactButtonStyle}" />
+                                </WrapPanel>
                             </StackPanel>
-                        </ScrollViewer>
+                            <ListBox
+                                ItemsSource="{Binding VisibleHistoryItems}"
+                                MouseDoubleClick="OnHistoryItemDoubleClick"
+                                SelectedItem="{Binding SelectedHistoryItem, Mode=TwoWay}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border
+                                            Margin="2,4"
+                                            Padding="8"
+                                            BorderThickness="1"
+                                            CornerRadius="3">
+                                            <StackPanel>
+                                                <TextBlock
+                                                    FontWeight="SemiBold"
+                                                    Text="{Binding Title}"
+                                                    TextTrimming="CharacterEllipsis" />
+                                                <TextBox
+                                                    AcceptsReturn="False"
+                                                    Margin="0,6,0,4"
+                                                    Text="{Binding DraftTitle, UpdateSourceTrigger=PropertyChanged}"
+                                                    Visibility="{Binding IsRenaming, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    Opacity="0.72"
+                                                    Text="{Binding Preview}"
+                                                    TextTrimming="CharacterEllipsis" />
+                                                <DockPanel Margin="0,6,0,0">
+                                                    <TextBlock
+                                                        DockPanel.Dock="Left"
+                                                        FontSize="11"
+                                                        Opacity="0.66"
+                                                        Text="{Binding UpdatedDisplay}" />
+                                                    <TextBlock
+                                                        Margin="8,0,0,0"
+                                                        DockPanel.Dock="Left"
+                                                        FontSize="11"
+                                                        Opacity="0.66"
+                                                        Text="{Binding MessageCountDisplay}" />
+                                                </DockPanel>
+                                                <WrapPanel Margin="0,8,0,0">
+                                                    <Button
+                                                        Command="{Binding DataContext.LoadHistoryCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Open"
+                                                        Style="{StaticResource CompactButtonStyle}" />
+                                                    <Button
+                                                        Command="{Binding DataContext.BeginRenameHistoryCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Rename"
+                                                        Style="{StaticResource CompactButtonStyle}" />
+                                                    <Button
+                                                        Command="{Binding DataContext.SaveRenameHistoryCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Save"
+                                                        Style="{StaticResource CompactButtonStyle}"
+                                                        Visibility="{Binding IsRenaming, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                    <Button
+                                                        Command="{Binding DataContext.CancelRenameHistoryCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Discard"
+                                                        Style="{StaticResource CompactButtonStyle}"
+                                                        Visibility="{Binding IsRenaming, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                    <Button
+                                                        Command="{Binding DataContext.DeleteHistoryCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Delete"
+                                                        Style="{StaticResource CompactButtonStyle}" />
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
                     </TabItem>
 
                     <TabItem Header="Context">

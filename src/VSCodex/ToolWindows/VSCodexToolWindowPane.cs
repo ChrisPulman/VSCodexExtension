@@ -36,7 +36,7 @@ public sealed class VSCodexToolWindowPane : ToolWindowPane
         }
     }
 
-    public void ShowSettings() => ViewModel?.ShowSettings();
+    public void ShowHistory() => ViewModel?.ShowHistory();
 
     public static async Task<VSCodexToolWindowPane?> ShowWithPromptAsync(AsyncPackage package, string prompt)
     {
@@ -46,11 +46,11 @@ public sealed class VSCodexToolWindowPane : ToolWindowPane
         return window;
     }
 
-    public static async Task<VSCodexToolWindowPane?> ShowSettingsAsync(AsyncPackage package)
+    public static async Task<VSCodexToolWindowPane?> ShowHistoryAsync(AsyncPackage package)
     {
         await package.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
         var window = await package.ShowToolWindowAsync(typeof(VSCodexToolWindowPane), 0, true, package.DisposalToken).ConfigureAwait(true) as VSCodexToolWindowPane;
-        window?.ShowSettings();
+        window?.ShowHistory();
         return window;
     }
 }

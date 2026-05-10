@@ -342,9 +342,27 @@ public sealed class CodexSessionDocument
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string? ThreadId { get; set; }
+    public string Title { get; set; } = string.Empty;
     public DateTimeOffset Created { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset Updated { get; set; } = DateTimeOffset.Now;
     public List<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
+}
+
+public sealed class SessionHistoryItem : ReactiveObject
+{
+    private bool _isRenaming;
+    private string _draftTitle = string.Empty;
+
+    public string Id { get; set; } = string.Empty;
+    public string? ThreadId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Preview { get; set; } = string.Empty;
+    public DateTimeOffset Updated { get; set; }
+    public int MessageCount { get; set; }
+    public string UpdatedDisplay => Updated.ToLocalTime().ToString("g");
+    public string MessageCountDisplay => MessageCount == 1 ? "1 message" : MessageCount + " messages";
+    public bool IsRenaming { get => _isRenaming; set => this.RaiseAndSetIfChanged(ref _isRenaming, value); }
+    public string DraftTitle { get => _draftTitle; set => this.RaiseAndSetIfChanged(ref _draftTitle, value ?? string.Empty); }
 }
 
 public sealed class ExtensionSettings : ReactiveObject

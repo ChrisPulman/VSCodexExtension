@@ -106,7 +106,7 @@ public partial class VSCodexToolWindowControl : UserControl
         }
     }
 
-    private void OnCloseSettingsPanelClick(object sender, RoutedEventArgs e) => ViewModel?.IsSettingsPanelOpen = false;
+    private void OnCloseToolPanelClick(object sender, RoutedEventArgs e) => ViewModel?.IsToolPanelOpen = false;
 
     private void OnRunControlClick(object sender, RoutedEventArgs e)
     {
@@ -142,6 +142,17 @@ public partial class VSCodexToolWindowControl : UserControl
     private void OnPromptSuggestionDoubleClick(object sender, MouseButtonEventArgs e)
     {
         InsertSelectedPromptSuggestion();
+        e.Handled = true;
+    }
+
+    private void OnHistoryItemDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox listBox || listBox.SelectedItem is not SessionHistoryItem item || ViewModel == null)
+        {
+            return;
+        }
+
+        ExecuteIfAvailable(ViewModel.LoadHistoryCommand, item);
         e.Handled = true;
     }
 
@@ -334,6 +345,14 @@ public partial class VSCodexToolWindowControl : UserControl
         if (command.CanExecute(null))
         {
             command.Execute(null);
+        }
+    }
+
+    private static void ExecuteIfAvailable(ICommand command, object parameter)
+    {
+        if (command.CanExecute(parameter))
+        {
+            command.Execute(parameter);
         }
     }
 }

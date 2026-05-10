@@ -15,8 +15,8 @@ using VSCodex.ToolWindows;
 namespace VSCodex;
 
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.1.16")]
-[ProvideMenuResource("Menus.ctmenu", 1)]
+[InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.1.18")]
+[ProvideMenuResource("Menus.ctmenu", 3)]
 [ProvideOptionPage(typeof(OptionsProvider.GeneralOptions), "VSCodex", "General", 0, 0, true)]
 [ProvideProfile(typeof(OptionsProvider.GeneralOptions), "VSCodex", "General", 0, 0, true)]
 [ProvideToolWindow(typeof(VSCodexToolWindowPane), Style = VsDockStyle.Tabbed, Window = EnvDTE.Constants.vsWindowKindOutput)]
@@ -32,8 +32,58 @@ public sealed class VSCodexPackage : AsyncPackage
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await OpenVSCodexToolWindowCommand.InitializeAsync(this).ConfigureAwait(true);
-        await Services.VisualStudioMenuIntegrationService.InitializeAsync(this).ConfigureAwait(true);
+        ScheduleMenuInitialization();
         ScheduleShowToolWindowOnFirstLaunch();
+    }
+
+    private void ScheduleMenuInitialization()
+    {
+        JoinableTaskFactory.RunAsync(async () =>
+        {
+            try
+            {
+                await WaitForShellInitializedAsync(DisposalToken).ConfigureAwait(false);
+                await Services.VisualStudioMenuIntegrationService.InitializeAsync(this).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) when (DisposalToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                ActivityLog.TryLogError(nameof(VSCodexPackage), ex.ToString());
+            }
+        }).Task.FireAndForget();
+    }
+
+    /// <summary>
+    /// Waits until <see cref="KnownUIContexts.ShellInitializedContext"/> is active, which is
+    /// the VS-guaranteed signal that the main window is fully rendered and all command bars
+    /// (including "MenuBar") are populated.  Falls back to the zombie-poll once the context
+    /// is active so both conditions are satisfied before we touch the DTE command bars.
+    /// </summary>
+    private async Task WaitForShellInitializedAsync(CancellationToken cancellationToken)
+    {
+        // Switch to the UI thread so we can read UIContext state.
+        await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+
+        // ShellInitializedContext becomes active after the VS main window is shown and all
+        // built-in command bars have been created – exactly the point at which DTE.CommandBars
+        // contains "MenuBar".
+        if (!KnownUIContexts.ShellInitializedContext.IsActive)
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            KnownUIContexts.ShellInitializedContext.WhenActivated(() => tcs.TrySetResult(true));
+
+            // Release the UI thread while we wait so VS can finish initialising.
+            await Task.Run(() => tcs.Task, cancellationToken).ConfigureAwait(false);
+
+            // Return to the UI thread for the zombie check.
+            await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        }
+
+        // Belt-and-suspenders: also wait out the zombie flag in case the two signals
+        // don't coincide on all VS versions / configurations.
+        await WaitForShellReadyAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private void ScheduleShowToolWindowOnFirstLaunch()

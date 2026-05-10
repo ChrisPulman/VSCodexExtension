@@ -12,7 +12,7 @@ internal static class VisualStudioMenuIntegrationService
     private const int MsoControlPopup = 10;
     private static bool _installed;
 
-    private static readonly MenuCommandSpec OpenToolWindow = new("View.VSCodex", "VSCodex Tool Window");
+    private static readonly MenuCommandSpec OpenToolWindow = new("View.VSCodex", "VSCodex");
 
     private static readonly MenuCommandSpec[] CoreActions =
     {
@@ -77,7 +77,14 @@ internal static class VisualStudioMenuIntegrationService
                 return;
             }
 
-            InstallMainMenus(dte);
+            var mainMenusInstalled = InstallMainMenus(dte);
+            if (!mainMenusInstalled)
+            {
+                // MenuBar was still not available – do not set _installed so a future call can retry.
+                ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), "MenuBar command bar was not available; VSCodex menus will be retried on next opportunity.");
+                return;
+            }
+
             InstallContextMenus(dte);
             _installed = true;
         }
@@ -87,14 +94,14 @@ internal static class VisualStudioMenuIntegrationService
         }
     }
 
-    private static void InstallMainMenus(DTE dte)
+    private static bool InstallMainMenus(DTE dte)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
         var menuBar = TryGetCommandBar(dte.CommandBars, "MenuBar");
         if (menuBar == null)
         {
-            return;
+            return false;
         }
 
         var topLevel = EnsurePopup(menuBar, "VSCodex");
@@ -107,10 +114,25 @@ internal static class VisualStudioMenuIntegrationService
         if (viewMenu != null)
         {
             var viewCommandBar = GetPopupCommandBar(viewMenu);
-            var viewPopup = viewCommandBar == null ? null : EnsurePopup(viewCommandBar, "VSCodex");
+
+            // Keep a direct View > VSCodex fallback in case Visual Studio is still using
+            // an older command-table cache for this package.
+            if (viewCommandBar != null)
+            {
+                AddCommands(dte, viewCommandBar, new[] { OpenToolWindow });
+            }
+
+            var viewPopup = viewCommandBar == null ? null : EnsurePopup(viewCommandBar, "VSCodex Actions");
             if (viewPopup != null)
             {
                 AddCommands(dte, GetPopupCommandBar(viewPopup), CoreActions);
+            }
+
+            var otherWindowsPopup = viewCommandBar == null ? null : FindControlByCaption(viewCommandBar, "Other Windows");
+            if (otherWindowsPopup != null)
+            {
+                SetVisible(otherWindowsPopup);
+                AddCommands(dte, GetPopupCommandBar(otherWindowsPopup), new[] { OpenToolWindow });
             }
         }
 
@@ -151,6 +173,8 @@ internal static class VisualStudioMenuIntegrationService
                     new MenuCommandSpec("VSCodex.FixTestFailure", "Fix Test Failure")
                 });
         }
+
+        return true;
     }
 
     private static void InstallContextMenus(DTE dte)
@@ -213,7 +237,6 @@ internal static class VisualStudioMenuIntegrationService
         var position = 1;
         foreach (var command in commands)
         {
-            DeleteControl(commandBar, command.Caption);
             var dteCommand = TryGetCommand(dte, command.CanonicalName);
             if (dteCommand == null)
             {
@@ -223,6 +246,7 @@ internal static class VisualStudioMenuIntegrationService
 
             try
             {
+                DeleteControl(commandBar, command.Caption);
                 var addedControl = dteCommand.AddControl(commandBar, position++);
                 if (addedControl != null)
                 {
@@ -268,6 +292,7 @@ internal static class VisualStudioMenuIntegrationService
         var existing = FindControlByCaption(commandBar, caption);
         if (existing != null)
         {
+            SetVisible(existing);
             return existing;
         }
 
