@@ -32,7 +32,7 @@
 
     <Groups>
       <Group guid="guidCommandSet" id="VSCodexExtensionsMenuGroup" priority="0x0200">
-        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_EXTENSIONS" />
+        <Parent guid="guidSHLMainMenu" id="IDG_VS_MM_TOOLSADDINS" />
       </Group>
       <Group guid="guidCommandSet" id="VSCodexTopLevelMenuGroup" priority="0x0100">
         <Parent guid="guidCommandSet" id="VSCodexTopLevelMenu" />
@@ -274,6 +274,9 @@
       <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
     </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
+      <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
       <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
     </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
@@ -460,9 +463,6 @@
 
   <Symbols>
     <GuidSymbol name="guidPackage" value="{cc277233-b28f-43d6-a597-1cc515cb0110}" />
-    <GuidSymbol name="guidSHLMainMenu" value="{d309f791-903f-11d0-9efc-00a0c911004f}">
-      <IDSymbol name="IDM_VS_MENU_EXTENSIONS" value="0x0091" />
-    </GuidSymbol>
     <GuidSymbol name="guidCommandSet" value="{a17f6b52-76e1-48cb-855e-30c86c46a74d}">
       <IDSymbol name="OpenToolWindowCommandId" value="0x0100" />
       <IDSymbol name="OpenOptionsCommandId" value="0x0101" />

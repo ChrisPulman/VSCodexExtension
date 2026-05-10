@@ -14,6 +14,7 @@ namespace VSCodex.Commands;
 internal sealed class OpenVSCodexToolWindowCommand
 {
     private readonly AsyncPackage _package;
+    private static bool _initialized;
 
     private OpenVSCodexToolWindowCommand(AsyncPackage package, OleMenuCommandService commandService)
     {
@@ -38,7 +39,13 @@ internal sealed class OpenVSCodexToolWindowCommand
 
     private static void AddCommand(OleMenuCommandService commandService, int commandId, EventHandler execute, EventHandler? beforeQueryStatus = null)
     {
-        var command = new OleMenuCommand(execute, new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), commandId));
+        var commandIdentifier = new CommandID(new Guid(CodexCommandIds.CommandSetGuidString), commandId);
+        if (commandService.FindCommand(commandIdentifier) != null)
+        {
+            return;
+        }
+
+        var command = new OleMenuCommand(execute, commandIdentifier);
         if (beforeQueryStatus != null)
         {
             command.BeforeQueryStatus += beforeQueryStatus;
@@ -49,11 +56,25 @@ internal sealed class OpenVSCodexToolWindowCommand
 
     public static async Task InitializeAsync(AsyncPackage package)
     {
-        await package.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
-        var commandService = await package.GetServiceAsync(typeof(IMenuCommandService)).ConfigureAwait(true) as OleMenuCommandService;
-        if (commandService != null)
+        if (_initialized)
         {
-            _ = new OpenVSCodexToolWindowCommand(package, commandService);
+            return;
+        }
+
+        for (var attempt = 1; attempt <= 10 && !_initialized; attempt++)
+        {
+            await package.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
+            var commandService = await package.GetServiceAsync(typeof(IMenuCommandService)).ConfigureAwait(true) as OleMenuCommandService;
+            if (commandService != null)
+            {
+                _ = new OpenVSCodexToolWindowCommand(package, commandService);
+                _initialized = true;
+                ActivityLog.TryLogInformation(nameof(OpenVSCodexToolWindowCommand), "Registered VSCodex Visual Studio commands.");
+                return;
+            }
+
+            ActivityLog.TryLogWarning(nameof(OpenVSCodexToolWindowCommand), "IMenuCommandService was unavailable while registering VSCodex commands; retrying.");
+            await Task.Delay(TimeSpan.FromMilliseconds(250), package.DisposalToken).ConfigureAwait(false);
         }
     }
 

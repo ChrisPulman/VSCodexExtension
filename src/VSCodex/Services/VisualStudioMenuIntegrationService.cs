@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using EnvDTE;
 using Microsoft.VisualStudio.Shell;
+using VSCodex.Commands;
 
 namespace VSCodex.Services;
 
@@ -12,40 +13,40 @@ internal static class VisualStudioMenuIntegrationService
     private const int MsoControlPopup = 10;
     private static bool _installed;
 
-    private static readonly MenuCommandSpec OpenToolWindow = new("View.VSCodex", "VSCodex");
+    private static readonly MenuCommandSpec OpenToolWindow = new("View.VSCodex", "VSCodex", CodexCommandIds.OpenToolWindowCommandId);
 
     private static readonly MenuCommandSpec[] CoreActions =
     {
         OpenToolWindow,
-        new("VSCodex.Settings", "VSCodex Settings"),
-        new("VSCodex.AddToChat", "Add to VSCodex Chat"),
-        new("VSCodex.Explain", "Explain"),
-        new("VSCodex.FixWithVSCodex", "Fix with VSCodex"),
-        new("VSCodex.FixSelection", "Fix Selection"),
-        new("VSCodex.Review", "Review Selection"),
-        new("VSCodex.Optimize", "Optimize Selection"),
-        new("VSCodex.GenerateComments", "Generate Comments"),
-        new("VSCodex.GenerateTests", "Generate Tests"),
-        new("VSCodex.Debug", "Debug With VSCodex"),
-        new("VSCodex.FixActiveException", "Fix Active Exception"),
-        new("VSCodex.FixTestFailure", "Fix Test Failure"),
-        new("VSCodex.CreatePlan", "Create Agent Plan"),
-        new("VSCodex.ReactiveMemorySetup", "VSCodex ReactiveMemory Setup")
+        new("VSCodex.Settings", "VSCodex Settings", CodexCommandIds.OpenOptionsCommandId),
+        new("VSCodex.AddToChat", "Add to VSCodex Chat", CodexCommandIds.AskCodexCommandId),
+        new("VSCodex.Explain", "Explain", CodexCommandIds.ExplainSelectionCommandId),
+        new("VSCodex.FixWithVSCodex", "Fix with VSCodex", CodexCommandIds.FixActiveErrorCommandId),
+        new("VSCodex.FixSelection", "Fix Selection", CodexCommandIds.FixSelectionCommandId),
+        new("VSCodex.Review", "Review Selection", CodexCommandIds.ReviewSelectionCommandId),
+        new("VSCodex.Optimize", "Optimize Selection", CodexCommandIds.OptimizeSelectionCommandId),
+        new("VSCodex.GenerateComments", "Generate Comments", CodexCommandIds.GenerateDocsCommandId),
+        new("VSCodex.GenerateTests", "Generate Tests", CodexCommandIds.CreateTestFromSelectionCommandId),
+        new("VSCodex.Debug", "Debug With VSCodex", CodexCommandIds.DebugWithCodexCommandId),
+        new("VSCodex.FixActiveException", "Fix Active Exception", CodexCommandIds.FixActiveExceptionCommandId),
+        new("VSCodex.FixTestFailure", "Fix Test Failure", CodexCommandIds.FixTestFailureCommandId),
+        new("VSCodex.CreatePlan", "Create Agent Plan", CodexCommandIds.CreatePlanCommandId),
+        new("VSCodex.ReactiveMemorySetup", "VSCodex ReactiveMemory Setup", CodexCommandIds.ConfigureMemoryCommandId)
     };
 
     private static readonly MenuCommandSpec[] CodeActions =
     {
         OpenToolWindow,
-        new("VSCodex.AddToChat", "Add to VSCodex Chat"),
-        new("VSCodex.Explain", "Explain"),
-        new("VSCodex.FixWithVSCodex", "Fix with VSCodex"),
-        new("VSCodex.FixSelection", "Fix Selection"),
-        new("VSCodex.Review", "Review Selection"),
-        new("VSCodex.Optimize", "Optimize Selection"),
-        new("VSCodex.GenerateComments", "Generate Comments"),
-        new("VSCodex.GenerateTests", "Generate Tests"),
-        new("VSCodex.Debug", "Debug With VSCodex"),
-        new("VSCodex.CreatePlan", "Create Agent Plan")
+        new("VSCodex.AddToChat", "Add to VSCodex Chat", CodexCommandIds.AskCodexCommandId),
+        new("VSCodex.Explain", "Explain", CodexCommandIds.ExplainSelectionCommandId),
+        new("VSCodex.FixWithVSCodex", "Fix with VSCodex", CodexCommandIds.FixActiveErrorCommandId),
+        new("VSCodex.FixSelection", "Fix Selection", CodexCommandIds.FixSelectionCommandId),
+        new("VSCodex.Review", "Review Selection", CodexCommandIds.ReviewSelectionCommandId),
+        new("VSCodex.Optimize", "Optimize Selection", CodexCommandIds.OptimizeSelectionCommandId),
+        new("VSCodex.GenerateComments", "Generate Comments", CodexCommandIds.GenerateDocsCommandId),
+        new("VSCodex.GenerateTests", "Generate Tests", CodexCommandIds.CreateTestFromSelectionCommandId),
+        new("VSCodex.Debug", "Debug With VSCodex", CodexCommandIds.DebugWithCodexCommandId),
+        new("VSCodex.CreatePlan", "Create Agent Plan", CodexCommandIds.CreatePlanCommandId)
     };
 
     private static readonly string[] SolutionExplorerContextBars =
@@ -66,31 +67,45 @@ internal static class VisualStudioMenuIntegrationService
             return;
         }
 
-        await package.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
-
-        try
+        for (var attempt = 1; attempt <= 10 && !_installed; attempt++)
         {
-            var dte = await package.GetServiceAsync(typeof(DTE)).ConfigureAwait(true) as DTE;
-            if (dte?.CommandBars == null)
+            await package.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
+
+            try
             {
-                ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), "DTE command bars were unavailable; VSCodex runtime menu bridge was skipped.");
+                var dte = await package.GetServiceAsync(typeof(DTE)).ConfigureAwait(true) as DTE;
+                if (dte?.CommandBars == null)
+                {
+                    ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), "DTE command bars were unavailable; VSCodex runtime menu bridge will retry.");
+                }
+                else if (InstallMainMenus(dte))
+                {
+                    InstallContextMenus(dte);
+                    _installed = true;
+                    return;
+                }
+                else
+                {
+                    // Keep retrying quietly; the static VSCT menu entries remain usable even
+                    // when DTE does not expose the command names early in startup.
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(2), package.DisposalToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (package.DisposalToken.IsCancellationRequested)
+            {
                 return;
             }
-
-            var mainMenusInstalled = InstallMainMenus(dte);
-            if (!mainMenusInstalled)
+            catch (Exception ex)
             {
-                // MenuBar was still not available – do not set _installed so a future call can retry.
-                ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), "MenuBar command bar was not available; VSCodex menus will be retried on next opportunity.");
-                return;
+                ActivityLog.TryLogError(nameof(VisualStudioMenuIntegrationService), ex.ToString());
+                await Task.Delay(TimeSpan.FromSeconds(2), package.DisposalToken).ConfigureAwait(false);
             }
-
-            InstallContextMenus(dte);
-            _installed = true;
         }
-        catch (Exception ex)
+
+        if (!_installed)
         {
-            ActivityLog.TryLogError(nameof(VisualStudioMenuIntegrationService), ex.ToString());
+            ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), "VSCodex static VSCT menu entries are available, but runtime DTE menu repair did not resolve the commands during startup.");
         }
     }
 
@@ -111,15 +126,14 @@ internal static class VisualStudioMenuIntegrationService
         }
 
         var viewMenu = FindControlByCaption(menuBar, "View");
+        var openCommandVisible = false;
         if (viewMenu != null)
         {
             var viewCommandBar = GetPopupCommandBar(viewMenu);
 
-            // Keep a direct View > VSCodex fallback in case Visual Studio is still using
-            // an older command-table cache for this package.
             if (viewCommandBar != null)
             {
-                AddCommands(dte, viewCommandBar, new[] { OpenToolWindow });
+                openCommandVisible = AddCommands(dte, viewCommandBar, new[] { OpenToolWindow }) > 0;
             }
 
             var viewPopup = viewCommandBar == null ? null : EnsurePopup(viewCommandBar, "VSCodex Actions");
@@ -155,9 +169,9 @@ internal static class VisualStudioMenuIntegrationService
                 GetPopupCommandBar(debugMenu),
                 new[]
                 {
-                    new MenuCommandSpec("VSCodex.Debug", "Debug With VSCodex"),
-                    new MenuCommandSpec("VSCodex.FixActiveException", "Fix Active Exception"),
-                    new MenuCommandSpec("VSCodex.FixWithVSCodex", "Fix with VSCodex")
+                    new MenuCommandSpec("VSCodex.Debug", "Debug With VSCodex", CodexCommandIds.DebugWithCodexCommandId),
+                    new MenuCommandSpec("VSCodex.FixActiveException", "Fix Active Exception", CodexCommandIds.FixActiveExceptionCommandId),
+                    new MenuCommandSpec("VSCodex.FixWithVSCodex", "Fix with VSCodex", CodexCommandIds.FixActiveErrorCommandId)
                 });
         }
 
@@ -169,12 +183,12 @@ internal static class VisualStudioMenuIntegrationService
                 GetPopupCommandBar(testMenu),
                 new[]
                 {
-                    new MenuCommandSpec("VSCodex.GenerateTests", "Generate Tests"),
-                    new MenuCommandSpec("VSCodex.FixTestFailure", "Fix Test Failure")
+                    new MenuCommandSpec("VSCodex.GenerateTests", "Generate Tests", CodexCommandIds.CreateTestFromSelectionCommandId),
+                    new MenuCommandSpec("VSCodex.FixTestFailure", "Fix Test Failure", CodexCommandIds.FixTestFailureCommandId)
                 });
         }
 
-        return true;
+        return openCommandVisible;
     }
 
     private static void InstallContextMenus(DTE dte)
@@ -202,8 +216,8 @@ internal static class VisualStudioMenuIntegrationService
                     new[]
                     {
                         OpenToolWindow,
-                        new MenuCommandSpec("VSCodex.FixWithVSCodex", "Fix with VSCodex"),
-                        new MenuCommandSpec("VSCodex.Debug", "Debug With VSCodex")
+                        new MenuCommandSpec("VSCodex.FixWithVSCodex", "Fix with VSCodex", CodexCommandIds.FixActiveErrorCommandId),
+                        new MenuCommandSpec("VSCodex.Debug", "Debug With VSCodex", CodexCommandIds.DebugWithCodexCommandId)
                     });
             }
         }
@@ -226,18 +240,19 @@ internal static class VisualStudioMenuIntegrationService
         }
     }
 
-    private static void AddCommands(DTE dte, object? commandBar, IEnumerable<MenuCommandSpec> commands)
+    private static int AddCommands(DTE dte, object? commandBar, IEnumerable<MenuCommandSpec> commands)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         if (commandBar == null)
         {
-            return;
+            return 0;
         }
 
         var position = 1;
+        var placed = 0;
         foreach (var command in commands)
         {
-            var dteCommand = TryGetCommand(dte, command.CanonicalName);
+            var dteCommand = TryGetCommand(dte, command);
             if (dteCommand == null)
             {
                 ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), $"VSCodex command '{command.CanonicalName}' was not available for runtime menu placement.");
@@ -246,11 +261,19 @@ internal static class VisualStudioMenuIntegrationService
 
             try
             {
-                DeleteControl(commandBar, command.Caption);
+                var existing = FindControlByCaption(commandBar, command.Caption);
+                if (existing != null)
+                {
+                    SetVisible(existing);
+                    placed++;
+                    continue;
+                }
+
                 var addedControl = dteCommand.AddControl(commandBar, position++);
                 if (addedControl != null)
                 {
                     SetVisible(addedControl);
+                    placed++;
                 }
             }
             catch (Exception ex)
@@ -258,14 +281,24 @@ internal static class VisualStudioMenuIntegrationService
                 ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), $"Could not add '{command.Caption}' to a Visual Studio menu: {ex.Message}");
             }
         }
+
+        return placed;
     }
 
-    private static Command? TryGetCommand(DTE dte, string canonicalName)
+    private static Command? TryGetCommand(DTE dte, MenuCommandSpec command)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         try
         {
-            return dte.Commands.Item(canonicalName, -1);
+            return dte.Commands.Item(command.CanonicalName, -1);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            return dte.Commands.Item(CodexCommandIds.CommandSetGuidString, command.CommandId);
         }
         catch
         {
@@ -345,41 +378,6 @@ internal static class VisualStudioMenuIntegrationService
         return null;
     }
 
-    private static void DeleteControl(object commandBar, string caption)
-    {
-        ThreadHelper.ThrowIfNotOnUIThread();
-
-        var controls = GetControls(commandBar);
-        if (controls == null)
-        {
-            return;
-        }
-
-        foreach (var control in EnumerateControls(controls))
-        {
-            var controlCaption = GetStringProperty(control, "Caption");
-            if (!string.Equals(NormalizeCaption(controlCaption), NormalizeCaption(caption), StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            try
-            {
-                control.GetType().InvokeMember("Delete", BindingFlags.InvokeMethod, null, control, new object[] { false });
-            }
-            catch
-            {
-                try
-                {
-                    control.GetType().InvokeMember("Delete", BindingFlags.InvokeMethod, null, control, Array.Empty<object>());
-                }
-                catch
-                {
-                }
-            }
-        }
-    }
-
     private static object? GetPopupCommandBar(object popup)
     {
         return GetProperty(popup, "CommandBar");
@@ -457,13 +455,15 @@ internal static class VisualStudioMenuIntegrationService
 
     private sealed class MenuCommandSpec
     {
-        public MenuCommandSpec(string canonicalName, string caption)
+        public MenuCommandSpec(string canonicalName, string caption, int commandId)
         {
             CanonicalName = canonicalName;
             Caption = caption;
+            CommandId = commandId;
         }
 
         public string CanonicalName { get; }
         public string Caption { get; }
+        public int CommandId { get; }
     }
 }
