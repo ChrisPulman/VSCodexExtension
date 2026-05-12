@@ -10,7 +10,6 @@ using System.Text.RegularExpressions;
 using EnvDTE;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
-using Newtonsoft.Json.Linq;
 using VSCodex.Models;
 
 namespace VSCodex.Services;
@@ -24,6 +23,7 @@ public interface IWorkspaceContextService
     string CurrentWorkspaceMemoryRoot { get; }
     WorkspaceIdentity CurrentWorkspaceIdentity { get; }
     void Refresh();
+    void RefreshWorkspaceIdentity();
     IReadOnlyList<WorkspaceFileReference> SearchFiles(string query, int limit);
     IReadOnlyList<WorkspaceFileReference> SearchContextReferences(string query, int limit);
     IReadOnlyList<WorkspaceFileReference> ResolveMentions(string prompt, int maxBytesPerFile);
@@ -60,6 +60,18 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
     public void Refresh()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
+        RefreshCore(rebuildIndex: true);
+    }
+
+    public void RefreshWorkspaceIdentity()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        RefreshCore(rebuildIndex: false);
+    }
+
+    private void RefreshCore(bool rebuildIndex)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
         var dte = _serviceProvider.GetService(typeof(DTE)) as DTE;
         var solutionPath = GetSolutionPath(dte);
         var startDirectory = ResolveWorkspaceStartDirectory(solutionPath, GetActiveProjectDirectory(dte), GetActiveDocumentDirectory(dte));
@@ -68,9 +80,12 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
         _workspaceIdentity = identity;
         _solutionPath = solutionPath;
         _workspaceName = identity.Name;
-        _workspaceMemoryRoot = EnsureWorkspaceProjectSpace(identity);
+        _workspaceMemoryRoot = identity.MemoryRoot;
         _workspaceRoot.OnNext(root);
-        RebuildWorkspaceFileIndex(root, dte);
+        if (rebuildIndex)
+        {
+            RebuildWorkspaceFileIndex(root, dte);
+        }
     }
 
     public IReadOnlyList<WorkspaceFileReference> SearchFiles(string query, int limit)
@@ -684,7 +699,6 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
 
     private static WorkspaceIdentity BuildWorkspaceIdentity(string workspaceRoot, string solutionPath)
     {
-        var projectSpace = string.IsNullOrWhiteSpace(workspaceRoot) ? string.Empty : Path.Combine(workspaceRoot, ".codex");
         var solutionRelativePath = MakeRelativeIfContained(workspaceRoot, solutionPath);
         var repositoryRemote = ReadRepositoryRemote(workspaceRoot);
         var name = BuildWorkspaceName(workspaceRoot, solutionPath);
@@ -700,36 +714,8 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
             SolutionPath = solutionPath,
             SolutionRelativePath = solutionRelativePath,
             RepositoryRemote = repositoryRemote,
-            MemoryRoot = projectSpace
+            MemoryRoot = string.Empty
         };
-    }
-
-    private static string EnsureWorkspaceProjectSpace(WorkspaceIdentity identity)
-    {
-        if (string.IsNullOrWhiteSpace(identity.RootPath) || !Directory.Exists(identity.RootPath))
-        {
-            return string.Empty;
-        }
-
-        var projectSpace = identity.MemoryRoot;
-        Directory.CreateDirectory(projectSpace);
-        Directory.CreateDirectory(Path.Combine(projectSpace, "skills"));
-
-        var metadata = new JObject
-        {
-            ["id"] = identity.Id,
-            ["name"] = identity.Name,
-            ["workspaceRoot"] = identity.RootPath,
-            ["solutionPath"] = identity.SolutionPath,
-            ["solutionRelativePath"] = identity.SolutionRelativePath,
-            ["repositoryRemote"] = identity.RepositoryRemote,
-            ["memoryRoot"] = identity.MemoryRoot,
-            ["memoryFile"] = Path.Combine(projectSpace, "memory.json"),
-            ["updatedAt"] = DateTimeOffset.Now.ToString("O")
-        };
-
-        File.WriteAllText(Path.Combine(projectSpace, "vscodex-workspace.json"), metadata.ToString());
-        return projectSpace;
     }
 
     private static string GetActiveProjectDirectory(DTE? dte)

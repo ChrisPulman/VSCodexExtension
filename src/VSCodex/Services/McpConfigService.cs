@@ -157,8 +157,9 @@ public sealed class McpConfigService : IMcpConfigService
         var candidates = new[]
         {
             Path.Combine(user, "source", "repos", "ReactiveMemory.MCP.Server", "src", "ReactiveMemory.MCP.Server", "ReactiveMemory.MCP.Server.csproj"),
-            Path.Combine(user, "Projects", "Github", "ReactiveMemory.MCP.Server", "src", "ReactiveMemory.MCP.Server", "ReactiveMemory.MCP.Server.csproj"),
-            @"D:\Projects\Github\chrispulman\ReactiveMemory.MCP.Server\src\ReactiveMemory.MCP.Server\ReactiveMemory.MCP.Server.csproj"
+            Path.Combine(user, "source", "repos", "ReactiveMemory.MCP.Server", "src", "ReactiveMemory.MCP.Server", "CP.ReactiveMemory.MCP.Server.csproj"),
+            Path.Combine(user, "Projects", "Github", "ReactiveMemory.MCP.Server", "src", "ReactiveMemory.MCP.Server", "CP.ReactiveMemory.MCP.Server.csproj"),
+            @"D:\Projects\Github\chrispulman\ReactiveMemory.MCP.Server\src\ReactiveMemory.MCP.Server\CP.ReactiveMemory.MCP.Server.csproj"
         };
 
         return candidates.FirstOrDefault(File.Exists);

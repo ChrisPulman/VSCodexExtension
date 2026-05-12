@@ -53,6 +53,7 @@ The VSCodex tool window is the primary workflow surface. It includes:
 
 - Conversation history with user, system, assistant, and error messages.
 - A prompt composer with Ctrl+Enter to run and Esc to cancel.
+- Voice-to-text prompt input on Windows installations with speech recognition and a microphone available.
 - Quick actions for review, active errors, tests, planning, explain, fix, optimize, and documentation.
 - Inline context suggestions for `/`, `#`, and `@`.
 - A collapsible controls panel for settings, context, skills, MCP, analytics, memory, agents, and attachments.
@@ -93,6 +94,8 @@ The Settings panel controls how Codex is called:
 
 Settings are locked while a task is running so delayed binding updates cannot change model, MCP, or sandbox behavior mid-request.
 
+Tool-window setting changes are retained per Visual Studio solution under the VSCodex app-data workspace state. Global Visual Studio options remain the default profile for newly opened solutions.
+
 ## Codex SDK and CLI Transport
 
 VSCodex prefers the `@openai/codex-sdk` bridge shipped in the VSIX under `Resources/codex-bridge.mjs`. At startup and before execution it verifies:
@@ -109,7 +112,7 @@ If setup is incomplete, VSCodex shows Windows-specific instructions in the conve
 
 The MCP tab reads and writes server configuration from `%USERPROFILE%\.codex\config.toml`. It can list configured servers, discover tools, prompt for required inputs, and insert MCP tool calls into the current prompt.
 
-ReactiveMemory is configured as the default durable memory server. VSCodex adds a `[mcp_servers.reactivememory]` entry if one is missing. If the ReactiveMemory source repo is present locally it can launch that project; otherwise it falls back to the `CP.ReactiveMemory.Mcp.Server` package identity so users can install or override the command.
+ReactiveMemory is configured as the default durable memory server. VSCodex adds a `[mcp_servers.reactivememory]` entry if one is missing. If the ReactiveMemory source repo is present locally it can launch that project; otherwise it falls back to the `CP.ReactiveMemory.Mcp.Server` package identity so users can install or override the command. When Visual Studio opens a solution, VSCodex asks ReactiveMemory to mine the active repository through ProjectMiner-compatible MCP tools, with a bounded local fallback that files safe text chunks through `add_drawer` if the server does not expose a direct miner tool.
 
 ReactiveMemory source: https://github.com/ChrisPulman/ReactiveMemory.MCP.Server
 
@@ -120,7 +123,7 @@ Memory support is designed to reduce lost context across sessions:
 - User memories capture durable preferences and recurring instructions.
 - Workspace memories capture repository-specific facts.
 - Prompt builder hooks call ReactiveMemory status and prompt-reaction tools when available.
-- Local JSON memory is used as a fallback cache when MCP memory is unavailable.
+- The tool window keeps an in-memory session cache for display and search, but durable memory is stored through ReactiveMemory instead of repository-local JSON files.
 
 The Memory tab exposes explicit save actions, while the prompt builder also injects memory context automatically with minimal user input.
 
@@ -160,4 +163,4 @@ MIT. See [LICENSE](LICENSE).
 
 ---
 
-**VSCodex** - Empowering Development Automation with AI and Reactive Technology ⚡🏭
+**VSCodex** - Visual Studio AI assistance with Codex, ReactiveMemory, MCP, and solution-scoped control.

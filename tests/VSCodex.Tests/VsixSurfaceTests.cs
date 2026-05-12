@@ -55,7 +55,7 @@ public sealed class VsixSurfaceTests
         RequireButtonString(vsct, "OpenToolWindowCommandId", "LocCanonicalName", "View.VSCodex");
         RequireButtonDoesNotHaveCommandFlag(vsct, "OpenToolWindowCommandId", "DefaultInvisible");
         RequireButtonDoesNotHaveCommandFlag(vsct, "OpenToolWindowCommandId", "DynamicVisibility");
-        RequireKeyBinding(vsct, "OpenToolWindowCommandId", "guidVSStd97", "0xBE", "Control Shift", "C", "Control");
+        RequireKeyBinding(vsct, "OpenToolWindowCommandId", "guidVSStd97", "0x43", "Control Shift");
         RequireDoesNotDefineIdSymbol(vsct, "IDM_VS_MENU_VIEW");
         RequireDoesNotDefineIdSymbol(vsct, "IDG_VS_WNDO_OTRWNDWS1");
         RequireDoesNotDefineIdSymbol(vsct, "IDM_VS_MENU_EXTENSIONS");
@@ -229,13 +229,27 @@ public sealed class VsixSurfaceTests
         RequireContains(mcpConfig, "void Save(IEnumerable<McpServerDefinition> servers)", "MCP config service must persist user-managed MCP server edits.");
         RequireContains(mcpConfig, "CreateTemplate(string transportType)", "MCP config service must create stdio and URL MCP server drafts from the UI.");
         RequireContains(mcpConfig, "CP.ReactiveMemory.Mcp.Server", "MCP config service must know the ReactiveMemory package identity.");
+        RequireContains(mcpConfig, "CP.ReactiveMemory.MCP.Server.csproj", "MCP config service must find the current ReactiveMemory server project name when using a local checkout.");
         RequireContains(mcpTools, "InvokeToolAsync", "MCP tooling must expose runtime tool invocation, not only tool discovery.");
         RequireContains(mcpTools, "tools/call", "MCP tooling must call MCP tools through the JSON-RPC tools/call method.");
+        RequireContains(mcpTools, "ResolveCommandPath", "MCP tooling must resolve command names before starting stdio servers from Visual Studio.");
+        RequireContains(mcpTools, "ResolveDotNetPath", "MCP tooling must launch dnx through dotnet.exe instead of leaving a PowerShell wrapper alive.");
+        RequireContains(mcpTools, "\"dnx\" + BuildArgumentSuffix(args)", "MCP tooling must preserve dnx server arguments when bypassing dnx.ps1.");
+        RequireContains(mcpTools, "\".ps1\"", "MCP tooling must support dnx.ps1-backed MCP servers.");
+        RequireContains(mcpTools, "Path.Combine(root!, \"dotnet\", \"dotnet.exe\")", "MCP tooling must find dotnet.exe even when Visual Studio starts without dotnet on PATH.");
+        RequireContains(mcpTools, "-NoProfile -ExecutionPolicy Bypass -File", "MCP tooling must launch PowerShell-backed MCP commands without relying on shell execution.");
+        RequireContains(mcpTools, "ProbeTimeoutSeconds = 20", "MCP discovery must allow dnx-based servers enough cold-start time.");
+        RequireContains(mcpTools, "_cache[server.Name] = tools;", "MCP discovery must cache real tool lists.");
+        RequireDoesNotContain(mcpTools, "_cache[server.Name] = new[]", "MCP discovery must not cache synthetic fallback tools after a failed probe.");
         RequireContains(reactiveMemory, "IReactiveMemoryService", "VSCodex must have a runtime ReactiveMemory service.");
         RequireContains(reactiveMemory, "ReactToPromptAsync", "ReactiveMemory must be called before requests so context can be restored.");
         RequireContains(reactiveMemory, "WriteDiaryAsync", "ReactiveMemory must write durable memories after requests complete.");
         RequireContains(reactiveMemory, "AddMemoryAsync", "Explicit memory commands must persist through ReactiveMemory.");
-        RequireContains(reactiveMemory, "InvokeToolAsync(server, tool.Name, arguments)", "ReactiveMemory must use real MCP tool calls.");
+        RequireContains(reactiveMemory, "InvokeToolAsync(server, toolName, arguments)", "ReactiveMemory must use real MCP tool calls.");
+        RequireContains(reactiveMemory, "reactivememory_add_drawer", "ReactiveMemory ProjectMiner fallback must call the known drawer filing tool when discovery cannot list tools.");
+        RequireContains(reactiveMemory, "ScoreReactiveMemoryServer", "ReactiveMemory must pick the most capable configured MCP server instead of the first name match.");
+        RequireContains(reactiveMemory, "cp-reactivememory-mcp-server", "ReactiveMemory should prefer the dnx package server already configured for Codex.");
+        RequireContains(reactiveMemory, "CP.ReactiveMemory.Mcp.Server@", "ReactiveMemory should prefer versioned dnx package entries over stale fallback blocks.");
         RequireContains(appBuilder, "RegisterSingleton<IReactiveMemoryService>", "ReactiveMemory service must be registered for the tool-window view model.");
         RequireContains(viewModel, "_reactiveMemory.ReactToPromptAsync", "Run must update ReactiveMemory context before calling Codex.");
         RequireContains(viewModel, "_reactiveMemory.WriteDiaryAsync", "Run completion must write a ReactiveMemory diary entry.");
@@ -270,7 +284,7 @@ public sealed class VsixSurfaceTests
         RequireContains(packageSource, "JoinableTaskFactory.RunAsync", "First-run tool-window launch must not block package initialization.");
         RequireContains(packageSource, "Task.Delay(TimeSpan.FromMilliseconds(1500)", "First-run tool-window launch must wait for the shell to settle.");
         RequireContains(packageSource, "FirstLaunchToolWindowOpened", "First-run state must be persisted so user layout is respected thereafter.");
-        RequireContains(packageSource, "FirstLaunchToolWindowOpenedV7", "The first-run key must advance when the tool-window launch behavior changes.");
+        RequireContains(packageSource, "FirstLaunchToolWindowOpenedV8", "The first-run key must advance when the tool-window launch behavior changes.");
         RequireContains(packageSource, "ShowToolWindowAsync(typeof(VSCodexToolWindowPane)", "The package must still show the VSCodex tool window on first run.");
         RequireDoesNotContain(packageSource, "await ShowToolWindowOnFirstLaunchAsync(cancellationToken)", "Package initialization must not synchronously await WPF tool-window creation.");
         RequireContains(commandSource, "ShowToolWindowAsync(typeof(VSCodexToolWindowPane)", "The VSCodex tool window must still open through the explicit command path.");
@@ -459,6 +473,10 @@ public sealed class VsixSurfaceTests
         var orchestrator = ReadText("src/VSCodex/Services/CodexOrchestrator.cs");
         var orchestration = ReadText("src/VSCodex/Services/TaskOrchestrationService.cs");
         var memoryStore = ReadText("src/VSCodex/Services/MemoryStore.cs");
+        var localPaths = ReadText("src/VSCodex/Infrastructure/LocalPaths.cs");
+        var reactiveMemory = ReadText("src/VSCodex/Services/ReactiveMemoryService.cs");
+        var solutionMonitor = ReadText("src/VSCodex/Services/SolutionLoadMonitorService.cs");
+        var package = ReadText("src/VSCodex/VSCodexPackage.cs");
 
         RequireContains(workspace, "ResolveWorkspaceStartDirectory", "Workspace discovery must start from the loaded solution and fall back to the active project.");
         RequireContains(workspace, "FindRepositoryRoot(startDirectory)", "Workspace discovery must promote src-hosted solutions to the repository root.");
@@ -470,8 +488,13 @@ public sealed class VsixSurfaceTests
         RequireContains(workspace, "BuildWorkspaceIdentity", "Workspace refresh must create a stable project identity for Codex and memory systems.");
         RequireContains(workspace, "ComputeWorkspaceIdentityId", "Workspace identity must be deterministic across Visual Studio sessions.");
         RequireContains(workspace, "ReadRepositoryRemote", "Workspace identity should include the repository remote when available.");
-        RequireContains(workspace, "vscodex-workspace.json", "VSCodex must persist project-space metadata under the repository .codex folder.");
+        RequireDoesNotContain(workspace, "vscodex-workspace.json", "VSCodex must not create redundant repository .codex workspace metadata.");
+        RequireDoesNotContain(localPaths, "MemoryFile", "VSCodex must not expose a repository-local JSON memory fallback path.");
         RequireContains(models, "public sealed class WorkspaceIdentity", "The run model must carry explicit workspace identity data.");
+        RequireContains(models, "[JsonObject(MemberSerialization.OptOut)]", "Persisted ReactiveObject models must opt out of the base serialization shape.");
+        RequireContains(models, "public sealed class ExtensionSettings", "Workspace settings must remain a concrete serializable model.");
+        RequireContains(models, "public sealed class AgentRoleDefinition", "Persisted agent definitions must remain concrete serializable models.");
+        RequireContains(models, "public sealed class ChatMessage", "Saved sessions must remain concrete serializable models.");
         RequireContains(models, "SolutionRelativePath", "Workspace identity must distinguish solutions inside the same repository.");
         RequireContains(models, "RepositoryRemote", "Workspace identity must retain the Git remote for cross-product context matching.");
         RequireContains(models, "MemoryRoot", "Workspace identity must expose the project memory root.");
@@ -496,7 +519,19 @@ public sealed class VsixSurfaceTests
         RequireDoesNotContain(bridge, "process.cwd()", "The bridge must never fall back to the installed VSIX payload directory.");
         RequireContains(orchestrator, "WorkspaceIdentity = request.WorkspaceIdentity", "Failover and enriched requests must preserve workspace identity.");
         RequireContains(orchestration, "WorkspaceIdentity = request.WorkspaceIdentity", "Multi-agent section and synthesis requests must preserve workspace identity.");
-        RequireContains(memoryStore, "Path.Combine(workspaceRoot, \".codex\", \"memory.json\")", "Workspace memory must live under the resolved repository .codex folder.");
+        RequireContains(memoryStore, "_workspaceMemories", "The in-window memory cache must be workspace-scoped without creating repository files.");
+        RequireDoesNotContain(memoryStore, "memory.json", "Workspace memory must be durable through ReactiveMemory instead of a repository-local JSON file.");
+        RequireContains(reactiveMemory, "ScanWorkspaceAsync", "ReactiveMemory must expose a ProjectMiner scan entry point for the active Visual Studio workspace.");
+        RequireContains(reactiveMemory, "BuildProjectMinerFallbackInvocations", "VSCodex must provide a ProjectMiner-compatible fallback when the server does not expose a miner tool.");
+        RequireContains(reactiveMemory, "\"project_miner\"", "ProjectMiner fallback drawers must be attributable to the repository scan.");
+        RequireContains(solutionMonitor, "IVsSolutionEvents", "The package must subscribe to Visual Studio solution events.");
+        RequireContains(solutionMonitor, "OnAfterOpenSolution", "ReactiveMemory ProjectMiner must run when a solution opens.");
+        RequireContains(solutionMonitor, "ScanWorkspaceAsync", "Solution-load monitoring must trigger ReactiveMemory ProjectMiner scanning.");
+        RequireContains(solutionMonitor, "if (result.Success)", "A failed startup scan must not block the solution-open ProjectMiner retry.");
+        RequireContains(solutionMonitor, "_lastQueuedWorkspaceId = identity.Id;", "Successful ProjectMiner scans must mark the workspace as completed.");
+        RequireContains(solutionMonitor, "_scanRetryCount < 3", "ProjectMiner scans must retry after transient MCP startup failures.");
+        RequireContains(solutionMonitor, "TimeSpan.FromSeconds(20)", "ProjectMiner retry delay must give dnx MCP servers time to warm up.");
+        RequireContains(package, "InitializeReactiveMemoryProjectMinerAsync", "The package must initialize solution-load ProjectMiner scanning during background load.");
     }
 
     [Test]
@@ -634,8 +669,11 @@ public sealed class VsixSurfaceTests
 
         RequireContains(view, "MinWidth=\"240\"", "The tool window must allow narrow docking while the inner controls wrap and scroll.");
         RequireContains(view, "MaxWidth=\"{Binding ActualWidth, ElementName=Root}\"", "The settings panel must be constrained to the actual tool-window width.");
+        RequireContains(view, "Width=\"620\"", "The controls panel must provide enough width for MCP, memory, analytics, and agent settings.");
+        RequireContains(view, "Grid.RowSpan=\"2\"", "The controls panel must span the conversation and prompt rows so dense MCP controls are usable.");
         RequireContains(view, "PromptResizeThumbStyle", "The prompt input must expose a theme-aware mouse resize grip.");
         RequireContains(view, "DragDelta=\"OnPromptResizeDragDelta\"", "Dragging the prompt resize grip must resize the prompt input.");
+        RequireContains(view, "DragCompleted=\"OnPromptResizeDragCompleted\"", "Prompt resizing must save the final height only after the mouse drag completes.");
         RequireContains(view, "MinHeight=\"32\"", "The prompt input must keep a one-line minimum height when collapsed.");
         RequireContains(view, "MaxHeight=\"600\"", "The prompt input must have a practical maximum height when expanded.");
         RequireContains(view, "Panel.ZIndex=\"10\"", "The settings panel must overlay the conversation in narrow layouts instead of disappearing off-screen.");
@@ -644,8 +682,15 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "VisibleHistoryItems", "The history tab must show saved VSCodex conversation sessions.");
         RequireContains(view, "Rate limits remaining", "The tool window must surface hourly and weekly rate-limit details near the model controls.");
         RequireContains(view, "Command=\"{Binding NewThreadCommand}\"", "The tool window must expose a first-class new thread action.");
+        RequireContains(view, "AutomationProperties.Name=\"New VSCodex thread\"", "Icon-only header controls must have an accessible automation name.");
         RequireContains(view, "ToolTip=\"Start a fresh VSCodex thread.", "The new-thread action must be an icon button with an accessible tooltip.");
+        RequireContains(view, "AutomationProperties.Name=\"Open VSCodex history\"", "The history icon must have an accessible automation name.");
         RequireContains(view, "ToolTip=\"Open VSCodex conversation history.", "The history action must be an icon button with an accessible tooltip.");
+        RequireContains(view, "Content=\"Controls\"", "The header must expose a discoverable controls entry point.");
+        RequireContains(view, "AutomationProperties.Name=\"Open VSCodex controls\"", "The controls entry point must have an accessible automation name.");
+        RequireContains(view, "Click=\"OnOpenToolPanelClick\"", "The controls entry point must open the tool panel without relying on slash commands.");
+        RequireContains(codeBehind, "private void OnOpenToolPanelClick", "The controls entry point must be wired in the view code-behind.");
+        RequireContains(codeBehind, "ViewModel.IsToolPanelOpen = true", "Clicking Controls must reveal the tool panel.");
         RequireContains(view, "<Setter Property=\"ToolTip\" Value=\"Send\" />", "The tool window run control must expose the visual send state through a tooltip.");
         RequireContains(view, "<Setter Property=\"ToolTip\" Value=\"Stop\" />", "The same visual run control must expose the stop state while a task is running.");
         RequireContains(view, "x:Name=\"SendIcon\"", "The idle run control must show a send icon.");
@@ -660,17 +705,27 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "IsToolPanelOpen", "The controls tab strip must not occupy workspace permanently.");
         RequireContains(view, "CanEditSettings", "Model and settings controls must be locked while a task is running.");
         RequireContains(view, "OnCloseToolPanelClick", "The controls panel must have an explicit close action.");
+        RequireContains(view, "AutomationProperties.Name=\"Close VSCodex controls\"", "The controls panel close action must be accessible.");
         RequireContains(view, "PreviewKeyDown=\"OnPromptPreviewKeyDown\"", "The prompt box must support keyboard shortcuts.");
+        RequireContains(view, "AutomationProperties.Name=\"VSCodex prompt input\"", "The prompt box must have an accessible name.");
         RequireContains(view, "Ctrl+Enter", "The run shortcut must be visible in the prompt UI.");
         RequireContains(view, "PromptSuggestionPopup", "The prompt box must show inline VSCodex suggestions for /, @, and # tokens.");
         RequireContains(view, "ItemsSource=\"{Binding PromptSuggestions}\"", "Inline prompt suggestions must be backed by the view-model suggestion list.");
         RequireContains(view, "IsOpen=\"{Binding IsPromptSuggestionOpen, Mode=TwoWay}\"", "The prompt suggestion popup must be controlled by view-model state.");
         RequireContains(view, "OnPromptSuggestionDoubleClick", "Prompt suggestions must be insertable with the mouse.");
         RequireContains(view, "Header=\"Context\"", "Context-sensitive file and selection references must be grouped in the tool pane.");
+        RequireContains(view, "Header=\"MCP\"", "MCP servers must remain a first-class tool panel surface.");
+        RequireContains(view, "SelectedMcpServer.Name", "The MCP tab must edit the selected server in a dedicated detail pane.");
+        RequireContains(view, "GridSplitter", "Dense tool panels must provide resizable regions instead of fixed tiny rows.");
+        RequireContains(view, "Header=\"Tool input\"", "MCP tool argument editing must have a dedicated input pane.");
+        RequireContains(view, "ToggleVoiceInputCommand", "The prompt footer must expose voice-to-text input.");
+        RequireContains(view, "VoiceInputStatus", "Voice input must surface ready, listening, and unavailable states.");
         RequireContains(view, "FileTabSelectedBackgroundBrushKey", "Selected tool tabs must use Visual Studio file-tab selected background resources for contrast.");
         RequireContains(view, "FileTabSelectedTextBrushKey", "Selected tool tabs must use Visual Studio file-tab selected text resources for contrast.");
         RequireContains(view, "ContentSource=\"Header\"", "Tab headers must be rendered by the themed template so selected text remains readable.");
         RequireContains(view, "TargetType=\"ComboBox\"", "Combo boxes must receive explicit theme styling.");
+        RequireContains(view, "AutomationProperties.Name=\"VSCodex request mode\"", "The request mode combo box must have an accessible name.");
+        RequireContains(view, "AutomationProperties.Name=\"VSCodex model\"", "The model combo box must have an accessible name.");
         RequireContains(view, "ControlTemplate TargetType=\"{x:Type ComboBox}\"", "Combo boxes must use a Visual Studio themed template instead of the light WPF default template.");
         RequireContains(view, "PART_EditableTextBox", "Editable combo boxes must explicitly theme their internal text box.");
         RequireContains(view, "VSCodexComboBoxEditableTextBoxStyle", "Editable combo box text must have a dedicated Visual Studio themed style.");
@@ -719,6 +774,14 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "CanEditSettings => !IsRunning", "Settings must not be editable while a task is running.");
         RequireContains(viewModel, "CanChangeSetting", "The view model must reject setting changes even if a delayed binding fires while a task is running.");
         RequireContains(viewModel, "Math.Max(32d", "The persisted prompt height must accept the same one-line minimum as the mouse resize grip.");
+        RequireContains(viewModel, "SetLiveInputAreaHeight", "Mouse resizing must preview height without saving settings on every drag tick.");
+        RequireContains(viewModel, "CommitInputAreaHeight", "Mouse resizing must persist the prompt height once the drag completes.");
+        RequireContains(viewModel, "SaveSettingsForCurrentWorkspace", "Settings changed from the tool window must be retained per Visual Studio solution.");
+        RequireContains(viewModel, "ToggleVoiceInputCommand", "The view model must expose a voice-input toggle command.");
+        RequireContains(view, "AutomationProperties.Name=\"Toggle VSCodex voice input\"", "The voice input button must be accessible.");
+        RequireContains(view, "AutomationProperties.Name=\"Send or stop VSCodex request\"", "The visual run control must be accessible in send and stop states.");
+        RequireContains(viewModel, "AppendVoiceTranscript", "Recognized speech must append to the current prompt.");
+        RequireContains(viewModel, "Task.Run(async () => await _mcpTools.DiscoverToolsAsync", "MCP discovery must avoid blocking the Visual Studio UI thread.");
         RequireContains(viewModel, "VSCodex settings are locked while a task is running", "Blocked setting changes must produce visible user feedback.");
         RequireContains(viewModel, "ShowHistoryCommand", "The header command must open the history tab on demand.");
         RequireContains(viewModel, "IsToolPanelOpen = true", "The tool panel must still open on demand.");
@@ -747,6 +810,8 @@ public sealed class VsixSurfaceTests
         RequireContains(codeBehind, "OpenFileDialog", "Disk-backed @ references must use a native Windows file picker.");
         RequireContains(codeBehind, "ClosePromptSuggestions", "Esc must close prompt suggestions before cancelling a run.");
         RequireContains(codeBehind, "OnPromptResizeDragDelta", "The prompt resize grip must be handled by the view.");
+        RequireContains(codeBehind, "OnPromptResizeDragCompleted", "Prompt resize persistence must be deferred until the drag completes.");
+        RequireContains(codeBehind, "ResolvePromptMaxHeight", "The prompt input maximum height must be based on available docked tool-window space.");
         RequireContains(codeBehind, "SetCurrentValue(HeightProperty, nextHeight)", "Prompt resizing must adjust the current text-box height without replacing the binding.");
         RequireContains(codeBehind, "Key.Escape", "Esc must cancel the active VSCodex request.");
         RequireContains(codeBehind, "OnCloseToolPanelClick", "The controls panel close button must update the view model.");
@@ -788,10 +853,16 @@ public sealed class VsixSurfaceTests
         RequireContains(project, "<TargetPath>Menus.ctmenu</TargetPath>", "The packaged command table must be installed at the VSIX root as Menus.ctmenu.");
         RequireDoesNotContain(project, "DestinationFiles=\"$(IntermediateOutputPath)Menus.ctmenu\"", "The command table must not depend on an after-the-fact copy that can miss VSIX item collection.");
         RequireContains(installerScript, "/rootSuffix:$RootSuffix", "VSIXInstaller must install into the requested Visual Studio root suffix.");
+        RequireDoesNotContain(installerScript, "/force", "VSIXInstaller 18 can produce incomplete legacy installs with /force; stale copies must be removed before a normal install instead.");
         RequireContains(installerScript, "/instanceIds:$InstanceId", "VSIXInstaller must support targeting the current Visual Studio instance.");
         RequireContains(installerScript, "/UpdateConfiguration", "VSIXInstaller deployment must refresh the Visual Studio package cache after replacing extension folders.");
         RequireContains(installerScript, "extensions.configurationchanged", "VSIXInstaller deployment must mark the extension cache dirty before refreshing configuration.");
         RequireContains(installerScript, "Clear-VisualStudioExtensionCaches", "VSIXInstaller deployment must clear stale command and MEF caches before refreshing configuration.");
+        RequireContains(installerScript, "Remove-StaleInstalledExtension", "Debug deployment must remove stale copies of the same VSIX ID before reinstalling.");
+        RequireContains(installerScript, "Remove-StaleVSCodexPayloadDirectories", "Debug deployment must also remove incomplete VSCodex payload folders that no longer contain a manifest.");
+        RequireContains(installerScript, "VSCodex.dll", "Debug deployment must identify stale manifest-less VSCodex payload directories by the extension assembly.");
+        RequireContains(installerScript, "ExtensionMetadata*.mpack", "Debug deployment must clear Visual Studio 18 extension metadata caches so pkgdef command tables are rebuilt.");
+        RequireContains(installerScript, "Where-Object { $_.Name -like \"ExtensionMetadata*.mpack\"", "Extension metadata cleanup must filter by filename before deleting files under the Visual Studio Extensions root.");
         RequireContains(installerScript, "Remove-VerifiedDirectory", "VSIXInstaller deployment cache cleanup must verify paths before recursive deletion.");
         RequireContains(installerScript, "PerUserEnabledExtensionsCache", "The installer script must wait for the extension to be enabled, not only copied.");
         RequireContains(launcherScript, "VSIXInstaller.exe", "The visible Release launcher must invoke Visual Studio VSIXInstaller directly.");
@@ -893,7 +964,7 @@ public sealed class VsixSurfaceTests
         }
     }
 
-    private static void RequireKeyBinding(XDocument document, string commandId, string expectedEditor, string expectedKey1, string expectedMod1, string expectedKey2, string expectedMod2)
+    private static void RequireKeyBinding(XDocument document, string commandId, string expectedEditor, string expectedKey1, string expectedMod1)
     {
         var binding = document.Descendants(Vsct + "KeyBinding")
             .SingleOrDefault(element => (string?)element.Attribute("id") == commandId);
@@ -906,8 +977,8 @@ public sealed class VsixSurfaceTests
         RequireAttribute(binding, "editor", expectedEditor);
         RequireAttribute(binding, "key1", expectedKey1);
         RequireAttribute(binding, "mod1", expectedMod1);
-        RequireAttribute(binding, "key2", expectedKey2);
-        RequireAttribute(binding, "mod2", expectedMod2);
+        RequireMissingAttribute(binding, "key2");
+        RequireMissingAttribute(binding, "mod2");
     }
 
     private static void RequireAttribute(XElement element, string attributeName, string expectedValue)
@@ -916,6 +987,14 @@ public sealed class VsixSurfaceTests
         if (!StringComparer.Ordinal.Equals(actual, expectedValue))
         {
             throw new InvalidOperationException($"Expected {element.Name.LocalName} attribute '{attributeName}' to be '{expectedValue}', but found '{actual ?? "<missing>"}'.");
+        }
+    }
+
+    private static void RequireMissingAttribute(XElement element, string attributeName)
+    {
+        if (element.Attribute(attributeName) != null)
+        {
+            throw new InvalidOperationException($"Expected {element.Name.LocalName} attribute '{attributeName}' to be absent.");
         }
     }
 

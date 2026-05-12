@@ -75,6 +75,7 @@ public sealed class RxAppBuilder
             .RegisterSingleton<ICodingAssistantContextService>(ctx => new CodingAssistantContextService(ctx.ServiceProvider, ctx.Get<IWorkspaceContextService>()))
             .RegisterSingleton<IModelAnalyticsService>(_ => new ModelAnalyticsService())
             .RegisterSingleton<ICodexEnvironmentService>(_ => new CodexEnvironmentService())
+            .RegisterSingleton<IVoiceInputService>(_ => new VoiceInputService())
             .RegisterSingleton<CodexSdkJsonClient>(ctx => new CodexSdkJsonClient(ctx.Get<ISettingsStore>()))
             .RegisterSingleton<CodexCliClient>(ctx => new CodexCliClient(ctx.Get<ISettingsStore>()))
             .RegisterSingleton<ICodexOrchestrator>(ctx => new CodexOrchestrator(ctx.Get<CodexSdkJsonClient>(), ctx.Get<CodexCliClient>()))
@@ -124,6 +125,7 @@ public sealed class RxAppContext
             Get<ICodingAssistantContextService>(),
             Get<IModelAnalyticsService>(),
             Get<ICodexEnvironmentService>(),
+            Get<IVoiceInputService>(),
             JoinableTaskFactory);
     }
 

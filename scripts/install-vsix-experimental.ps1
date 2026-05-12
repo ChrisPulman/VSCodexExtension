@@ -10,6 +10,8 @@ param(
 
     [string]$LogFile,
 
+    [switch]$NoShutdownProcesses,
+
     [int]$TimeoutSeconds = 180
 )
 
@@ -176,7 +178,8 @@ function Clear-VisualStudioExtensionCaches {
 
         $extensionsRoot = Join-Path $instance.FullName "Extensions"
         if (Test-Path -LiteralPath $extensionsRoot) {
-            Get-ChildItem -LiteralPath $extensionsRoot -Recurse -Filter "ExtensionMetadataCache.mpack" -ErrorAction SilentlyContinue |
+            Get-ChildItem -LiteralPath $extensionsRoot -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like "ExtensionMetadata*.mpack" -or $_.Name -eq "ExtensionMetadataCache.mpack" } |
                 ForEach-Object {
                     if (-not (Test-PathUnderDirectory -Path $_.FullName -Directory $extensionsRoot)) {
                         throw "Refusing to remove '$($_.FullName)' because it is outside '$extensionsRoot'."
@@ -184,6 +187,83 @@ function Clear-VisualStudioExtensionCaches {
 
                     Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
                 }
+        }
+    }
+}
+
+function Get-InstalledVsixManifestIdentifier {
+    param([string]$Path)
+
+    try {
+        [xml]$manifest = Get-Content -LiteralPath $Path -Raw
+        $namespaceManager = [System.Xml.XmlNamespaceManager]::new($manifest.NameTable)
+        $namespaceManager.AddNamespace("vsix", "http://schemas.microsoft.com/developer/vsx-schema/2011")
+        $identity = $manifest.SelectSingleNode("/vsix:PackageManifest/vsix:Metadata/vsix:Identity", $namespaceManager)
+        return $identity.Id
+    }
+    catch {
+        return $null
+    }
+}
+
+function Remove-StaleInstalledExtension {
+    param(
+        [string]$ExtensionId,
+        [string]$RootSuffix,
+        [string]$InstanceId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExtensionId)) {
+        return
+    }
+
+    foreach ($instance in Get-TargetVisualStudioInstanceDirectories -RootSuffix $RootSuffix -InstanceId $InstanceId) {
+        $extensionsRoot = Join-Path $instance.FullName "Extensions"
+        if (-not (Test-Path -LiteralPath $extensionsRoot)) {
+            continue
+        }
+
+        $manifests = Get-ChildItem -LiteralPath $extensionsRoot -Recurse -Filter "extension.vsixmanifest" -ErrorAction SilentlyContinue
+        foreach ($manifest in $manifests) {
+            $installedId = Get-InstalledVsixManifestIdentifier -Path $manifest.FullName
+            if (-not [string]::Equals($installedId, $ExtensionId, [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            $extensionDirectory = $manifest.DirectoryName
+            if (-not (Test-PathUnderDirectory -Path $extensionDirectory -Directory $extensionsRoot)) {
+                throw "Refusing to remove '$extensionDirectory' because it is outside '$extensionsRoot'."
+            }
+
+            Write-Host "Removing stale installed extension at '$extensionDirectory'."
+            Remove-Item -LiteralPath $extensionDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Remove-StaleVSCodexPayloadDirectories {
+    param(
+        [string]$RootSuffix,
+        [string]$InstanceId
+    )
+
+    foreach ($instance in Get-TargetVisualStudioInstanceDirectories -RootSuffix $RootSuffix -InstanceId $InstanceId) {
+        $extensionsRoot = Join-Path $instance.FullName "Extensions"
+        if (-not (Test-Path -LiteralPath $extensionsRoot)) {
+            continue
+        }
+
+        $payloadDirectories = Get-ChildItem -LiteralPath $extensionsRoot -Recurse -Filter "VSCodex.dll" -File -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.DirectoryName } |
+            Sort-Object -Unique
+
+        foreach ($extensionDirectory in $payloadDirectories) {
+            if (-not (Test-PathUnderDirectory -Path $extensionDirectory -Directory $extensionsRoot)) {
+                throw "Refusing to remove '$extensionDirectory' because it is outside '$extensionsRoot'."
+            }
+
+            Write-Host "Removing stale VSCodex payload at '$extensionDirectory'."
+            Remove-Item -LiteralPath $extensionDirectory -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -292,10 +372,13 @@ Remove-Item -LiteralPath $LogFile -Force -ErrorAction SilentlyContinue
 
 $arguments = @(
     "/quiet",
-    "/shutdownprocesses",
     "/rootSuffix:$RootSuffix",
     "/logFile:$LogFile"
 )
+
+if (-not $NoShutdownProcesses) {
+    $arguments += "/shutdownprocesses"
+}
 
 if (-not [string]::IsNullOrWhiteSpace($InstanceId)) {
     $arguments += "/instanceIds:$InstanceId"
@@ -305,6 +388,10 @@ $arguments += $resolvedVsix.Path
 
 Write-Host "Installing VSIX into Visual Studio root suffix '$RootSuffix'."
 $startedAt = Get-Date
+Remove-StaleInstalledExtension -ExtensionId $extensionId -RootSuffix $RootSuffix -InstanceId $InstanceId
+Remove-StaleVSCodexPayloadDirectories -RootSuffix $RootSuffix -InstanceId $InstanceId
+Touch-ExtensionsConfigurationChanged -RootSuffix $RootSuffix -InstanceId $InstanceId
+Clear-VisualStudioExtensionCaches -RootSuffix $RootSuffix -InstanceId $InstanceId
 & $installer @arguments
 $installerExitCode = if ($LASTEXITCODE -is [int]) { $LASTEXITCODE } else { 0 }
 

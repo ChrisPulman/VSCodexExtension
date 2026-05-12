@@ -106,6 +106,20 @@ public partial class VSCodexToolWindowControl : UserControl
         }
     }
 
+    private void OnOpenToolPanelClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel == null)
+        {
+            return;
+        }
+
+        ViewModel.IsToolPanelOpen = true;
+        if (ViewModel.SelectedToolTabIndex < 0)
+        {
+            ViewModel.SelectedToolTabIndex = 0;
+        }
+    }
+
     private void OnCloseToolPanelClick(object sender, RoutedEventArgs e) => ViewModel?.IsToolPanelOpen = false;
 
     private void OnRunControlClick(object sender, RoutedEventArgs e)
@@ -166,15 +180,31 @@ public partial class VSCodexToolWindowControl : UserControl
             currentHeight = ViewModel?.InputAreaHeight ?? PromptTextBox.MinHeight;
         }
 
-        var maxHeight = double.IsNaN(PromptTextBox.MaxHeight) || double.IsInfinity(PromptTextBox.MaxHeight)
-            ? 600d
-            : PromptTextBox.MaxHeight;
+        var maxHeight = ResolvePromptMaxHeight();
         var nextHeight = Math.Max(PromptTextBox.MinHeight, Math.Min(maxHeight, currentHeight - e.VerticalChange));
 
         PromptTextBox.SetCurrentValue(HeightProperty, nextHeight);
-        if (ViewModel != null) ViewModel.InputAreaHeight = nextHeight;
+        ViewModel?.SetLiveInputAreaHeight(nextHeight);
 
         e.Handled = true;
+    }
+
+    private void OnPromptResizeDragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        var height = double.IsNaN(PromptTextBox.Height) || PromptTextBox.Height <= 0d
+            ? PromptTextBox.ActualHeight
+            : PromptTextBox.Height;
+        ViewModel?.CommitInputAreaHeight(Math.Max(PromptTextBox.MinHeight, Math.Min(ResolvePromptMaxHeight(), height)));
+        e.Handled = true;
+    }
+
+    private double ResolvePromptMaxHeight()
+    {
+        var maxHeight = double.IsNaN(PromptTextBox.MaxHeight) || double.IsInfinity(PromptTextBox.MaxHeight)
+            ? 600d
+            : PromptTextBox.MaxHeight;
+        var layoutMax = Root.ActualHeight > 0d ? Math.Max(96d, Root.ActualHeight * 0.45d) : maxHeight;
+        return Math.Min(maxHeight, layoutMax);
     }
 
     private void InsertSelectedPromptSuggestion()

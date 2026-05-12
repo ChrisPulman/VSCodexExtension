@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <Reference Include="System.Design" />
+    <Reference Include="System.Speech" />
   </ItemGroup>
 
   <ItemGroup>
