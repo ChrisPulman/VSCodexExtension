@@ -1202,6 +1202,11 @@
                                     Command="{Binding AddWorkspaceMemoryCommand}"
                                     Content="Save workspace memory"
                                     Style="{StaticResource CompactButtonStyle}" />
+                                <Button
+                                    Command="{Binding ScanProjectMemoryCommand}"
+                                    Content="Scan project"
+                                    Style="{StaticResource CompactButtonStyle}"
+                                    ToolTip="Run a full ReactiveMemory ProjectMiner scan for the current solution after Visual Studio has loaded." />
                             </WrapPanel>
                             <ListBox ItemsSource="{Binding Memories}">
                                 <ListBox.ItemTemplate>

@@ -189,6 +189,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         ApplyRecommendedModelCommand = ReactiveCommand.Create(ApplyRecommendedModel, outputScheduler: _uiScheduler);
         AddUserMemoryCommand = ReactiveCommand.CreateFromTask(() => AddMemoryAsync("user"), canSavePrompt, _uiScheduler);
         AddWorkspaceMemoryCommand = ReactiveCommand.CreateFromTask(() => AddMemoryAsync("workspace"), canSavePrompt, _uiScheduler);
+        ScanProjectMemoryCommand = ReactiveCommand.CreateFromTask(ScanProjectMemoryAsync, this.WhenAnyValue(x => x.CanEditSettings).ObserveOn(_uiScheduler), _uiScheduler);
         AddImageAttachmentCommand = ReactiveCommand.Create(AddImageAttachment, outputScheduler: _uiScheduler);
         ToggleVoiceInputCommand = ReactiveCommand.Create(ToggleVoiceInput, outputScheduler: _uiScheduler);
         ClearAttachmentsCommand = ReactiveCommand.Create(() => Attachments.Clear(), outputScheduler: _uiScheduler);
@@ -277,6 +278,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> ApplyRecommendedModelCommand { get; }
     public ReactiveCommand<Unit, Unit> AddUserMemoryCommand { get; }
     public ReactiveCommand<Unit, Unit> AddWorkspaceMemoryCommand { get; }
+    public ReactiveCommand<Unit, Unit> ScanProjectMemoryCommand { get; }
     public ReactiveCommand<Unit, Unit> AddImageAttachmentCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleVoiceInputCommand { get; }
     public ReactiveCommand<Unit, Unit> ClearAttachmentsCommand { get; }
@@ -594,29 +596,29 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             _memoryStore.LoadWorkspace(_workspace.CurrentWorkspaceRoot);
             _skillIndex.Refresh(_settingsStore.Current.SkillRoots.Concat(new[] { System.IO.Path.Combine(_workspace.CurrentWorkspaceRoot ?? string.Empty, ".codex", "skills") }));
             _mcpConfig.Refresh();
-            QueueReactiveMemoryProjectMinerScan(_workspace.CurrentWorkspaceIdentity);
             Status = string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot) ? "Visual Studio solution context is still loading" : "Refreshed VSCodex context for " + _workspace.CurrentWorkspaceRoot;
             RefreshRateLimitsInBackground();
         }
         catch (Exception ex) { Status = "Refresh failed: " + ex.Message; }
     }
 
-    private void QueueReactiveMemoryProjectMinerScan(WorkspaceIdentity identity)
+    private async Task ScanProjectMemoryAsync()
     {
+        var identity = _workspace.CurrentWorkspaceIdentity;
         if (identity == null || string.IsNullOrWhiteSpace(identity.RootPath))
         {
+            Status = "Open a solution before scanning project memory";
             return;
         }
 
-        _joinableTaskFactory.RunAsync(async () =>
+        Status = "Scanning project memory with ReactiveMemory ProjectMiner...";
+        var scan = await Task.Run(async () => await _reactiveMemory.ScanWorkspaceAsync(identity, automatic: false).ConfigureAwait(false)).ConfigureAwait(false);
+        await _joinableTaskFactory.SwitchToMainThreadAsync();
+        Status = scan.Message;
+        if (!scan.Success)
         {
-            var scan = await Task.Run(async () => await _reactiveMemory.ScanWorkspaceAsync(identity).ConfigureAwait(false)).ConfigureAwait(false);
-            await _joinableTaskFactory.SwitchToMainThreadAsync();
-            if (!scan.Success && Status.IndexOf("ProjectMiner", StringComparison.OrdinalIgnoreCase) < 0)
-            {
-                Status = scan.Message;
-            }
-        }).Task.FireAndForget();
+            AddMessage(CodexMessageRole.System, scan.Message);
+        }
     }
 
     private bool EnsureWorkspaceReadyForRun()

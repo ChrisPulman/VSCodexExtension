@@ -3,8 +3,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using VSCodex.Infrastructure;
 using VSCodex.Models;
 
 namespace VSCodex.Services;
@@ -14,7 +17,7 @@ public interface IReactiveMemoryService
     Task<ReactiveMemoryCallResult> ReactToPromptAsync(string prompt, WorkspaceIdentity identity, string? threadId);
     Task<ReactiveMemoryCallResult> WriteDiaryAsync(string prompt, string response, WorkspaceIdentity identity, string? threadId);
     Task<ReactiveMemoryCallResult> AddMemoryAsync(string text, string scope, WorkspaceIdentity identity);
-    Task<ReactiveMemoryCallResult> ScanWorkspaceAsync(WorkspaceIdentity identity);
+    Task<ReactiveMemoryCallResult> ScanWorkspaceAsync(WorkspaceIdentity identity, bool automatic = false);
 }
 
 public sealed class ReactiveMemoryCallResult
@@ -28,8 +31,11 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
 {
     private const int MaxProjectMinerFiles = 180;
     private const int MaxProjectMinerChunks = 320;
+    private const int MaxAutomaticProjectMinerFiles = 24;
+    private const int MaxAutomaticProjectMinerChunks = 32;
     private const int ProjectMinerChunkSize = 800;
     private const int ProjectMinerChunkOverlap = 100;
+    private static readonly TimeSpan AutomaticScanInterval = TimeSpan.FromHours(24);
     private static readonly ConcurrentDictionary<string, DateTimeOffset> LastWorkspaceScans = new ConcurrentDictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
     private readonly IMcpConfigService _mcpConfig;
     private readonly IMcpToolCatalogService _mcpTools;
@@ -75,7 +81,7 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
         return InvokeReactiveMemoryAsync(args, "reactivememory_diary_write", "diary_write", "agent_diary", "agent diary");
     }
 
-    public async Task<ReactiveMemoryCallResult> ScanWorkspaceAsync(WorkspaceIdentity identity)
+    public async Task<ReactiveMemoryCallResult> ScanWorkspaceAsync(WorkspaceIdentity identity, bool automatic = false)
     {
         if (identity == null || string.IsNullOrWhiteSpace(identity.RootPath) || !Directory.Exists(identity.RootPath))
         {
@@ -83,9 +89,15 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
         }
 
         var key = string.IsNullOrWhiteSpace(identity.Id) ? identity.RootPath : identity.Id;
-        if (LastWorkspaceScans.TryGetValue(key, out var lastScan) && DateTimeOffset.UtcNow - lastScan < TimeSpan.FromMinutes(30))
+        var scanCacheKey = (automatic ? "automatic|" : "manual|") + key;
+        if (LastWorkspaceScans.TryGetValue(scanCacheKey, out var lastScan) && DateTimeOffset.UtcNow - lastScan < TimeSpan.FromMinutes(30))
         {
             return new ReactiveMemoryCallResult { Success = true, Message = "ReactiveMemory ProjectMiner scan already ran for this workspace." };
+        }
+
+        if (automatic && HasRecentAutomaticScan(key))
+        {
+            return new ReactiveMemoryCallResult { Success = true, Message = "ReactiveMemory ProjectMiner automatic scan skipped because this workspace was mined recently." };
         }
 
         try
@@ -112,7 +124,8 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
                     ["sector"] = WorkspaceSector(identity),
                     ["agentName"] = "VSCodex"
                 }).ConfigureAwait(false);
-                LastWorkspaceScans[key] = DateTimeOffset.UtcNow;
+                LastWorkspaceScans[scanCacheKey] = DateTimeOffset.UtcNow;
+                MarkAutomaticScan(key, automatic);
                 return new ReactiveMemoryCallResult { Success = true, Message = "ReactiveMemory ProjectMiner scanned " + identity.RootPath, RawResult = result };
             }
 
@@ -127,15 +140,20 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
                 return Unavailable("ReactiveMemory MCP server does not expose ProjectMiner or add_drawer tools.");
             }
 
-            var invocations = BuildProjectMinerFallbackInvocations(identity, addDrawerToolName!).ToList();
+            var maxFiles = automatic ? MaxAutomaticProjectMinerFiles : MaxProjectMinerFiles;
+            var maxChunks = automatic ? MaxAutomaticProjectMinerChunks : MaxProjectMinerChunks;
+            var invocations = BuildProjectMinerFallbackInvocations(identity, addDrawerToolName!, maxFiles, maxChunks).ToList();
             if (invocations.Count == 0)
             {
-                LastWorkspaceScans[key] = DateTimeOffset.UtcNow;
+                LastWorkspaceScans[scanCacheKey] = DateTimeOffset.UtcNow;
+                MarkAutomaticScan(key, automatic);
                 return new ReactiveMemoryCallResult { Success = true, Message = "ReactiveMemory ProjectMiner scan found no safe text files to mine." };
             }
 
-            var responses = await _mcpTools.InvokeToolsAsync(server, invocations, TimeSpan.FromMinutes(4)).ConfigureAwait(false);
-            LastWorkspaceScans[key] = DateTimeOffset.UtcNow;
+            var timeout = automatic ? TimeSpan.FromSeconds(45) : TimeSpan.FromMinutes(4);
+            var responses = await _mcpTools.InvokeToolsAsync(server, invocations, timeout).ConfigureAwait(false);
+            LastWorkspaceScans[scanCacheKey] = DateTimeOffset.UtcNow;
+            MarkAutomaticScan(key, automatic);
             var completed = responses.Count(response => response != null && response["error"] == null);
             return new ReactiveMemoryCallResult
             {
@@ -225,10 +243,10 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
         return string.IsNullOrWhiteSpace(name) ? "VSCodex workspace" : name!;
     }
 
-    private static IEnumerable<McpToolInvocation> BuildProjectMinerFallbackInvocations(WorkspaceIdentity identity, string toolName)
+    private static IEnumerable<McpToolInvocation> BuildProjectMinerFallbackInvocations(WorkspaceIdentity identity, string toolName, int maxFiles, int maxChunks)
     {
         var sector = WorkspaceSector(identity);
-        var files = EnumerateProjectMinerFiles(identity.RootPath, MaxProjectMinerFiles);
+        var files = EnumerateProjectMinerFiles(identity.RootPath, maxFiles);
         var chunks = 0;
         foreach (var file in files)
         {
@@ -244,7 +262,7 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
 
             foreach (var chunk in ChunkText(content))
             {
-                if (++chunks > MaxProjectMinerChunks)
+                if (++chunks > maxChunks)
                 {
                     yield break;
                 }
@@ -408,6 +426,56 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
         }
 
         return path.Substring(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static bool HasRecentAutomaticScan(string key)
+    {
+        try
+        {
+            var path = AutomaticScanStampPath(key);
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            var text = File.ReadAllText(path);
+            return DateTimeOffset.TryParse(text, out var scannedAt)
+                && DateTimeOffset.UtcNow - scannedAt < AutomaticScanInterval;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void MarkAutomaticScan(string key, bool automatic)
+    {
+        if (!automatic)
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllText(AutomaticScanStampPath(key), DateTimeOffset.UtcNow.ToString("O"));
+        }
+        catch
+        {
+        }
+    }
+
+    private static string AutomaticScanStampPath(string key)
+    {
+        var root = LocalPaths.Ensure(Path.Combine(LocalPaths.AppRoot, "projectminer"));
+        return Path.Combine(root, Sha256(key ?? string.Empty) + ".stamp");
+    }
+
+    private static string Sha256(string value)
+    {
+        using (var sha = SHA256.Create())
+        {
+            return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty))).Replace("-", string.Empty).ToLowerInvariant();
+        }
     }
 
     private static ReactiveMemoryCallResult Unavailable(string message) => new ReactiveMemoryCallResult { Success = false, Message = message };
