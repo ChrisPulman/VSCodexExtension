@@ -93,7 +93,7 @@ public sealed class McpToolCatalogService : IMcpToolCatalogService
             {
                 ["protocolVersion"] = "2024-11-05",
                 ["capabilities"] = new JObject(),
-                ["clientInfo"] = new JObject { ["name"] = "VSCodex", ["version"] = "0.1.19" }
+                ["clientInfo"] = new JObject { ["name"] = "VSCodex", ["version"] = "0.2.1" }
             });
             await ReadResponseAsync(process, reader, 1, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
             WriteNotification(process.StandardInput.BaseStream, "notifications/initialized", new JObject());
@@ -129,7 +129,7 @@ public sealed class McpToolCatalogService : IMcpToolCatalogService
             {
                 ["protocolVersion"] = "2024-11-05",
                 ["capabilities"] = new JObject(),
-                ["clientInfo"] = new JObject { ["name"] = "VSCodex", ["version"] = "0.1.19" }
+                ["clientInfo"] = new JObject { ["name"] = "VSCodex", ["version"] = "0.2.1" }
             });
             await ReadResponseAsync(process, reader, 1, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
             WriteNotification(process.StandardInput.BaseStream, "notifications/initialized", new JObject());
