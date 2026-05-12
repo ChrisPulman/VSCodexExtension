@@ -356,7 +356,7 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "_settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore)", "An open VSCodex tool window must react to Tools > Options changes without restarting Visual Studio.");
         RequireContains(viewModel, "ApplySettingsFromStore", "Tools > Options changes must update the live tool-window run settings.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.2.1\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.3.0\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
     }
 
@@ -524,14 +524,18 @@ public sealed class VsixSurfaceTests
         RequireContains(reactiveMemory, "ScanWorkspaceAsync", "ReactiveMemory must expose a ProjectMiner scan entry point for the active Visual Studio workspace.");
         RequireContains(reactiveMemory, "BuildProjectMinerFallbackInvocations", "VSCodex must provide a ProjectMiner-compatible fallback when the server does not expose a miner tool.");
         RequireContains(reactiveMemory, "\"project_miner\"", "ProjectMiner fallback drawers must be attributable to the repository scan.");
+        RequireContains(reactiveMemory, "MaxAutomaticProjectMinerChunks", "Automatic ProjectMiner startup scans must be bounded so Visual Studio load is not dominated by memory writes.");
+        RequireContains(reactiveMemory, "HasRecentAutomaticScan", "Automatic ProjectMiner scans must be persisted and throttled across Visual Studio sessions.");
         RequireContains(solutionMonitor, "IVsSolutionEvents", "The package must subscribe to Visual Studio solution events.");
         RequireContains(solutionMonitor, "OnAfterOpenSolution", "ReactiveMemory ProjectMiner must run when a solution opens.");
         RequireContains(solutionMonitor, "ScanWorkspaceAsync", "Solution-load monitoring must trigger ReactiveMemory ProjectMiner scanning.");
         RequireContains(solutionMonitor, "if (result.Success)", "A failed startup scan must not block the solution-open ProjectMiner retry.");
         RequireContains(solutionMonitor, "_lastQueuedWorkspaceId = identity.Id;", "Successful ProjectMiner scans must mark the workspace as completed.");
-        RequireContains(solutionMonitor, "_scanRetryCount < 3", "ProjectMiner scans must retry after transient MCP startup failures.");
-        RequireContains(solutionMonitor, "TimeSpan.FromSeconds(20)", "ProjectMiner retry delay must give dnx MCP servers time to warm up.");
+        RequireContains(solutionMonitor, "AutomaticScanDelay", "ProjectMiner scanning must be delayed until after Visual Studio startup settles.");
+        RequireContains(solutionMonitor, "_scanInProgress", "ProjectMiner scanning must not run multiple concurrent repository scans.");
+        RequireContains(solutionMonitor, "_scanRetryCount < 1", "ProjectMiner startup retries must be bounded to avoid repeated load spikes.");
         RequireContains(package, "InitializeReactiveMemoryProjectMinerAsync", "The package must initialize solution-load ProjectMiner scanning during background load.");
+        RequireContains(viewModel, "ScanProjectMemoryCommand", "The Memory tab must expose an explicit full ProjectMiner scan action.");
     }
 
     [Test]

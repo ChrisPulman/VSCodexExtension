@@ -11,6 +11,8 @@ namespace VSCodex.Services;
 
 public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
 {
+    private static readonly TimeSpan AutomaticScanDelay = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromMinutes(1);
     private readonly AsyncPackage _package;
     private readonly JoinableTaskFactory _joinableTaskFactory;
     private readonly IWorkspaceContextService _workspace;
@@ -20,6 +22,7 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
     private uint _solutionEventsCookie;
     private string _lastQueuedWorkspaceId = string.Empty;
     private int _scanRetryCount;
+    private int _scanInProgress;
 
     public SolutionLoadMonitorService(
         AsyncPackage package,
@@ -48,7 +51,7 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
         if (ErrorHandler.Succeeded(_solution.AdviseSolutionEvents(this, out _solutionEventsCookie)))
         {
             ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner monitor registered for Visual Studio solution events.");
-            QueueProjectMinerScan("package startup");
+            QueueProjectMinerScan("package startup idle check", AutomaticScanDelay);
         }
         else
         {
@@ -59,13 +62,12 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
     public int OnAfterOpenSolution(object pUnkReserved, int fNewSolution)
     {
         _scanRetryCount = 0;
-        QueueProjectMinerScan("solution opened");
+        QueueProjectMinerScan("solution opened", AutomaticScanDelay);
         return VSConstants.S_OK;
     }
 
     public int OnAfterOpenProject(IVsHierarchy pHierarchy, int fAdded)
     {
-        QueueProjectMinerScan("project opened");
         return VSConstants.S_OK;
     }
 
@@ -95,19 +97,27 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
         ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan queued (" + reason + ").");
         Task.Run(async () =>
         {
+            var acquiredScanSlot = false;
             try
             {
-                await Task.Delay(delay ?? TimeSpan.FromSeconds(2), _package.DisposalToken).ConfigureAwait(false);
+                await Task.Delay(delay ?? AutomaticScanDelay, _package.DisposalToken).ConfigureAwait(false);
+                if (Interlocked.Exchange(ref _scanInProgress, 1) == 1)
+                {
+                    ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan skipped because another scan is already running (" + reason + ").");
+                    return;
+                }
+
+                acquiredScanSlot = true;
                 await _joinableTaskFactory.SwitchToMainThreadAsync(_package.DisposalToken);
                 _workspace.RefreshWorkspaceIdentity();
                 var identity = _workspace.CurrentWorkspaceIdentity;
                 if (identity == null || string.IsNullOrWhiteSpace(identity.Id) || string.IsNullOrWhiteSpace(identity.RootPath))
                 {
-                    if (_scanRetryCount < 3)
+                    if (_scanRetryCount < 1)
                     {
                         _scanRetryCount++;
                         ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan is waiting for the Visual Studio workspace identity (" + reason + ").");
-                        QueueProjectMinerScan("retry " + _scanRetryCount + " after workspace identity was unavailable for " + reason, TimeSpan.FromSeconds(20));
+                        QueueProjectMinerScan("retry " + _scanRetryCount + " after workspace identity was unavailable for " + reason, RetryDelay);
                     }
 
                     return;
@@ -120,7 +130,7 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
 
                 _mcpConfig.Refresh();
                 var scanIdentity = identity;
-                var result = await Task.Run(async () => await _reactiveMemory.ScanWorkspaceAsync(scanIdentity).ConfigureAwait(false), _package.DisposalToken).ConfigureAwait(false);
+                var result = await Task.Run(async () => await _reactiveMemory.ScanWorkspaceAsync(scanIdentity, automatic: true).ConfigureAwait(false), _package.DisposalToken).ConfigureAwait(false);
                 if (result.Success)
                 {
                     _lastQueuedWorkspaceId = identity.Id;
@@ -130,10 +140,10 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
                 else
                 {
                     ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), result.Message + " (" + reason + ")");
-                    if (_scanRetryCount < 3)
+                    if (_scanRetryCount < 1)
                     {
                         _scanRetryCount++;
-                        QueueProjectMinerScan("retry " + _scanRetryCount + " after " + reason, TimeSpan.FromSeconds(20));
+                        QueueProjectMinerScan("retry " + _scanRetryCount + " after " + reason, RetryDelay);
                     }
                 }
             }
@@ -143,6 +153,13 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
             catch (Exception ex)
             {
                 ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan failed: " + ex);
+            }
+            finally
+            {
+                if (acquiredScanSlot)
+                {
+                    Interlocked.Exchange(ref _scanInProgress, 0);
+                }
             }
         }).FireAndForget();
     }

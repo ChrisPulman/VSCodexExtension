@@ -112,7 +112,7 @@ If setup is incomplete, VSCodex shows Windows-specific instructions in the conve
 
 The MCP tab reads and writes server configuration from `%USERPROFILE%\.codex\config.toml`. It can list configured servers, discover tools, prompt for required inputs, and insert MCP tool calls into the current prompt.
 
-ReactiveMemory is configured as the default durable memory server. VSCodex adds a `[mcp_servers.reactivememory]` entry if one is missing. If the ReactiveMemory source repo is present locally it can launch that project; otherwise it falls back to the `CP.ReactiveMemory.Mcp.Server` package identity so users can install or override the command. When Visual Studio opens a solution, VSCodex asks ReactiveMemory to mine the active repository through ProjectMiner-compatible MCP tools, with a bounded local fallback that files safe text chunks through `add_drawer` if the server does not expose a direct miner tool.
+ReactiveMemory is configured as the default durable memory server. VSCodex adds a `[mcp_servers.reactivememory]` entry if one is missing. If the ReactiveMemory source repo is present locally it can launch that project; otherwise it falls back to the `CP.ReactiveMemory.Mcp.Server` package identity so users can install or override the command. When Visual Studio opens a solution, VSCodex waits until startup has settled before running a small, throttled ProjectMiner-compatible scan. Full repository mining is available from the Memory tab with the Scan project button, so Visual Studio load is not dominated by memory writes.
 
 ReactiveMemory source: https://github.com/ChrisPulman/ReactiveMemory.MCP.Server
 
