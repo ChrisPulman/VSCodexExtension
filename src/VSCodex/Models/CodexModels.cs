@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 using ReactiveUI;
 
 namespace VSCodex.Models;
@@ -86,6 +87,7 @@ public sealed class CodexEnvironmentReport
     public bool CanRunSdkBridge => IsSdkReady;
 }
 
+[JsonObject(MemberSerialization.OptOut)]
 public sealed class AgentRoleDefinition : ReactiveObject
 {
     private bool _isEnabled = true;
@@ -132,6 +134,7 @@ public sealed class OrchestrationEvent
     public OrchestrationTaskSection? Section { get; set; }
 }
 
+[JsonObject(MemberSerialization.OptOut)]
 public sealed class ChatMessage : ReactiveObject
 {
     private string _content = string.Empty;
@@ -311,6 +314,12 @@ public sealed class McpToolDefinition : ReactiveObject
     public string DisplayName => string.IsNullOrWhiteSpace(ServerName) ? Name : ServerName + "/" + Name;
 }
 
+public sealed class McpToolInvocation
+{
+    public string ToolName { get; set; } = string.Empty;
+    public Newtonsoft.Json.Linq.JObject Arguments { get; set; } = new Newtonsoft.Json.Linq.JObject();
+}
+
 public sealed class CodingAssistantAction
 {
     public string Name { get; set; } = string.Empty;
@@ -365,6 +374,7 @@ public sealed class SessionHistoryItem : ReactiveObject
     public string DraftTitle { get => _draftTitle; set => this.RaiseAndSetIfChanged(ref _draftTitle, value ?? string.Empty); }
 }
 
+[JsonObject(MemberSerialization.OptOut)]
 public sealed class ExtensionSettings : ReactiveObject
 {
     public string CodexCliPath { get; set; } = "codex";

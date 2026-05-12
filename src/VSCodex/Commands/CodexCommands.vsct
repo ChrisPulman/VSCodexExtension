@@ -218,7 +218,7 @@
   </Commands>
 
   <KeyBindings>
-    <KeyBinding guid="guidCommandSet" id="OpenToolWindowCommandId" editor="guidVSStd97" key1="0xBE" mod1="Control Shift" key2="C" mod2="Control" />
+    <KeyBinding guid="guidCommandSet" id="OpenToolWindowCommandId" editor="guidVSStd97" key1="0x43" mod1="Control Shift" />
   </KeyBindings>
 
   <CommandPlacements>

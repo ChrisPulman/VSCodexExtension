@@ -27,13 +27,27 @@ public sealed class VSCodexPackage : AsyncPackage
 {
     public const string PackageGuidString = "cc277233-b28f-43d6-a597-1cc515cb0110";
     private const string SettingsCollection = "VSCodex";
-    private const string FirstLaunchToolWindowOpened = "FirstLaunchToolWindowOpenedV7";
+    private const string FirstLaunchToolWindowOpened = "FirstLaunchToolWindowOpenedV8";
+    private Services.SolutionLoadMonitorService? _solutionLoadMonitor;
 
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await OpenVSCodexToolWindowCommand.InitializeAsync(this).ConfigureAwait(true);
+        await InitializeReactiveMemoryProjectMinerAsync(cancellationToken).ConfigureAwait(true);
         ScheduleMenuInitialization();
         ScheduleShowToolWindowOnFirstLaunch();
+    }
+
+    private async Task InitializeReactiveMemoryProjectMinerAsync(CancellationToken cancellationToken)
+    {
+        var app = RxAppBuilder.CreateVisualStudioDefault(this, JoinableTaskFactory).Build();
+        _solutionLoadMonitor = new Services.SolutionLoadMonitorService(
+            this,
+            JoinableTaskFactory,
+            app.Get<Services.IWorkspaceContextService>(),
+            app.Get<Services.IMcpConfigService>(),
+            app.Get<Services.IReactiveMemoryService>());
+        await _solutionLoadMonitor.InitializeAsync(cancellationToken).ConfigureAwait(true);
     }
 
     private void ScheduleMenuInitialization()
@@ -74,8 +88,11 @@ public sealed class VSCodexPackage : AsyncPackage
             var tcs = new TaskCompletionSource<bool>();
             KnownUIContexts.ShellInitializedContext.WhenActivated(() => tcs.TrySetResult(true));
 
-            // Release the UI thread while we wait so VS can finish initialising.
-            await Task.Run(() => tcs.Task, cancellationToken).ConfigureAwait(false);
+            using (cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken)))
+            {
+                // Release the UI thread while we wait so VS can finish initialising.
+                await tcs.Task.ConfigureAwait(false);
+            }
 
             // Return to the UI thread for the zombie check.
             await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);

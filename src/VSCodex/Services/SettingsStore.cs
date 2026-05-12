@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -8,7 +9,14 @@ using VSCodex.Models;
 
 namespace VSCodex.Services;
 
-public interface ISettingsStore { IObservable<ExtensionSettings> SettingsChanged { get; } ExtensionSettings Current { get; } void Save(ExtensionSettings settings); }
+public interface ISettingsStore
+{
+    IObservable<ExtensionSettings> SettingsChanged { get; }
+    ExtensionSettings Current { get; }
+    void Save(ExtensionSettings settings);
+    ExtensionSettings LoadForWorkspace(WorkspaceIdentity identity);
+    void SaveForWorkspace(WorkspaceIdentity identity, ExtensionSettings settings);
+}
 public sealed class SettingsStore : ISettingsStore
 {
     private static readonly object Sync = new object();
@@ -39,6 +47,44 @@ public sealed class SettingsStore : ISettingsStore
         {
             Normalize(settings);
             Store.Write(LocalPaths.SettingsFile, settings);
+            _settings.OnNext(settings);
+        }
+    }
+
+    public ExtensionSettings LoadForWorkspace(WorkspaceIdentity identity)
+    {
+        if (identity == null || string.IsNullOrWhiteSpace(identity.Id))
+        {
+            return Current;
+        }
+
+        lock (Sync)
+        {
+            var path = LocalPaths.WorkspaceSettingsFile(identity.Id);
+            if (!File.Exists(path))
+            {
+                return Current;
+            }
+
+            var settings = Store.ReadOrCreate<ExtensionSettings>(path);
+            Normalize(settings);
+            _settings.OnNext(settings);
+            return settings;
+        }
+    }
+
+    public void SaveForWorkspace(WorkspaceIdentity identity, ExtensionSettings settings)
+    {
+        if (identity == null || string.IsNullOrWhiteSpace(identity.Id))
+        {
+            Save(settings);
+            return;
+        }
+
+        lock (Sync)
+        {
+            Normalize(settings);
+            Store.Write(LocalPaths.WorkspaceSettingsFile(identity.Id), settings);
             _settings.OnNext(settings);
         }
     }

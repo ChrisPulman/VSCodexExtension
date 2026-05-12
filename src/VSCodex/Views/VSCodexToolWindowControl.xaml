@@ -463,6 +463,7 @@
                         FontWeight="SemiBold"
                         Text="VSCodex" />
                     <Button
+                        AutomationProperties.Name="New VSCodex thread"
                         Command="{Binding NewThreadCommand}"
                         Style="{StaticResource IconButtonStyle}"
                         ToolTip="Start a fresh VSCodex thread.">
@@ -484,6 +485,7 @@
                         </Viewbox>
                     </Button>
                     <Button
+                        AutomationProperties.Name="Open VSCodex history"
                         Command="{Binding ShowHistoryCommand}"
                         Style="{StaticResource IconButtonStyle}"
                         ToolTip="Open VSCodex conversation history.">
@@ -504,6 +506,12 @@
                             </Grid>
                         </Viewbox>
                     </Button>
+                    <Button
+                        AutomationProperties.Name="Open VSCodex controls"
+                        Click="OnOpenToolPanelClick"
+                        Content="Controls"
+                        Style="{StaticResource CompactButtonStyle}"
+                        ToolTip="Open VSCodex controls for history, context, skills, MCP, analytics, memory, agents, and attachments." />
                 </WrapPanel>
 
                 <TextBlock
@@ -631,10 +639,13 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
             </DockPanel>
+        </Grid>
 
-            <DockPanel
-                Width="430"
-                MinWidth="0"
+        <DockPanel
+                Grid.Row="1"
+                Grid.RowSpan="2"
+                Width="620"
+                MinWidth="360"
                 MaxWidth="{Binding ActualWidth, ElementName=Root}"
                 HorizontalAlignment="Right"
                 Panel.ZIndex="10"
@@ -656,6 +667,7 @@
                         <Button
                             Grid.Column="1"
                             Margin="0"
+                            AutomationProperties.Name="Close VSCodex controls"
                             Click="OnCloseToolPanelClick"
                             Content="Close"
                             Style="{StaticResource CompactButtonStyle}" />
@@ -885,129 +897,189 @@
                     <TabItem Header="MCP">
                         <Grid Margin="8">
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="*" />
-                                <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="1.15*" />
+                                <RowDefinition Height="1.35*" />
                             </Grid.RowDefinitions>
 
-                            <GroupBox
-                                Grid.Row="0"
-                                Margin="0,0,0,8"
-                                Header="Servers">
-                                <DockPanel>
-                                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4">
-                                        <Button
-                                            Command="{Binding AddMcpStdioServerCommand}"
-                                            Content="Add stdio"
-                                            Style="{StaticResource CompactButtonStyle}" />
-                                        <Button
-                                            Command="{Binding AddMcpUrlServerCommand}"
-                                            Content="Add URL"
-                                            Style="{StaticResource CompactButtonStyle}" />
-                                        <Button
-                                            Command="{Binding SaveMcpServersCommand}"
-                                            Content="Save MCP"
-                                            Style="{StaticResource CompactButtonStyle}" />
-                                        <Button
-                                            Command="{Binding OpenCodexConfigCommand}"
-                                            Content="Open config"
-                                            Style="{StaticResource CompactButtonStyle}" />
-                                    </WrapPanel>
+                            <WrapPanel Grid.Row="0" Margin="0,0,0,6">
+                                <Button
+                                    Command="{Binding AddMcpStdioServerCommand}"
+                                    Content="Add stdio"
+                                    Style="{StaticResource CompactButtonStyle}" />
+                                <Button
+                                    Command="{Binding AddMcpUrlServerCommand}"
+                                    Content="Add URL"
+                                    Style="{StaticResource CompactButtonStyle}" />
+                                <Button
+                                    Command="{Binding SaveMcpServersCommand}"
+                                    Content="Save MCP"
+                                    Style="{StaticResource CompactButtonStyle}" />
+                                <Button
+                                    Command="{Binding OpenCodexConfigCommand}"
+                                    Content="Open config"
+                                    Style="{StaticResource CompactButtonStyle}" />
+                            </WrapPanel>
+
+                            <Grid Grid.Row="1" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.05*" MinWidth="210" />
+                                    <ColumnDefinition Width="6" />
+                                    <ColumnDefinition Width="1.35*" MinWidth="260" />
+                                </Grid.ColumnDefinitions>
+
+                                <GroupBox Header="Servers">
                                     <ListBox ItemsSource="{Binding McpServers}" SelectedItem="{Binding SelectedMcpServer}">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
-                                                <StackPanel Margin="4">
-                                                    <DockPanel LastChildFill="False">
+                                                <Grid Margin="4">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
                                                         <CheckBox
-                                                            VerticalAlignment="Center"
                                                             Content="{Binding Name}"
                                                             FontWeight="SemiBold"
                                                             IsChecked="{Binding IsEnabled}" />
-                                                        <Button
-                                                            DockPanel.Dock="Right"
-                                                            Command="{Binding DataContext.RemoveMcpServerCommand, ElementName=Root}"
-                                                            CommandParameter="{Binding}"
-                                                            Content="Remove"
-                                                            Style="{StaticResource CompactButtonStyle}" />
-                                                    </DockPanel>
-                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Name" />
-                                                    <TextBox
-                                                        AcceptsReturn="False"
-                                                        Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
-                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Transport" />
-                                                    <ComboBox
-                                                        SelectedValue="{Binding TransportType, UpdateSourceTrigger=PropertyChanged}"
-                                                        SelectedValuePath="Content">
-                                                        <ComboBoxItem Content="stdio" />
-                                                        <ComboBoxItem Content="url" />
-                                                    </ComboBox>
-                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Command" />
-                                                    <TextBox
-                                                        AcceptsReturn="False"
-                                                        Text="{Binding Command, UpdateSourceTrigger=PropertyChanged}" />
-                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Arguments (one per line)" />
-                                                    <TextBox
-                                                        MinHeight="46"
-                                                        Text="{Binding ArgumentsText, UpdateSourceTrigger=PropertyChanged}" />
-                                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="URL" />
-                                                    <TextBox
-                                                        AcceptsReturn="False"
-                                                        Text="{Binding Url, UpdateSourceTrigger=PropertyChanged}" />
+                                                        <TextBlock
+                                                            FontSize="11"
+                                                            Opacity="0.72"
+                                                            Text="{Binding EndpointSummary}"
+                                                            TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
                                                     <Button
+                                                        Grid.Column="1"
                                                         Command="{Binding DataContext.SelectMcpServerCommand, ElementName=Root}"
                                                         CommandParameter="{Binding}"
-                                                        Content="List tools"
+                                                        Content="Tools"
                                                         Style="{StaticResource CompactButtonStyle}" />
-                                                </StackPanel>
+                                                </Grid>
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
                                     </ListBox>
-                                </DockPanel>
-                            </GroupBox>
+                                </GroupBox>
 
-                            <GroupBox
-                                Grid.Row="1"
-                                Margin="0,0,0,8"
-                                Header="Tools">
-                                <ListBox ItemsSource="{Binding McpToolSuggestions}" SelectedItem="{Binding SelectedMcpTool}">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Margin="4">
-                                                <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
-                                                <TextBlock Opacity="0.72" Text="{Binding Description}" />
+                                <GridSplitter
+                                    Grid.Column="1"
+                                    Width="6"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch" />
+
+                                <GroupBox Grid.Column="2" Header="Selected server">
+                                    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                        <StackPanel Margin="8">
+                                            <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Name" />
+                                            <TextBox
+                                                AcceptsReturn="False"
+                                                Text="{Binding SelectedMcpServer.Name, UpdateSourceTrigger=PropertyChanged}" />
+                                            <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Transport" />
+                                            <ComboBox
+                                                SelectedValue="{Binding SelectedMcpServer.TransportType, UpdateSourceTrigger=PropertyChanged}"
+                                                SelectedValuePath="Content">
+                                                <ComboBoxItem Content="stdio" />
+                                                <ComboBoxItem Content="url" />
+                                            </ComboBox>
+                                            <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Command" />
+                                            <TextBox
+                                                AcceptsReturn="False"
+                                                Text="{Binding SelectedMcpServer.Command, UpdateSourceTrigger=PropertyChanged}" />
+                                            <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Arguments (one per line)" />
+                                            <TextBox
+                                                MinHeight="60"
+                                                Text="{Binding SelectedMcpServer.ArgumentsText, UpdateSourceTrigger=PropertyChanged}" />
+                                            <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="URL" />
+                                            <TextBox
+                                                AcceptsReturn="False"
+                                                Text="{Binding SelectedMcpServer.Url, UpdateSourceTrigger=PropertyChanged}" />
+                                            <WrapPanel>
                                                 <Button
-                                                    Command="{Binding DataContext.SelectMcpToolCommand, ElementName=Root}"
-                                                    CommandParameter="{Binding}"
-                                                    Content="Use tool"
+                                                    Command="{Binding SelectMcpServerCommand}"
+                                                    CommandParameter="{Binding SelectedMcpServer}"
+                                                    Content="List tools"
                                                     Style="{StaticResource CompactButtonStyle}" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </GroupBox>
+                                                <Button
+                                                    Command="{Binding RemoveMcpServerCommand}"
+                                                    CommandParameter="{Binding SelectedMcpServer}"
+                                                    Content="Remove"
+                                                    Style="{StaticResource CompactButtonStyle}" />
+                                            </WrapPanel>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </GroupBox>
+                            </Grid>
 
-                            <StackPanel Grid.Row="2">
-                                <TextBlock
-                                    Margin="0,0,0,4"
-                                    Opacity="0.76"
-                                    Text="{Binding McpInputPrompt}" />
-                                <ItemsControl ItemsSource="{Binding McpToolInputFields}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Margin="0,4,0,0">
-                                                <TextBlock FontWeight="SemiBold" Text="{Binding DisplayLabel}" />
-                                                <TextBlock Opacity="0.72" Text="{Binding Description}" />
-                                                <TextBox AcceptsReturn="False" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <Button
-                                    HorizontalAlignment="Left"
-                                    Command="{Binding InsertMcpToolCommand}"
-                                    Content="Insert MCP tool use"
-                                    Style="{StaticResource CompactButtonStyle}" />
-                            </StackPanel>
+                            <Grid Grid.Row="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.05*" MinWidth="230" />
+                                    <ColumnDefinition Width="6" />
+                                    <ColumnDefinition Width="1.35*" MinWidth="260" />
+                                </Grid.ColumnDefinitions>
+
+                                <GroupBox Header="Tools">
+                                    <ListBox ItemsSource="{Binding McpToolSuggestions}" SelectedItem="{Binding SelectedMcpTool}">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="4">
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+                                                    <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
+                                                    <TextBlock
+                                                        Grid.Row="1"
+                                                        Opacity="0.72"
+                                                        Text="{Binding Description}"
+                                                        TextTrimming="CharacterEllipsis" />
+                                                    <Button
+                                                        Grid.Row="2"
+                                                        HorizontalAlignment="Left"
+                                                        Command="{Binding DataContext.SelectMcpToolCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Use tool"
+                                                        Style="{StaticResource CompactButtonStyle}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </GroupBox>
+
+                                <GridSplitter
+                                    Grid.Column="1"
+                                    Width="6"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch" />
+
+                                <GroupBox Grid.Column="2" Header="Tool input">
+                                    <DockPanel Margin="8">
+                                        <Button
+                                            DockPanel.Dock="Bottom"
+                                            HorizontalAlignment="Left"
+                                            Command="{Binding InsertMcpToolCommand}"
+                                            Content="Insert MCP tool use"
+                                            Style="{StaticResource CompactButtonStyle}" />
+                                        <TextBlock
+                                            DockPanel.Dock="Top"
+                                            Margin="0,0,0,6"
+                                            Opacity="0.76"
+                                            Text="{Binding McpInputPrompt}" />
+                                        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl ItemsSource="{Binding McpToolInputFields}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Margin="0,4,0,8">
+                                                            <TextBlock FontWeight="SemiBold" Text="{Binding DisplayLabel}" />
+                                                            <TextBlock Opacity="0.72" Text="{Binding Description}" />
+                                                            <TextBox AcceptsReturn="False" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </DockPanel>
+                                </GroupBox>
+                            </Grid>
                         </Grid>
                     </TabItem>
 
@@ -1216,8 +1288,7 @@
                         </DockPanel>
                     </TabItem>
                 </TabControl>
-            </DockPanel>
-        </Grid>
+        </DockPanel>
 
         <Border
             Grid.Row="2"
@@ -1264,6 +1335,7 @@
                 <primitives:Thumb
                     Grid.Row="1"
                     Margin="0,0,0,2"
+                    DragCompleted="OnPromptResizeDragCompleted"
                     DragDelta="OnPromptResizeDragDelta"
                     Style="{StaticResource PromptResizeThumbStyle}"
                     ToolTip="Drag to resize the prompt input." />
@@ -1275,6 +1347,7 @@
                     MinHeight="32"
                     MaxHeight="600"
                     AllowDrop="True"
+                    AutomationProperties.Name="VSCodex prompt input"
                     Drop="OnPromptDrop"
                     PreviewDragOver="OnPromptPreviewDragOver"
                     PreviewKeyDown="OnPromptPreviewKeyDown"
@@ -1344,6 +1417,7 @@
                     <ComboBox
                         Width="140"
                         MinWidth="118"
+                        AutomationProperties.Name="VSCodex request mode"
                         IsHitTestVisible="{Binding CanEditSettings}"
                         ItemsSource="{Binding ModeOptions}"
                         SelectedItem="{Binding Mode}"
@@ -1356,6 +1430,7 @@
                     <ComboBox
                         Width="180"
                         MinWidth="118"
+                        AutomationProperties.Name="VSCodex model"
                         IsEditable="True"
                         IsHitTestVisible="{Binding CanEditSettings}"
                         ItemsSource="{Binding ModelOptions}"
@@ -1363,6 +1438,33 @@
                         ToolTip="Primary model for this request." />
                     <Button
                         VerticalAlignment="Center"
+                        AutomationProperties.Name="Toggle VSCodex voice input"
+                        Command="{Binding ToggleVoiceInputCommand}"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTip="{Binding VoiceInputStatus}">
+                        <Grid Width="16" Height="16">
+                            <Path
+                                Data="M8,2 A2,2 0 0 1 10,4 L10,8 A2,2 0 0 1 6,8 L6,4 A2,2 0 0 1 8,2 Z M4,7 L4,8 A4,4 0 0 0 12,8 L12,7 M8,12 L8,15 M5.5,15 L10.5,15"
+                                Stretch="Uniform"
+                                Stroke="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}"
+                                StrokeEndLineCap="Square"
+                                StrokeLineJoin="Round"
+                                StrokeThickness="1.5">
+                                <Path.Style>
+                                    <Style TargetType="Path">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsListeningToVoice}" Value="True">
+                                                <Setter Property="Stroke" Value="{DynamicResource {x:Static vsui:EnvironmentColors.FileTabSelectedTextBrushKey}}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Path.Style>
+                            </Path>
+                        </Grid>
+                    </Button>
+                    <Button
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Send or stop VSCodex request"
                         Click="OnRunControlClick"
                         Style="{StaticResource PrimaryRunButtonStyle}">
                         <Grid Width="18" Height="18">

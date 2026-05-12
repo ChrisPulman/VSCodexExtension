@@ -38,6 +38,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private readonly ICodingAssistantContextService _assistantContext;
     private readonly IModelAnalyticsService _modelAnalytics;
     private readonly ICodexEnvironmentService _environment;
+    private readonly IVoiceInputService _voiceInput;
     private readonly JoinableTaskFactory _joinableTaskFactory;
     private readonly Dispatcher _uiDispatcher;
     private readonly IScheduler _uiScheduler;
@@ -45,6 +46,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private CodexSessionDocument _session;
     private int _promptChangeRevision;
     private string _lastWorkspaceIdentityId = string.Empty;
+    private string _lastWorkspaceSettingsId = string.Empty;
 
     private string _prompt = string.Empty;
     private string _status = "Ready";
@@ -72,6 +74,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private string _rateLimitUpdatedAt = "Waiting for Codex rate-limit telemetry";
     private string _codexSetupSummary = "Checking VSCodex prerequisites...";
     private string _codexSetupInstructions = string.Empty;
+    private string _voiceInputStatus = "Voice input ready";
     private ChatMessage? _activeProgressMessage;
     private DateTimeOffset _activeRunStartedAt;
     private string _activeRunStage = string.Empty;
@@ -101,6 +104,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         ICodingAssistantContextService assistantContext,
         IModelAnalyticsService modelAnalytics,
         ICodexEnvironmentService environment,
+        IVoiceInputService voiceInput,
         JoinableTaskFactory joinableTaskFactory)
     {
         _settingsStore = settingsStore;
@@ -116,6 +120,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         _assistantContext = assistantContext;
         _modelAnalytics = modelAnalytics;
         _environment = environment;
+        _voiceInput = voiceInput;
         _joinableTaskFactory = joinableTaskFactory;
         _uiDispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         _uiScheduler = new DispatcherScheduler(_uiDispatcher);
@@ -185,6 +190,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         AddUserMemoryCommand = ReactiveCommand.CreateFromTask(() => AddMemoryAsync("user"), canSavePrompt, _uiScheduler);
         AddWorkspaceMemoryCommand = ReactiveCommand.CreateFromTask(() => AddMemoryAsync("workspace"), canSavePrompt, _uiScheduler);
         AddImageAttachmentCommand = ReactiveCommand.Create(AddImageAttachment, outputScheduler: _uiScheduler);
+        ToggleVoiceInputCommand = ReactiveCommand.Create(ToggleVoiceInput, outputScheduler: _uiScheduler);
         ClearAttachmentsCommand = ReactiveCommand.Create(() => Attachments.Clear(), outputScheduler: _uiScheduler);
         SelectMcpServerCommand = ReactiveCommand.CreateFromTask<McpServerDefinition>(SelectMcpServerAsync, null, _uiScheduler);
         SelectMcpToolCommand = ReactiveCommand.Create<McpToolDefinition>(SelectMcpTool, outputScheduler: _uiScheduler);
@@ -214,7 +220,10 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             _memoryStore.Memories.ObserveOnSafe(_uiScheduler).Subscribe(UpdateMemories),
             _mcpConfig.Servers.ObserveOnSafe(_uiScheduler).Subscribe(UpdateMcpServers),
             _settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore),
-            this.WhenAnyValue(x => x.Prompt).ThrottleDistinct(TimeSpan.FromMilliseconds(180), _uiScheduler).Subscribe(OnPromptChanged));
+            _voiceInput.Transcript.ObserveOnSafe(_uiScheduler).Subscribe(AppendVoiceTranscript),
+            _voiceInput.Status.ObserveOnSafe(_uiScheduler).Subscribe(UpdateVoiceInputStatus),
+            this.WhenAnyValue(x => x.Prompt).ThrottleDistinct(TimeSpan.FromMilliseconds(180), _uiScheduler).Subscribe(OnPromptChanged),
+            _voiceInput);
 
         Refresh();
         UpdateAnalytics(Prompt);
@@ -269,6 +278,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> AddUserMemoryCommand { get; }
     public ReactiveCommand<Unit, Unit> AddWorkspaceMemoryCommand { get; }
     public ReactiveCommand<Unit, Unit> AddImageAttachmentCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleVoiceInputCommand { get; }
     public ReactiveCommand<Unit, Unit> ClearAttachmentsCommand { get; }
     public ReactiveCommand<McpServerDefinition, Unit> SelectMcpServerCommand { get; }
     public ReactiveCommand<McpToolDefinition, Unit> SelectMcpToolCommand { get; }
@@ -319,7 +329,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         }
     }
     public bool HasVisibleHistory => VisibleHistoryItems.Count > 0;
-    public double InputAreaHeight { get => _inputAreaHeight; set { var clamped = ClampInputHeight(value); if (!CanChangeSetting(_inputAreaHeight, clamped)) return; this.RaiseAndSetIfChanged(ref _inputAreaHeight, clamped); SaveInputAreaHeight(clamped); } }
+    public double InputAreaHeight { get => _inputAreaHeight; set => SetInputAreaHeight(value); }
     public AgentExecutionStrategy AgentStrategy { get => _agentStrategy; set { if (!CanChangeSetting(_agentStrategy, value)) return; this.RaiseAndSetIfChanged(ref _agentStrategy, value); } }
     public CodexRunMode Mode { get => _mode; set { if (!CanChangeSetting(_mode, value)) return; this.RaiseAndSetIfChanged(ref _mode, value); } }
     public string SelectedModel { get => _selectedModel; set { if (!CanChangeSetting(_selectedModel, value)) return; this.RaiseAndSetIfChanged(ref _selectedModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
@@ -357,6 +367,9 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public string RateLimitUpdatedAt { get => _rateLimitUpdatedAt; set => this.RaiseAndSetIfChanged(ref _rateLimitUpdatedAt, value); }
     public string CodexSetupSummary { get => _codexSetupSummary; set => this.RaiseAndSetIfChanged(ref _codexSetupSummary, value); }
     public string CodexSetupInstructions { get => _codexSetupInstructions; set => this.RaiseAndSetIfChanged(ref _codexSetupInstructions, value); }
+    public string VoiceInputStatus { get => _voiceInputStatus; set => this.RaiseAndSetIfChanged(ref _voiceInputStatus, value); }
+    public bool IsVoiceInputAvailable => _voiceInput.IsAvailable;
+    public bool IsListeningToVoice => _voiceInput.IsListening;
     public PromptSuggestionItem? SelectedPromptSuggestion { get => _selectedPromptSuggestion; set => this.RaiseAndSetIfChanged(ref _selectedPromptSuggestion, value); }
     public bool IsPromptSuggestionOpen { get => _isPromptSuggestionOpen; set => this.RaiseAndSetIfChanged(ref _isPromptSuggestionOpen, value); }
     public ApprovalPolicy ApprovalPolicy { get => _approvalPolicy; set { if (!CanChangeSetting(_approvalPolicy, value)) return; this.RaiseAndSetIfChanged(ref _approvalPolicy, value); SaveModelSettings(); } }
@@ -392,6 +405,21 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
         Status = "VSCodex settings are locked while a task is running";
         return false;
+    }
+
+    public void SetLiveInputAreaHeight(double value) => SetInputAreaHeight(value);
+
+    public void CommitInputAreaHeight(double value)
+    {
+        var clamped = SetInputAreaHeight(value);
+        SaveInputAreaHeight(clamped);
+    }
+
+    private double SetInputAreaHeight(double value)
+    {
+        var clamped = ClampInputHeight(value);
+        this.RaiseAndSetIfChanged(ref _inputAreaHeight, clamped, nameof(InputAreaHeight));
+        return clamped;
     }
 
     private void ApplySettingsFromStore(ExtensionSettings settings)
@@ -550,6 +578,12 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             var previousIdentity = _lastWorkspaceIdentityId;
             _workspace.Refresh();
             var currentIdentity = _workspace.CurrentWorkspaceIdentity.Id;
+            if (!string.IsNullOrWhiteSpace(currentIdentity) && !string.Equals(_lastWorkspaceSettingsId, currentIdentity, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastWorkspaceSettingsId = currentIdentity;
+                ApplySettingsFromStore(_settingsStore.LoadForWorkspace(_workspace.CurrentWorkspaceIdentity));
+            }
+
             if (!string.IsNullOrWhiteSpace(previousIdentity) && !string.Equals(previousIdentity, currentIdentity, StringComparison.OrdinalIgnoreCase))
             {
                 ThreadId = null;
@@ -560,10 +594,29 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             _memoryStore.LoadWorkspace(_workspace.CurrentWorkspaceRoot);
             _skillIndex.Refresh(_settingsStore.Current.SkillRoots.Concat(new[] { System.IO.Path.Combine(_workspace.CurrentWorkspaceRoot ?? string.Empty, ".codex", "skills") }));
             _mcpConfig.Refresh();
+            QueueReactiveMemoryProjectMinerScan(_workspace.CurrentWorkspaceIdentity);
             Status = string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot) ? "Visual Studio solution context is still loading" : "Refreshed VSCodex context for " + _workspace.CurrentWorkspaceRoot;
             RefreshRateLimitsInBackground();
         }
         catch (Exception ex) { Status = "Refresh failed: " + ex.Message; }
+    }
+
+    private void QueueReactiveMemoryProjectMinerScan(WorkspaceIdentity identity)
+    {
+        if (identity == null || string.IsNullOrWhiteSpace(identity.RootPath))
+        {
+            return;
+        }
+
+        _joinableTaskFactory.RunAsync(async () =>
+        {
+            var scan = await Task.Run(async () => await _reactiveMemory.ScanWorkspaceAsync(identity).ConfigureAwait(false)).ConfigureAwait(false);
+            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            if (!scan.Success && Status.IndexOf("ProjectMiner", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                Status = scan.Message;
+            }
+        }).Task.FireAndForget();
     }
 
     private bool EnsureWorkspaceReadyForRun()
@@ -588,7 +641,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         await _joinableTaskFactory.SwitchToMainThreadAsync();
         SelectedMcpServer = server;
         Status = "Discovering MCP tools for " + server.Name + "...";
-        var tools = await _mcpTools.DiscoverToolsAsync(server).ConfigureAwait(false);
+        var tools = await Task.Run(async () => await _mcpTools.DiscoverToolsAsync(server).ConfigureAwait(false)).ConfigureAwait(false);
         await _joinableTaskFactory.SwitchToMainThreadAsync();
         Replace(McpToolSuggestions, tools);
         Replace(McpToolInputFields, Array.Empty<McpToolInputField>());
@@ -695,7 +748,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        _settingsStore.Save(settings);
+        SaveSettingsForCurrentWorkspace(settings);
         Status = $"Saved {settings.EnabledSkillPaths.Count} enabled skill(s)";
         UpdateAnalytics(Prompt);
     }
@@ -719,7 +772,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         if (!settings.SkillRoots.Any(x => string.Equals(x, path, StringComparison.OrdinalIgnoreCase)))
         {
             settings.SkillRoots.Add(path);
-            _settingsStore.Save(settings);
+            SaveSettingsForCurrentWorkspace(settings);
         }
 
         SkillRootPathInput = string.Empty;
@@ -861,15 +914,53 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
         var memory = await _reactiveMemory.AddMemoryAsync(text, scope, _workspace.CurrentWorkspaceIdentity).ConfigureAwait(false);
         await _joinableTaskFactory.SwitchToMainThreadAsync();
-        _memoryStore.Add(text, scope);
-        Status = memory.Success
-            ? memory.Message
-            : (scope.Equals("workspace", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceName) ? $"Saved workspace memory locally for {_workspace.CurrentWorkspaceName}; {memory.Message}" : $"Saved {scope} memory locally; {memory.Message}");
+        if (memory.Success)
+        {
+            _memoryStore.Add(text, scope);
+            Status = memory.Message;
+        }
+        else
+        {
+            Status = "ReactiveMemory did not save memory: " + memory.Message;
+        }
     }
     private void AddImageAttachment()
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Title = "Attach files for VSCodex", Filter = "Supported files|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.txt;*.md;*.cs;*.xaml;*.json;*.xml|Images|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp|Documents|*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.txt;*.md|All files|*.*", Multiselect = true };
         if (dialog.ShowDialog() == true) AttachFiles(dialog.FileNames);
+    }
+
+    private void ToggleVoiceInput()
+    {
+        if (_voiceInput.IsListening)
+        {
+            _voiceInput.Stop();
+        }
+        else
+        {
+            _voiceInput.Start();
+        }
+
+        this.RaisePropertyChanged(nameof(IsListeningToVoice));
+        this.RaisePropertyChanged(nameof(IsVoiceInputAvailable));
+    }
+
+    private void AppendVoiceTranscript(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        Prompt = string.IsNullOrWhiteSpace(Prompt) ? text.Trim() : Prompt.TrimEnd() + " " + text.Trim();
+        Status = "Voice transcript added";
+    }
+
+    private void UpdateVoiceInputStatus(string status)
+    {
+        VoiceInputStatus = status;
+        this.RaisePropertyChanged(nameof(IsListeningToVoice));
+        this.RaisePropertyChanged(nameof(IsVoiceInputAvailable));
     }
 
     public void ShowHistory()
@@ -1550,7 +1641,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         var settings = _settingsStore.Current;
         if (Math.Abs(settings.DefaultInputAreaHeight - value) < 0.1d) return;
         settings.DefaultInputAreaHeight = value;
-        _settingsStore.Save(settings);
+        SaveSettingsForCurrentWorkspace(settings);
     }
 
     private void SaveModelSettings()
@@ -1565,6 +1656,18 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         settings.DefaultOrchestrationModel = OrchestrationModel;
         settings.DefaultBudgetDrivenModelSelection = BudgetDrivenModelSelection;
         settings.DefaultBudgetModel = BudgetModel;
+        SaveSettingsForCurrentWorkspace(settings);
+    }
+
+    private void SaveSettingsForCurrentWorkspace(ExtensionSettings settings)
+    {
+        var identity = _workspace.CurrentWorkspaceIdentity;
+        if (identity != null && !string.IsNullOrWhiteSpace(identity.Id))
+        {
+            _settingsStore.SaveForWorkspace(identity, settings);
+            return;
+        }
+
         _settingsStore.Save(settings);
     }
 
