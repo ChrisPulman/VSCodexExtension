@@ -15,7 +15,7 @@ using VSCodex.ToolWindows;
 namespace VSCodex;
 
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.3.0")]
+[InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.3.1")]
 [ProvideMenuResource("Menus.ctmenu", 4)]
 [ProvideOptionPage(typeof(OptionsProvider.GeneralOptions), "VSCodex", "General", 0, 0, true)]
 [ProvideProfile(typeof(OptionsProvider.GeneralOptions), "VSCodex", "General", 0, 0, true)]

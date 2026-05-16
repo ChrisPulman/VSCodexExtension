@@ -1342,6 +1342,9 @@
                     Margin="0,0,0,2"
                     DragCompleted="OnPromptResizeDragCompleted"
                     DragDelta="OnPromptResizeDragDelta"
+                    DragStarted="OnPromptResizeDragStarted"
+                    LostMouseCapture="OnPromptResizeLostMouseCapture"
+                    PreviewMouseLeftButtonUp="OnPromptResizeMouseLeftButtonUp"
                     Style="{StaticResource PromptResizeThumbStyle}"
                     ToolTip="Drag to resize the prompt input." />
 

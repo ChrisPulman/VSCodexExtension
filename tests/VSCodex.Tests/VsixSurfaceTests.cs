@@ -356,7 +356,7 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "_settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore)", "An open VSCodex tool window must react to Tools > Options changes without restarting Visual Studio.");
         RequireContains(viewModel, "ApplySettingsFromStore", "Tools > Options changes must update the live tool-window run settings.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.3.0\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.3.1\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
     }
 
@@ -676,8 +676,11 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "Width=\"620\"", "The controls panel must provide enough width for MCP, memory, analytics, and agent settings.");
         RequireContains(view, "Grid.RowSpan=\"2\"", "The controls panel must span the conversation and prompt rows so dense MCP controls are usable.");
         RequireContains(view, "PromptResizeThumbStyle", "The prompt input must expose a theme-aware mouse resize grip.");
+        RequireContains(view, "DragStarted=\"OnPromptResizeDragStarted\"", "Prompt resizing must have a guarded drag lifecycle before height changes.");
         RequireContains(view, "DragDelta=\"OnPromptResizeDragDelta\"", "Dragging the prompt resize grip must resize the prompt input.");
         RequireContains(view, "DragCompleted=\"OnPromptResizeDragCompleted\"", "Prompt resizing must save the final height only after the mouse drag completes.");
+        RequireContains(view, "PreviewMouseLeftButtonUp=\"OnPromptResizeMouseLeftButtonUp\"", "Prompt resizing must release mouse capture when the button is released.");
+        RequireContains(view, "LostMouseCapture=\"OnPromptResizeLostMouseCapture\"", "Prompt resizing must recover if Visual Studio or WPF interrupts mouse capture.");
         RequireContains(view, "MinHeight=\"32\"", "The prompt input must keep a one-line minimum height when collapsed.");
         RequireContains(view, "MaxHeight=\"600\"", "The prompt input must have a practical maximum height when expanded.");
         RequireContains(view, "Panel.ZIndex=\"10\"", "The settings panel must overlay the conversation in narrow layouts instead of disappearing off-screen.");
@@ -814,9 +817,15 @@ public sealed class VsixSurfaceTests
         RequireContains(codeBehind, "OpenFileDialog", "Disk-backed @ references must use a native Windows file picker.");
         RequireContains(codeBehind, "ClosePromptSuggestions", "Esc must close prompt suggestions before cancelling a run.");
         RequireContains(codeBehind, "OnPromptResizeDragDelta", "The prompt resize grip must be handled by the view.");
+        RequireContains(codeBehind, "OnPromptResizeDragStarted", "Prompt resizing must initialize a bounded drag state.");
         RequireContains(codeBehind, "OnPromptResizeDragCompleted", "Prompt resize persistence must be deferred until the drag completes.");
+        RequireContains(codeBehind, "FinishPromptResizeSafely", "Prompt resize event handlers must not let cleanup exceptions escape through Visual Studio.");
+        RequireContains(codeBehind, "FinishPromptResize", "Prompt resizing must release mouse capture and clear cursor state on every exit path.");
+        RequireContains(codeBehind, "ResetPromptResizeState", "Prompt resizing must have a non-throwing emergency cleanup path.");
+        RequireContains(codeBehind, "Mouse.OverrideCursor = null", "Prompt resizing must clear the resize cursor when the drag ends or is interrupted.");
+        RequireContains(codeBehind, "ReleaseMouseCapture", "Prompt resizing must explicitly release WPF mouse capture to avoid freezing Visual Studio in resize mode.");
         RequireContains(codeBehind, "ResolvePromptMaxHeight", "The prompt input maximum height must be based on available docked tool-window space.");
-        RequireContains(codeBehind, "SetCurrentValue(HeightProperty, nextHeight)", "Prompt resizing must adjust the current text-box height without replacing the binding.");
+        RequireContains(codeBehind, "SetCurrentValue(HeightProperty, height)", "Prompt resizing must adjust the current text-box height without replacing the binding.");
         RequireContains(codeBehind, "Key.Escape", "Esc must cancel the active VSCodex request.");
         RequireContains(codeBehind, "OnCloseToolPanelClick", "The controls panel close button must update the view model.");
         RequireContains(codeBehind, "OnHistoryItemDoubleClick", "The history list must support double-click reopening.");
