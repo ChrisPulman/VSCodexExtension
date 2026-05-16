@@ -14,11 +14,17 @@ namespace VSCodex.Views;
 
 public partial class VSCodexToolWindowControl : UserControl
 {
+    private bool _isPromptResizeDragging;
+    private double _promptResizeStartHeight;
+    private double _promptResizeVerticalDelta;
+    private Thumb? _promptResizeThumb;
+
     public VSCodexToolWindowControl()
     {
         InitializeComponent();
         DataObject.AddPastingHandler(PromptTextBox, OnPromptPasting);
         Loaded += (_, _) => ApplyVisualStudioThemeToComboBoxes();
+        Unloaded += (_, _) => FinishPromptResizeSafely(commit: false);
     }
 
     private VSCodexToolWindowViewModel? ViewModel => DataContext as VSCodexToolWindowViewModel;
@@ -170,7 +176,129 @@ public partial class VSCodexToolWindowControl : UserControl
         e.Handled = true;
     }
 
+    private void OnPromptResizeDragStarted(object sender, DragStartedEventArgs e)
+    {
+        _isPromptResizeDragging = true;
+        _promptResizeThumb = sender as Thumb;
+        _promptResizeStartHeight = ResolveCurrentPromptHeight();
+        _promptResizeVerticalDelta = 0d;
+        Mouse.OverrideCursor = Cursors.SizeNS;
+        ViewModel?.ClosePromptSuggestions();
+        e.Handled = true;
+    }
+
     private void OnPromptResizeDragDelta(object sender, DragDeltaEventArgs e)
+    {
+        if (!_isPromptResizeDragging)
+        {
+            _isPromptResizeDragging = true;
+            _promptResizeThumb = sender as Thumb;
+            _promptResizeStartHeight = ResolveCurrentPromptHeight();
+            _promptResizeVerticalDelta = 0d;
+            Mouse.OverrideCursor = Cursors.SizeNS;
+        }
+
+        try
+        {
+            _promptResizeVerticalDelta += e.VerticalChange;
+            ApplyPromptResizeHeight(ClampPromptHeight(_promptResizeStartHeight - _promptResizeVerticalDelta));
+        }
+        catch
+        {
+            ResetPromptResizeState();
+        }
+
+        e.Handled = true;
+    }
+
+    private void OnPromptResizeDragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        FinishPromptResizeSafely(commit: true);
+        e.Handled = true;
+    }
+
+    private void OnPromptResizeMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        FinishPromptResizeSafely(commit: true);
+        e.Handled = true;
+    }
+
+    private void OnPromptResizeLostMouseCapture(object sender, MouseEventArgs e)
+    {
+        FinishPromptResizeSafely(commit: true);
+        e.Handled = true;
+    }
+
+    private void FinishPromptResizeSafely(bool commit)
+    {
+        try
+        {
+            FinishPromptResize(commit);
+        }
+        catch
+        {
+            ResetPromptResizeState();
+        }
+    }
+
+    private void FinishPromptResize(bool commit)
+    {
+        if (!_isPromptResizeDragging)
+        {
+            Mouse.OverrideCursor = null;
+            return;
+        }
+
+        _isPromptResizeDragging = false;
+        _promptResizeVerticalDelta = 0d;
+        Mouse.OverrideCursor = null;
+
+        if (_promptResizeThumb?.IsMouseCaptured == true)
+        {
+            _promptResizeThumb.ReleaseMouseCapture();
+        }
+        _promptResizeThumb = null;
+
+        var height = double.IsNaN(PromptTextBox.Height) || PromptTextBox.Height <= 0d
+            ? PromptTextBox.ActualHeight
+            : PromptTextBox.Height;
+        var clamped = ClampPromptHeight(height);
+
+        ApplyPromptResizeHeight(clamped);
+        if (commit)
+        {
+            ViewModel?.CommitInputAreaHeight(clamped);
+        }
+    }
+
+    private void ResetPromptResizeState()
+    {
+        _isPromptResizeDragging = false;
+        _promptResizeVerticalDelta = 0d;
+        Mouse.OverrideCursor = null;
+
+        try
+        {
+            if (_promptResizeThumb?.IsMouseCaptured == true)
+            {
+                _promptResizeThumb.ReleaseMouseCapture();
+            }
+        }
+        catch
+        {
+            // The resize path must never let a cleanup failure destabilize Visual Studio.
+        }
+
+        _promptResizeThumb = null;
+    }
+
+    private void ApplyPromptResizeHeight(double height)
+    {
+        PromptTextBox.SetCurrentValue(HeightProperty, height);
+        ViewModel?.SetLiveInputAreaHeight(height);
+    }
+
+    private double ResolveCurrentPromptHeight()
     {
         var currentHeight = double.IsNaN(PromptTextBox.Height) || PromptTextBox.Height <= 0d
             ? PromptTextBox.ActualHeight
@@ -180,22 +308,12 @@ public partial class VSCodexToolWindowControl : UserControl
             currentHeight = ViewModel?.InputAreaHeight ?? PromptTextBox.MinHeight;
         }
 
-        var maxHeight = ResolvePromptMaxHeight();
-        var nextHeight = Math.Max(PromptTextBox.MinHeight, Math.Min(maxHeight, currentHeight - e.VerticalChange));
-
-        PromptTextBox.SetCurrentValue(HeightProperty, nextHeight);
-        ViewModel?.SetLiveInputAreaHeight(nextHeight);
-
-        e.Handled = true;
+        return ClampPromptHeight(currentHeight);
     }
 
-    private void OnPromptResizeDragCompleted(object sender, DragCompletedEventArgs e)
+    private double ClampPromptHeight(double height)
     {
-        var height = double.IsNaN(PromptTextBox.Height) || PromptTextBox.Height <= 0d
-            ? PromptTextBox.ActualHeight
-            : PromptTextBox.Height;
-        ViewModel?.CommitInputAreaHeight(Math.Max(PromptTextBox.MinHeight, Math.Min(ResolvePromptMaxHeight(), height)));
-        e.Handled = true;
+        return Math.Max(PromptTextBox.MinHeight, Math.Min(ResolvePromptMaxHeight(), height));
     }
 
     private double ResolvePromptMaxHeight()
