@@ -571,41 +571,6 @@
 
         <Grid Grid.Row="1">
             <DockPanel>
-                <Border
-                    Padding="12"
-                    BorderThickness="0,0,0,1"
-                    DockPanel.Dock="Top">
-                    <StackPanel>
-                        <TextBlock FontWeight="SemiBold" Text="Conversation" />
-                        <TextBlock
-                            Margin="0,3,0,8"
-                            Opacity="0.72"
-                            Text="Use # for selected code and references, / for focused commands, @ for files, and MCP tools from the controls pane." />
-                        <WrapPanel>
-                            <Button
-                                Command="{Binding ReviewSelectionCommand}"
-                                Content="Review selection"
-                                Style="{StaticResource CompactButtonStyle}"
-                                ToolTip="Prepare a focused code review prompt from the current selection." />
-                            <Button
-                                Command="{Binding DebugSelectionCommand}"
-                                Content="Fix active errors"
-                                Style="{StaticResource CompactButtonStyle}"
-                                ToolTip="Prepare a VSCodex debugging prompt using the active exception or error context." />
-                            <Button
-                                Command="{Binding CreateTestForSelectionCommand}"
-                                Content="Write tests"
-                                Style="{StaticResource CompactButtonStyle}"
-                                ToolTip="Prepare a test generation prompt from the current selection." />
-                            <Button
-                                Command="{Binding CreatePlanCommand}"
-                                Content="Plan work"
-                                Style="{StaticResource CompactButtonStyle}"
-                                ToolTip="Create a multi-agent implementation plan." />
-                        </WrapPanel>
-                    </StackPanel>
-                </Border>
-
                 <ListBox BorderThickness="0" ItemsSource="{Binding Messages}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
@@ -615,7 +580,7 @@
                                 BorderThickness="1"
                                 CornerRadius="3">
                                 <StackPanel>
-                                    <DockPanel LastChildFill="True">
+                                    <DockPanel LastChildFill="False">
                                         <Ellipse
                                             Width="10"
                                             Height="10"
@@ -626,8 +591,25 @@
                                             DockPanel.Dock="Left"
                                             FontWeight="SemiBold"
                                             Text="{Binding Role}" />
+                                        <Button
+                                            Margin="6,0,0,0"
+                                            Command="{Binding DataContext.UseMessageAsPromptCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                            CommandParameter="{Binding}"
+                                            Content="Use as prompt"
+                                            DockPanel.Dock="Right"
+                                            Style="{StaticResource CompactButtonStyle}"
+                                            ToolTip="Copy this message into the prompt input for editing." />
+                                        <Button
+                                            Margin="6,0,0,0"
+                                            Command="{Binding DataContext.CopyMessageCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                            CommandParameter="{Binding}"
+                                            Content="Copy"
+                                            DockPanel.Dock="Right"
+                                            Style="{StaticResource CompactButtonStyle}"
+                                            ToolTip="Copy this message text to the clipboard." />
                                         <TextBlock
                                             Margin="8,0,0,0"
+                                            DockPanel.Dock="Right"
                                             Opacity="0.65"
                                             Text="{Binding Timestamp}"
                                             TextAlignment="Right" />
@@ -1245,7 +1227,7 @@
                                                 <ComboBox
                                                     IsEditable="True"
                                                     ItemsSource="{Binding DataContext.ModelOptions, ElementName=Root}"
-                                                    Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}" />
+                                                    Text="{Binding Model, UpdateSourceTrigger=PropertyChanged, Delay=250}" />
                                                 <ComboBox ItemsSource="{Binding DataContext.AgentModelSelectionModeOptions, ElementName=Root}" SelectedItem="{Binding ModelSelectionMode}" />
                                             </StackPanel>
                                         </DataTemplate>
@@ -1309,33 +1291,60 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <WrapPanel Grid.Row="0" Margin="0,0,0,4">
-                    <Button
-                        Command="{Binding RefreshCommand}"
-                        Content="+ Reference"
-                        Style="{StaticResource CompactButtonStyle}"
-                        ToolTip="Refresh workspace references, then use @ files or # references." />
-                    <Button
-                        Command="{Binding ExplainSelectionCommand}"
-                        Content="Explain"
-                        Style="{StaticResource CompactButtonStyle}" />
-                    <Button
-                        Command="{Binding FixSelectionCommand}"
-                        Content="Fix"
-                        Style="{StaticResource CompactButtonStyle}" />
-                    <Button
-                        Command="{Binding ReviewSelectionCommand}"
-                        Content="Review"
-                        Style="{StaticResource CompactButtonStyle}" />
-                    <Button
-                        Command="{Binding OptimizeSelectionCommand}"
-                        Content="Optimize"
-                        Style="{StaticResource CompactButtonStyle}" />
-                    <Button
-                        Command="{Binding GenerateDocsCommand}"
-                        Content="Docs"
-                        Style="{StaticResource CompactButtonStyle}" />
-                </WrapPanel>
+                <StackPanel Grid.Row="0" Margin="0,0,0,4">
+                    <TextBlock FontWeight="SemiBold" Text="Conversation" />
+                    <TextBlock
+                        Margin="0,3,0,8"
+                        Opacity="0.72"
+                        Text="Use # for selected code and references, / for focused commands, @ for files, and MCP tools from the controls pane." />
+                    <WrapPanel x:Name="ConversationActionPanel">
+                        <Button
+                            Command="{Binding ReviewSelectionCommand}"
+                            Content="Review selection"
+                            Style="{StaticResource CompactButtonStyle}"
+                            ToolTip="Prepare a focused code review prompt from the current selection." />
+                        <Button
+                            Command="{Binding DebugSelectionCommand}"
+                            Content="Fix active errors"
+                            Style="{StaticResource CompactButtonStyle}"
+                            ToolTip="Prepare a VSCodex debugging prompt using the active exception or error context." />
+                        <Button
+                            Command="{Binding CreateTestForSelectionCommand}"
+                            Content="Write tests"
+                            Style="{StaticResource CompactButtonStyle}"
+                            ToolTip="Prepare a test generation prompt from the current selection." />
+                        <Button
+                            Command="{Binding CreatePlanCommand}"
+                            Content="Plan work"
+                            Style="{StaticResource CompactButtonStyle}"
+                            ToolTip="Create a multi-agent implementation plan." />
+                        <Button
+                            Command="{Binding RefreshCommand}"
+                            Content="+ Reference"
+                            Style="{StaticResource CompactButtonStyle}"
+                            ToolTip="Refresh workspace references, then use @ files or # references." />
+                        <Button
+                            Command="{Binding ExplainSelectionCommand}"
+                            Content="Explain"
+                            Style="{StaticResource CompactButtonStyle}" />
+                        <Button
+                            Command="{Binding FixSelectionCommand}"
+                            Content="Fix"
+                            Style="{StaticResource CompactButtonStyle}" />
+                        <Button
+                            Command="{Binding ReviewSelectionCommand}"
+                            Content="Review"
+                            Style="{StaticResource CompactButtonStyle}" />
+                        <Button
+                            Command="{Binding OptimizeSelectionCommand}"
+                            Content="Optimize"
+                            Style="{StaticResource CompactButtonStyle}" />
+                        <Button
+                            Command="{Binding GenerateDocsCommand}"
+                            Content="Docs"
+                            Style="{StaticResource CompactButtonStyle}" />
+                    </WrapPanel>
+                </StackPanel>
 
                 <primitives:Thumb
                     Grid.Row="1"
@@ -1442,7 +1451,7 @@
                         IsEditable="True"
                         IsHitTestVisible="{Binding CanEditSettings}"
                         ItemsSource="{Binding ModelOptions}"
-                        Text="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged}"
+                        Text="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged, Delay=250}"
                         ToolTip="Primary model for this request." />
                     <Button
                         VerticalAlignment="Center"

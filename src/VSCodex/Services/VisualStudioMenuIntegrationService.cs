@@ -34,32 +34,6 @@ internal static class VisualStudioMenuIntegrationService
         new("VSCodex.ReactiveMemorySetup", "VSCodex ReactiveMemory Setup", CodexCommandIds.ConfigureMemoryCommandId)
     };
 
-    private static readonly MenuCommandSpec[] CodeActions =
-    {
-        OpenToolWindow,
-        new("VSCodex.AddToChat", "Add to VSCodex Chat", CodexCommandIds.AskCodexCommandId),
-        new("VSCodex.Explain", "Explain", CodexCommandIds.ExplainSelectionCommandId),
-        new("VSCodex.FixWithVSCodex", "Fix with VSCodex", CodexCommandIds.FixActiveErrorCommandId),
-        new("VSCodex.FixSelection", "Fix Selection", CodexCommandIds.FixSelectionCommandId),
-        new("VSCodex.Review", "Review Selection", CodexCommandIds.ReviewSelectionCommandId),
-        new("VSCodex.Optimize", "Optimize Selection", CodexCommandIds.OptimizeSelectionCommandId),
-        new("VSCodex.GenerateComments", "Generate Comments", CodexCommandIds.GenerateDocsCommandId),
-        new("VSCodex.GenerateTests", "Generate Tests", CodexCommandIds.CreateTestFromSelectionCommandId),
-        new("VSCodex.Debug", "Debug With VSCodex", CodexCommandIds.DebugWithCodexCommandId),
-        new("VSCodex.CreatePlan", "Create Agent Plan", CodexCommandIds.CreatePlanCommandId)
-    };
-
-    private static readonly string[] SolutionExplorerContextBars =
-    {
-        "Solution",
-        "Project",
-        "Item",
-        "Folder",
-        "Solution Folder",
-        "Cross Project Multi Project",
-        "Cross Project Multi Item"
-    };
-
     public static async Task InitializeAsync(AsyncPackage package)
     {
         if (_installed)
@@ -195,49 +169,8 @@ internal static class VisualStudioMenuIntegrationService
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
-        foreach (var barName in new[] { "Code Window", "Text Editor" })
-        {
-            AddActionsPopup(dte, barName, CodeActions);
-        }
-
-        foreach (var barName in SolutionExplorerContextBars)
-        {
-            AddActionsPopup(dte, barName, CodeActions);
-        }
-
-        foreach (var barName in new[] { "Error List", "Task List" })
-        {
-            var commandBar = TryGetCommandBar(dte.CommandBars, barName);
-            if (commandBar != null)
-            {
-                AddCommands(
-                    dte,
-                    commandBar,
-                    new[]
-                    {
-                        OpenToolWindow,
-                        new MenuCommandSpec("VSCodex.FixWithVSCodex", "Fix with VSCodex", CodexCommandIds.FixActiveErrorCommandId),
-                        new MenuCommandSpec("VSCodex.Debug", "Debug With VSCodex", CodexCommandIds.DebugWithCodexCommandId)
-                    });
-            }
-        }
-    }
-
-    private static void AddActionsPopup(DTE dte, string commandBarName, IEnumerable<MenuCommandSpec> commands)
-    {
-        ThreadHelper.ThrowIfNotOnUIThread();
-
-        var commandBar = TryGetCommandBar(dte.CommandBars, commandBarName);
-        if (commandBar == null)
-        {
-            return;
-        }
-
-        var popup = EnsurePopup(commandBar, "VSCodex Actions");
-        if (popup != null)
-        {
-            AddCommands(dte, GetPopupCommandBar(popup), commands);
-        }
+        // Context menus are declared through VSCT only. Runtime DTE insertion can
+        // create duplicate editor entries after the command table is refreshed.
     }
 
     private static int AddCommands(DTE dte, object? commandBar, IEnumerable<MenuCommandSpec> commands)

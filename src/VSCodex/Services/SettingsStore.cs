@@ -68,6 +68,7 @@ public sealed class SettingsStore : ISettingsStore
 
             var settings = Store.ReadOrCreate<ExtensionSettings>(path);
             Normalize(settings);
+            Store.Write(path, settings);
             _settings.OnNext(settings);
             return settings;
         }
@@ -129,5 +130,40 @@ public sealed class SettingsStore : ISettingsStore
             .Select(x => x.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        settings.AgentRoles = NormalizeAgentRoles(settings.AgentRoles);
+    }
+
+    private static List<AgentRoleDefinition> NormalizeAgentRoles(IEnumerable<AgentRoleDefinition>? roles)
+    {
+        var defaults = new ExtensionSettings().AgentRoles;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var normalized = new List<AgentRoleDefinition>();
+        foreach (var role in (roles ?? Enumerable.Empty<AgentRoleDefinition>()).Concat(defaults))
+        {
+            var key = string.IsNullOrWhiteSpace(role.Name) ? role.Role : role.Name;
+            key = (key ?? string.Empty).Trim();
+            if (key.Length == 0 || !seen.Add(key))
+            {
+                continue;
+            }
+
+            normalized.Add(CloneAgentRole(role));
+        }
+
+        return normalized;
+    }
+
+    private static AgentRoleDefinition CloneAgentRole(AgentRoleDefinition role)
+    {
+        return new AgentRoleDefinition
+        {
+            Name = (role.Name ?? string.Empty).Trim(),
+            Role = (role.Role ?? string.Empty).Trim(),
+            Instructions = (role.Instructions ?? string.Empty).Trim(),
+            Model = role.Model,
+            ModelSelectionMode = role.ModelSelectionMode,
+            IsEnabled = role.IsEnabled
+        };
     }
 }

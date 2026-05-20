@@ -294,33 +294,6 @@
     <CommandPlacement guid="guidCommandSet" id="OpenToolWindowCommandId" priority="0x0100">
       <Parent guid="guidCommandSet" id="CodexErrorCorrectionContextMenuGroup" />
     </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidCommandSet" id="VSCodexEditorAllContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidCommandSet" id="CodexEditorContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidCommandSet" id="CodexProjectContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidCommandSet" id="CodexSolutionContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidCommandSet" id="CodexItemContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidSHLMainMenu" id="IDG_VS_CTXT_EDITOR_ALL" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidSHLMainMenu" id="IDG_VS_CODEWIN_DEBUG_STEP" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidCommandSet" id="CodexErrorCorrectionContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="VSCodexEditorContextMenu" priority="0x0100">
-      <Parent guid="guidCommandSet" id="CodexErrorListContextMenuGroup" />
-    </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="OpenOptionsCommandId" priority="0x0110">
       <Parent guid="guidCommandSet" id="CodexToolsMenuGroup" />
     </CommandPlacement>
@@ -379,9 +352,6 @@
       <Parent guid="guidCommandSet" id="CodexErrorCorrectionContextMenuGroup" />
     </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
-      <Parent guid="guidSHLMainMenu" id="IDG_VS_CODEWIN_DEBUG_STEP" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
       <Parent guid="guidSHLMainMenu" id="IDG_VS_CTXT_ERROR_CORRECTION" />
     </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="DebugWithCodexCommandId" priority="0x0130">
@@ -395,9 +365,6 @@
     </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="FixActiveExceptionCommandId" priority="0x0131">
       <Parent guid="guidCommandSet" id="CodexErrorCorrectionContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidCommandSet" id="FixActiveExceptionCommandId" priority="0x0131">
-      <Parent guid="guidSHLMainMenu" id="IDG_VS_CODEWIN_DEBUG_STEP" />
     </CommandPlacement>
     <CommandPlacement guid="guidCommandSet" id="FixActiveExceptionCommandId" priority="0x0131">
       <Parent guid="guidSHLMainMenu" id="IDG_VS_CTXT_ERROR_CORRECTION" />

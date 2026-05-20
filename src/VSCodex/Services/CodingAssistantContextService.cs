@@ -187,8 +187,24 @@ public sealed class CodingAssistantContextService : ICodingAssistantContextServi
 
     public string BuildReactiveMemorySetupPrompt()
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        _workspace.RefreshWorkspaceIdentity();
+        var identity = _workspace.CurrentWorkspaceIdentity;
+        var selection = _workspace.GetCurrentSelectionReference(0);
         var sb = new StringBuilder();
         sb.AppendLine("Verify and configure ReactiveMemory as the default Codex MCP memory system for this Visual Studio extension.");
+        sb.AppendLine("Use the currently loaded Visual Studio solution as the setup target. Do not answer generically.");
+        sb.AppendLine("Current solution context:");
+        sb.AppendLine("- Solution: " + (string.IsNullOrWhiteSpace(_workspace.CurrentSolutionPath) ? "<none loaded>" : _workspace.CurrentSolutionPath));
+        sb.AppendLine("- Workspace root: " + (string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot) ? "<unknown>" : _workspace.CurrentWorkspaceRoot));
+        sb.AppendLine("- Workspace name: " + (string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceName) ? "<unknown>" : _workspace.CurrentWorkspaceName));
+        sb.AppendLine("- Workspace identity: " + (string.IsNullOrWhiteSpace(identity.Id) ? "<not available>" : identity.Id));
+        sb.AppendLine("- Memory root: " + (string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceMemoryRoot) ? "<not available>" : _workspace.CurrentWorkspaceMemoryRoot));
+        if (selection != null)
+        {
+            sb.AppendLine($"- Selected code: {selection.RelativePath} lines {selection.StartLine}-{selection.EndLine}");
+        }
+
         sb.AppendLine("Use MCP server `reactivememory` when available. First call `reactivememory_status`, then `reactivememory_react_to_prompt` for this setup request, and summarize any missing installation/configuration steps.");
         sb.AppendLine("The extension should preserve durable context by using `reactivememory_search`, `reactivememory_search_relays`, `reactivememory_add_drawer`, and `reactivememory_diary_write` with minimal user input.");
         return sb.ToString().Trim();
