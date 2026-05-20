@@ -114,7 +114,7 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
                 || ToolMatches(tool, "project_miner")
                 || ToolMatches(tool, "mine_project")
                 || ToolMatches(tool, "scan_project"));
-            if (projectMinerTool != null)
+            if (!automatic && projectMinerTool != null)
             {
                 var result = await _mcpTools.InvokeToolAsync(server, projectMinerTool.Name, new JObject
                 {

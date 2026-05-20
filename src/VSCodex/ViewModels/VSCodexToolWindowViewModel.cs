@@ -47,6 +47,12 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private int _promptChangeRevision;
     private string _lastWorkspaceIdentityId = string.Empty;
     private string _lastWorkspaceSettingsId = string.Empty;
+    private readonly object _modelSettingsSaveGate = new object();
+    private CancellationTokenSource? _modelSettingsSaveCancellation;
+    private bool _hasPendingModelSettingsSave;
+    private int _modelSettingsSaveRevision;
+    private const int ModelSettingsSaveDebounceMilliseconds = 350;
+    private const int AgentsToolTabIndex = 6;
 
     private string _prompt = string.Empty;
     private string _status = "Ready";
@@ -207,12 +213,14 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         OpenCodexConfigCommand = ReactiveCommand.Create(OpenCodexConfig, outputScheduler: _uiScheduler);
         DebugSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildDebugPrompt(); }, outputScheduler: _uiScheduler);
         CreateTestForSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildTestPrompt(); }, outputScheduler: _uiScheduler);
-        CreatePlanCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildPlanPrompt(Prompt, BuildAgentSummary()); Mode = CodexRunMode.Plan; }, outputScheduler: _uiScheduler);
+        CreatePlanCommand = ReactiveCommand.Create(CreateAgentPlanPrompt, outputScheduler: _uiScheduler);
         ExplainSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildExplainPrompt(); }, outputScheduler: _uiScheduler);
         FixSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildFixPrompt(); }, outputScheduler: _uiScheduler);
         ReviewSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildReviewPrompt(); }, outputScheduler: _uiScheduler);
         OptimizeSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildOptimizePrompt(); }, outputScheduler: _uiScheduler);
         GenerateDocsCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildDocumentationPrompt(); }, outputScheduler: _uiScheduler);
+        CopyMessageCommand = ReactiveCommand.Create<ChatMessage>(CopyMessageToClipboard, outputScheduler: _uiScheduler);
+        UseMessageAsPromptCommand = ReactiveCommand.Create<ChatMessage>(UseMessageAsPrompt, outputScheduler: _uiScheduler);
 
         _subscriptions = new CompositeDisposableLike(
             _codex.Events.ObserveOnSafe(_uiScheduler).Subscribe(OnCodexEvent),
@@ -302,6 +310,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> ReviewSelectionCommand { get; }
     public ReactiveCommand<Unit, Unit> OptimizeSelectionCommand { get; }
     public ReactiveCommand<Unit, Unit> GenerateDocsCommand { get; }
+    public ReactiveCommand<ChatMessage, Unit> CopyMessageCommand { get; }
+    public ReactiveCommand<ChatMessage, Unit> UseMessageAsPromptCommand { get; }
 
     public string Prompt { get => _prompt; set => this.RaiseAndSetIfChanged(ref _prompt, value); }
     public string Status { get => _status; set => this.RaiseAndSetIfChanged(ref _status, value); }
@@ -318,7 +328,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public bool CanEditSettings => !IsRunning;
     public bool IsToolPanelOpen { get => _isToolPanelOpen; set => this.RaiseAndSetIfChanged(ref _isToolPanelOpen, value); }
     public bool UseMultiAgentOrchestration { get => _useMultiAgentOrchestration; set { if (!CanChangeSetting(_useMultiAgentOrchestration, value)) return; this.RaiseAndSetIfChanged(ref _useMultiAgentOrchestration, value); } }
-    public bool BudgetDrivenModelSelection { get => _budgetDrivenModelSelection; set { if (!CanChangeSetting(_budgetDrivenModelSelection, value)) return; this.RaiseAndSetIfChanged(ref _budgetDrivenModelSelection, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
+    public bool BudgetDrivenModelSelection { get => _budgetDrivenModelSelection; set => SetModelSetting(ref _budgetDrivenModelSelection, value, nameof(BudgetDrivenModelSelection), refreshAnalytics: true); }
     public int MaxAgentConcurrency { get => _maxAgentConcurrency; set { var clamped = Math.Max(1, value); if (!CanChangeSetting(_maxAgentConcurrency, clamped)) return; this.RaiseAndSetIfChanged(ref _maxAgentConcurrency, clamped); } }
     public int SelectedToolTabIndex { get => _selectedToolTabIndex; set => this.RaiseAndSetIfChanged(ref _selectedToolTabIndex, Math.Max(0, value)); }
     public string HistorySearchText
@@ -334,12 +344,12 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public double InputAreaHeight { get => _inputAreaHeight; set => SetInputAreaHeight(value); }
     public AgentExecutionStrategy AgentStrategy { get => _agentStrategy; set { if (!CanChangeSetting(_agentStrategy, value)) return; this.RaiseAndSetIfChanged(ref _agentStrategy, value); } }
     public CodexRunMode Mode { get => _mode; set { if (!CanChangeSetting(_mode, value)) return; this.RaiseAndSetIfChanged(ref _mode, value); } }
-    public string SelectedModel { get => _selectedModel; set { if (!CanChangeSetting(_selectedModel, value)) return; this.RaiseAndSetIfChanged(ref _selectedModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
-    public string FailoverModel { get => _failoverModel; set { if (!CanChangeSetting(_failoverModel, value)) return; this.RaiseAndSetIfChanged(ref _failoverModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
-    public string SelectedReasoning { get => _selectedReasoning; set { if (!CanChangeSetting(_selectedReasoning, value)) return; this.RaiseAndSetIfChanged(ref _selectedReasoning, value); SaveModelSettings(); } }
-    public string SelectedVerbosity { get => _selectedVerbosity; set { if (!CanChangeSetting(_selectedVerbosity, value)) return; this.RaiseAndSetIfChanged(ref _selectedVerbosity, value); SaveModelSettings(); } }
-    public string OrchestrationModel { get => _orchestrationModel; set { if (!CanChangeSetting(_orchestrationModel, value)) return; this.RaiseAndSetIfChanged(ref _orchestrationModel, value); SaveModelSettings(); } }
-    public string BudgetModel { get => _budgetModel; set { if (!CanChangeSetting(_budgetModel, value)) return; this.RaiseAndSetIfChanged(ref _budgetModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }
+    public string SelectedModel { get => _selectedModel; set => SetModelSetting(ref _selectedModel, value, nameof(SelectedModel), refreshAnalytics: true); }
+    public string FailoverModel { get => _failoverModel; set => SetModelSetting(ref _failoverModel, value, nameof(FailoverModel), refreshAnalytics: true); }
+    public string SelectedReasoning { get => _selectedReasoning; set => SetModelSetting(ref _selectedReasoning, value, nameof(SelectedReasoning), refreshAnalytics: false); }
+    public string SelectedVerbosity { get => _selectedVerbosity; set => SetModelSetting(ref _selectedVerbosity, value, nameof(SelectedVerbosity), refreshAnalytics: false); }
+    public string OrchestrationModel { get => _orchestrationModel; set => SetModelSetting(ref _orchestrationModel, value, nameof(OrchestrationModel), refreshAnalytics: false); }
+    public string BudgetModel { get => _budgetModel; set => SetModelSetting(ref _budgetModel, value, nameof(BudgetModel), refreshAnalytics: true); }
     public ModelUsageEstimate ModelEstimate
     {
         get => _modelEstimate;
@@ -374,8 +384,24 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public bool IsListeningToVoice => _voiceInput.IsListening;
     public PromptSuggestionItem? SelectedPromptSuggestion { get => _selectedPromptSuggestion; set => this.RaiseAndSetIfChanged(ref _selectedPromptSuggestion, value); }
     public bool IsPromptSuggestionOpen { get => _isPromptSuggestionOpen; set => this.RaiseAndSetIfChanged(ref _isPromptSuggestionOpen, value); }
-    public ApprovalPolicy ApprovalPolicy { get => _approvalPolicy; set { if (!CanChangeSetting(_approvalPolicy, value)) return; this.RaiseAndSetIfChanged(ref _approvalPolicy, value); SaveModelSettings(); } }
-    public SandboxMode SandboxMode { get => _sandboxMode; set { if (!CanChangeSetting(_sandboxMode, value)) return; this.RaiseAndSetIfChanged(ref _sandboxMode, value); AccessLevel = AccessLevelFromSandbox(value); SaveModelSettings(); } }
+    public ApprovalPolicy ApprovalPolicy { get => _approvalPolicy; set => SetModelSetting(ref _approvalPolicy, value, nameof(ApprovalPolicy), refreshAnalytics: false); }
+    public SandboxMode SandboxMode
+    {
+        get => _sandboxMode;
+        set
+        {
+            if (EqualityComparer<SandboxMode>.Default.Equals(_sandboxMode, value)) return;
+            if (!CanChangeSetting(_sandboxMode, value)) return;
+            this.RaiseAndSetIfChanged(ref _sandboxMode, value);
+            var accessLevel = AccessLevelFromSandbox(value);
+            if (!EqualityComparer<CodexAccessLevel>.Default.Equals(_accessLevel, accessLevel))
+            {
+                this.RaiseAndSetIfChanged(ref _accessLevel, accessLevel, nameof(AccessLevel));
+            }
+
+            ScheduleModelSettingsSave(refreshAnalytics: false);
+        }
+    }
     public CodexAccessLevel AccessLevel
     {
         get => _accessLevel;
@@ -389,7 +415,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
                 this.RaiseAndSetIfChanged(ref _sandboxMode, sandbox, nameof(SandboxMode));
             }
 
-            SaveModelSettings();
+            ScheduleModelSettingsSave(refreshAnalytics: false);
         }
     }
     public CodexTransportKind Transport { get => _transport; set { if (!CanChangeSetting(_transport, value)) return; this.RaiseAndSetIfChanged(ref _transport, value); } }
@@ -407,6 +433,23 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
         Status = "VSCodex settings are locked while a task is running";
         return false;
+    }
+
+    private void SetModelSetting<T>(ref T field, T value, string propertyName, bool refreshAnalytics)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        if (!CanChangeSetting(field, value)) return;
+        this.RaiseAndSetIfChanged(ref field, value, propertyName);
+        ScheduleModelSettingsSave(refreshAnalytics);
+    }
+
+    private void SetModelSetting(ref string field, string? value, string propertyName, bool refreshAnalytics)
+    {
+        var next = value ?? string.Empty;
+        if (StringComparer.Ordinal.Equals(field, next)) return;
+        if (!CanChangeSetting(field, next)) return;
+        this.RaiseAndSetIfChanged(ref field, next, propertyName);
+        ScheduleModelSettingsSave(refreshAnalytics);
     }
 
     public void SetLiveInputAreaHeight(double value) => SetInputAreaHeight(value);
@@ -431,46 +474,55 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             return;
         }
 
-        SetPropertyFromSettings(ref _selectedModel, settings.DefaultModel, nameof(SelectedModel));
-        SetPropertyFromSettings(ref _failoverModel, string.IsNullOrWhiteSpace(settings.DefaultFailoverModel) ? "gpt-5.3-codex" : settings.DefaultFailoverModel, nameof(FailoverModel));
-        SetPropertyFromSettings(ref _selectedReasoning, settings.DefaultReasoningEffort, nameof(SelectedReasoning));
-        SetPropertyFromSettings(ref _selectedVerbosity, settings.DefaultVerbosity, nameof(SelectedVerbosity));
-        SetPropertyFromSettings(ref _approvalPolicy, settings.DefaultApprovalPolicy, nameof(ApprovalPolicy));
-        SetPropertyFromSettings(ref _sandboxMode, settings.DefaultSandboxMode, nameof(SandboxMode));
-        SetPropertyFromSettings(ref _accessLevel, AccessLevelFromSandbox(settings.DefaultSandboxMode), nameof(AccessLevel));
-        SetPropertyFromSettings(ref _useMultiAgentOrchestration, settings.DefaultUseMultiAgentOrchestration, nameof(UseMultiAgentOrchestration));
-        SetPropertyFromSettings(ref _maxAgentConcurrency, Math.Max(1, settings.DefaultMaxAgentConcurrency), nameof(MaxAgentConcurrency));
-        SetPropertyFromSettings(ref _agentStrategy, settings.DefaultAgentStrategy, nameof(AgentStrategy));
-        SetPropertyFromSettings(ref _orchestrationModel, string.IsNullOrWhiteSpace(settings.DefaultOrchestrationModel) ? settings.DefaultModel : settings.DefaultOrchestrationModel, nameof(OrchestrationModel));
-        SetPropertyFromSettings(ref _budgetDrivenModelSelection, settings.DefaultBudgetDrivenModelSelection, nameof(BudgetDrivenModelSelection));
-        SetPropertyFromSettings(ref _budgetModel, string.IsNullOrWhiteSpace(settings.DefaultBudgetModel) ? settings.DefaultModel : settings.DefaultBudgetModel, nameof(BudgetModel));
-        SetPropertyFromSettings(ref _inputAreaHeight, ClampInputHeight(settings.DefaultInputAreaHeight), nameof(InputAreaHeight));
+        var changed = false;
+        changed |= SetPropertyFromSettings(ref _selectedModel, settings.DefaultModel, nameof(SelectedModel));
+        changed |= SetPropertyFromSettings(ref _failoverModel, string.IsNullOrWhiteSpace(settings.DefaultFailoverModel) ? "gpt-5.3-codex" : settings.DefaultFailoverModel, nameof(FailoverModel));
+        changed |= SetPropertyFromSettings(ref _selectedReasoning, settings.DefaultReasoningEffort, nameof(SelectedReasoning));
+        changed |= SetPropertyFromSettings(ref _selectedVerbosity, settings.DefaultVerbosity, nameof(SelectedVerbosity));
+        changed |= SetPropertyFromSettings(ref _approvalPolicy, settings.DefaultApprovalPolicy, nameof(ApprovalPolicy));
+        changed |= SetPropertyFromSettings(ref _sandboxMode, settings.DefaultSandboxMode, nameof(SandboxMode));
+        changed |= SetPropertyFromSettings(ref _accessLevel, AccessLevelFromSandbox(settings.DefaultSandboxMode), nameof(AccessLevel));
+        changed |= SetPropertyFromSettings(ref _useMultiAgentOrchestration, settings.DefaultUseMultiAgentOrchestration, nameof(UseMultiAgentOrchestration));
+        changed |= SetPropertyFromSettings(ref _maxAgentConcurrency, Math.Max(1, settings.DefaultMaxAgentConcurrency), nameof(MaxAgentConcurrency));
+        changed |= SetPropertyFromSettings(ref _agentStrategy, settings.DefaultAgentStrategy, nameof(AgentStrategy));
+        changed |= SetPropertyFromSettings(ref _orchestrationModel, string.IsNullOrWhiteSpace(settings.DefaultOrchestrationModel) ? settings.DefaultModel : settings.DefaultOrchestrationModel, nameof(OrchestrationModel));
+        changed |= SetPropertyFromSettings(ref _budgetDrivenModelSelection, settings.DefaultBudgetDrivenModelSelection, nameof(BudgetDrivenModelSelection));
+        changed |= SetPropertyFromSettings(ref _budgetModel, string.IsNullOrWhiteSpace(settings.DefaultBudgetModel) ? settings.DefaultModel : settings.DefaultBudgetModel, nameof(BudgetModel));
+        changed |= SetPropertyFromSettings(ref _inputAreaHeight, ClampInputHeight(settings.DefaultInputAreaHeight), nameof(InputAreaHeight));
 
-        ReplaceCollection(ModelOptions, settings.CustomModels.Distinct(StringComparer.OrdinalIgnoreCase));
-        ReplaceCollection(ReasoningOptions, settings.CustomReasoningEfforts);
-        ReplaceCollection(VerbosityOptions, settings.CustomVerbosityOptions);
-        ReplaceCollection(AgentRoles, settings.AgentRoles ?? new List<AgentRoleDefinition>());
-        UpdateAnalytics(Prompt);
+        changed |= ReplaceCollection(ModelOptions, settings.CustomModels.Distinct(StringComparer.OrdinalIgnoreCase));
+        changed |= ReplaceCollection(ReasoningOptions, settings.CustomReasoningEfforts);
+        changed |= ReplaceCollection(VerbosityOptions, settings.CustomVerbosityOptions);
+        changed |= ReplaceCollection(AgentRoles, settings.AgentRoles ?? new List<AgentRoleDefinition>());
+        if (changed)
+        {
+            UpdateAnalytics(Prompt);
+        }
     }
 
-    private void SetPropertyFromSettings<T>(ref T field, T value, string propertyName)
+    private bool SetPropertyFromSettings<T>(ref T field, T value, string propertyName)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
         {
-            return;
+            return false;
         }
 
         field = value;
         this.RaisePropertyChanged(propertyName);
+        return true;
     }
 
-    private static void ReplaceCollection<T>(ObservableCollection<T> collection, IEnumerable<T> values)
+    private static bool ReplaceCollection<T>(ObservableCollection<T> collection, IEnumerable<T> values)
     {
-        collection.Clear();
-        foreach (var value in values ?? Enumerable.Empty<T>())
+        var snapshot = (values ?? Enumerable.Empty<T>()).ToList();
+        if (collection.Count == snapshot.Count && collection.Zip(snapshot, EqualityComparer<T>.Default.Equals).All(x => x))
         {
-            collection.Add(value);
+            return false;
         }
+
+        collection.Clear();
+        foreach (var value in snapshot) collection.Add(value);
+        return true;
     }
 
     private async Task RunAsync()
@@ -1080,6 +1132,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         ThreadId = null;
         Messages.Clear();
         Attachments.Clear();
+        OrchestrationSections.Clear();
         Status = "New VSCodex thread";
         RefreshHistory();
         UpdateAnalytics(Prompt);
@@ -1342,7 +1395,12 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         var prompt = value ?? string.Empty;
         if (prompt.StartsWith("/debug", StringComparison.OrdinalIgnoreCase)) return _assistantContext.BuildDebugPrompt();
         if (prompt.StartsWith("/test", StringComparison.OrdinalIgnoreCase)) return _assistantContext.BuildTestPrompt();
-        if (prompt.StartsWith("/plan", StringComparison.OrdinalIgnoreCase)) return _assistantContext.BuildPlanPrompt(prompt.Substring(Math.Min(5, prompt.Length)).Trim(), BuildAgentSummary());
+        if (prompt.StartsWith("/plan", StringComparison.OrdinalIgnoreCase))
+        {
+            var goal = prompt.Substring(Math.Min(5, prompt.Length)).Trim();
+            RefreshAgentPlanPreview(goal);
+            return _assistantContext.BuildPlanPrompt(goal, BuildAgentSummary());
+        }
         if (prompt.StartsWith("/explain", StringComparison.OrdinalIgnoreCase)) return _assistantContext.BuildExplainPrompt();
         if (prompt.StartsWith("/fix", StringComparison.OrdinalIgnoreCase)) return _assistantContext.BuildFixPrompt();
         if (prompt.StartsWith("/review", StringComparison.OrdinalIgnoreCase)) return _assistantContext.BuildReviewPrompt();
@@ -1353,14 +1411,60 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
     private IEnumerable<AgentRoleDefinition> ApplyModelSelection(IEnumerable<AgentRoleDefinition> agents)
     {
-        foreach (var agent in agents)
+        foreach (var source in DistinctAgentRoles(agents))
         {
+            var agent = CloneAgentRole(source);
             if (BudgetDrivenModelSelection || agent.ModelSelectionMode == AgentModelSelectionMode.BudgetDriven)
             {
                 agent.Model = BudgetModel;
             }
+
             yield return agent;
         }
+    }
+
+    private static IEnumerable<AgentRoleDefinition> DistinctAgentRoles(IEnumerable<AgentRoleDefinition> agents)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var agent in agents ?? Enumerable.Empty<AgentRoleDefinition>())
+        {
+            var key = string.IsNullOrWhiteSpace(agent.Name) ? agent.Role : agent.Name;
+            key = (key ?? string.Empty).Trim();
+            if (key.Length == 0 || !seen.Add(key))
+            {
+                continue;
+            }
+
+            yield return agent;
+        }
+    }
+
+    private static AgentRoleDefinition CloneAgentRole(AgentRoleDefinition source)
+    {
+        return new AgentRoleDefinition
+        {
+            Name = source.Name,
+            Role = source.Role,
+            Instructions = source.Instructions,
+            Model = source.Model,
+            ModelSelectionMode = source.ModelSelectionMode,
+            IsEnabled = source.IsEnabled
+        };
+    }
+
+    private static List<AgentRoleDefinition> DefaultAgentRoles() => new ExtensionSettings().AgentRoles.Select(CloneAgentRole).ToList();
+
+    private static string PickAgentName(IReadOnlyList<AgentRoleDefinition> agents, string preferredName, int fallbackIndex)
+    {
+        if (agents.Count == 0)
+        {
+            return preferredName;
+        }
+
+        var agent = agents.FirstOrDefault(x => x.Name.Equals(preferredName, StringComparison.OrdinalIgnoreCase))
+            ?? agents.FirstOrDefault(x => x.Role.IndexOf(preferredName, StringComparison.OrdinalIgnoreCase) >= 0)
+            ?? agents[Math.Abs(fallbackIndex) % agents.Count];
+        return string.IsNullOrWhiteSpace(agent.Name) ? preferredName : agent.Name;
     }
 
     private string EffectiveMainModel() => BudgetDrivenModelSelection && !string.IsNullOrWhiteSpace(BudgetModel) ? BudgetModel : SelectedModel;
@@ -1420,8 +1524,81 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private string BuildAgentSummary()
     {
         var sb = new StringBuilder();
-        foreach (var agent in AgentRoles.Where(x => x.IsEnabled)) sb.AppendLine($"- {agent.Name} ({agent.Role}) model={agent.Model}; mode={agent.ModelSelectionMode}: {agent.Instructions}");
+        foreach (var agent in DistinctAgentRoles(AgentRoles.Where(x => x.IsEnabled))) sb.AppendLine($"- {agent.Name} ({agent.Role}) model={agent.Model}; mode={agent.ModelSelectionMode}: {agent.Instructions}");
         return sb.ToString();
+    }
+
+    private void CreateAgentPlanPrompt()
+    {
+        var goal = string.IsNullOrWhiteSpace(Prompt)
+            ? "Plan the selected coding task from current Visual Studio solution context."
+            : Prompt;
+        RefreshAgentPlanPreview(goal);
+        Prompt = _assistantContext.BuildPlanPrompt(goal, BuildAgentSummary());
+        Mode = CodexRunMode.Plan;
+        SelectedToolTabIndex = AgentsToolTabIndex;
+        IsToolPanelOpen = true;
+        Status = "Prepared VSCodex agent plan";
+    }
+
+    private void RefreshAgentPlanPreview(string goal)
+    {
+        var agents = DistinctAgentRoles(AgentRoles.Where(x => x.IsEnabled)).ToList();
+        if (agents.Count == 0)
+        {
+            agents = DefaultAgentRoles();
+        }
+
+        var sections = new[]
+        {
+            new { Preferred = "Planner", Title = "Clarify goal and acceptance criteria", Description = "Use the current Visual Studio solution, selected code, references, memories, and MCP tools to define the work." },
+            new { Preferred = "Architect", Title = "Assess architecture and integration risks", Description = "Identify affected projects, services, UI surfaces, threading risks, and compatibility constraints before editing." },
+            new { Preferred = "Builder", Title = "Implement focused changes", Description = "Apply the smallest coherent code changes needed for the requested outcome." },
+            new { Preferred = "Reviewer", Title = "Review behavior, UX, and safety", Description = "Check correctness, regressions, user-visible behavior, and missing coverage." },
+            new { Preferred = "Verifier", Title = "Validate in Visual Studio and command-line tests", Description = "Run the relevant build, test, VSIX, and interactive Visual Studio checks, then summarize evidence." }
+        }
+        .Select((section, index) => new OrchestrationTaskSection
+        {
+            Index = index + 1,
+            Title = section.Title,
+            Description = section.Description + Environment.NewLine + "Goal: " + (string.IsNullOrWhiteSpace(goal) ? "Use current context." : goal),
+            AssignedAgent = PickAgentName(agents, section.Preferred, index),
+            DependsOnSectionId = index == 0 ? string.Empty : "previous"
+        })
+        .ToList();
+
+        Replace(OrchestrationSections, sections);
+    }
+
+    private void CopyMessageToClipboard(ChatMessage? message)
+    {
+        if (message == null || string.IsNullOrWhiteSpace(message.Content))
+        {
+            Status = "No message content to copy";
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(message.Content);
+            Status = "Copied VSCodex message";
+        }
+        catch (Exception ex)
+        {
+            Status = "Could not copy message: " + ex.Message;
+        }
+    }
+
+    private void UseMessageAsPrompt(ChatMessage? message)
+    {
+        if (message == null || string.IsNullOrWhiteSpace(message.Content))
+        {
+            Status = "No message content to use";
+            return;
+        }
+
+        Prompt = message.Content;
+        Status = message.Role == CodexMessageRole.User ? "Copied user prompt back to input" : "Copied message back to input";
     }
 
     private void OnCodexEvent(CodexEvent ev)
@@ -1646,24 +1823,191 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         SaveSettingsForCurrentWorkspace(settings);
     }
 
+    private void ScheduleModelSettingsSave(bool refreshAnalytics)
+    {
+        var settings = CaptureModelSettingsSnapshot();
+        var workspaceIdentity = CloneWorkspaceIdentity(_workspace.CurrentWorkspaceIdentity);
+        var revision = Interlocked.Increment(ref _modelSettingsSaveRevision);
+        var cancellation = new CancellationTokenSource();
+        CancellationTokenSource? previous;
+        lock (_modelSettingsSaveGate)
+        {
+            previous = _modelSettingsSaveCancellation;
+            _modelSettingsSaveCancellation = cancellation;
+            _hasPendingModelSettingsSave = true;
+        }
+
+        previous?.Cancel();
+
+        _joinableTaskFactory.RunAsync(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(ModelSettingsSaveDebounceMilliseconds), cancellation.Token).ConfigureAwait(false);
+                if (cancellation.IsCancellationRequested || revision != Volatile.Read(ref _modelSettingsSaveRevision))
+                {
+                    return;
+                }
+
+                SaveSettingsForWorkspace(workspaceIdentity, settings);
+                if (refreshAnalytics)
+                {
+                    await _joinableTaskFactory.SwitchToMainThreadAsync(cancellation.Token);
+                    if (!cancellation.IsCancellationRequested && revision == Volatile.Read(ref _modelSettingsSaveRevision))
+                    {
+                        UpdateAnalytics(Prompt);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                await _joinableTaskFactory.SwitchToMainThreadAsync();
+                Status = "Could not save VSCodex settings: " + ex.Message;
+            }
+            finally
+            {
+                CompleteModelSettingsSave(cancellation);
+            }
+        }).Task.FireAndForget();
+    }
+
+    private void CompleteModelSettingsSave(CancellationTokenSource cancellation)
+    {
+        lock (_modelSettingsSaveGate)
+        {
+            if (ReferenceEquals(_modelSettingsSaveCancellation, cancellation))
+            {
+                _modelSettingsSaveCancellation = null;
+                _hasPendingModelSettingsSave = false;
+            }
+        }
+
+        cancellation.Dispose();
+    }
+
+    private void FlushPendingModelSettingsSave()
+    {
+        CancellationTokenSource? pending;
+        bool shouldSave;
+        lock (_modelSettingsSaveGate)
+        {
+            pending = _modelSettingsSaveCancellation;
+            shouldSave = _hasPendingModelSettingsSave;
+            _modelSettingsSaveCancellation = null;
+            _hasPendingModelSettingsSave = false;
+        }
+
+        pending?.Cancel();
+        pending?.Dispose();
+        if (!shouldSave)
+        {
+            return;
+        }
+
+        try
+        {
+            SaveModelSettings();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Could not flush VSCodex settings: " + ex);
+        }
+    }
+
     private void SaveModelSettings()
     {
-        var settings = _settingsStore.Current;
+        SaveSettingsForWorkspace(CloneWorkspaceIdentity(_workspace.CurrentWorkspaceIdentity), CaptureModelSettingsSnapshot());
+    }
+
+    private ExtensionSettings CaptureModelSettingsSnapshot()
+    {
+        var settings = CloneSettings(_settingsStore.Current);
         settings.DefaultModel = string.IsNullOrWhiteSpace(SelectedModel) ? settings.DefaultModel : SelectedModel;
         settings.DefaultFailoverModel = string.IsNullOrWhiteSpace(FailoverModel) ? settings.DefaultFailoverModel : FailoverModel;
         settings.DefaultReasoningEffort = string.IsNullOrWhiteSpace(SelectedReasoning) ? settings.DefaultReasoningEffort : SelectedReasoning;
         settings.DefaultVerbosity = string.IsNullOrWhiteSpace(SelectedVerbosity) ? settings.DefaultVerbosity : SelectedVerbosity;
         settings.DefaultApprovalPolicy = ApprovalPolicy;
         settings.DefaultSandboxMode = SandboxMode;
-        settings.DefaultOrchestrationModel = OrchestrationModel;
+        settings.DefaultOrchestrationModel = string.IsNullOrWhiteSpace(OrchestrationModel) ? settings.DefaultModel : OrchestrationModel;
         settings.DefaultBudgetDrivenModelSelection = BudgetDrivenModelSelection;
-        settings.DefaultBudgetModel = BudgetModel;
-        SaveSettingsForCurrentWorkspace(settings);
+        settings.DefaultBudgetModel = string.IsNullOrWhiteSpace(BudgetModel) ? settings.DefaultBudgetModel : BudgetModel;
+        EnsureModelOption(settings.CustomModels, settings.DefaultModel);
+        EnsureModelOption(settings.CustomModels, settings.DefaultFailoverModel);
+        EnsureModelOption(settings.CustomModels, settings.DefaultOrchestrationModel);
+        EnsureModelOption(settings.CustomModels, settings.DefaultBudgetModel);
+        return settings;
+    }
+
+    private static ExtensionSettings CloneSettings(ExtensionSettings source)
+    {
+        return new ExtensionSettings
+        {
+            CodexCliPath = source.CodexCliPath,
+            NodePath = source.NodePath,
+            BridgeScriptPath = source.BridgeScriptPath,
+            DefaultModel = source.DefaultModel,
+            DefaultFailoverModel = source.DefaultFailoverModel,
+            DefaultReasoningEffort = source.DefaultReasoningEffort,
+            DefaultVerbosity = source.DefaultVerbosity,
+            DefaultServiceTier = source.DefaultServiceTier,
+            DefaultProfile = source.DefaultProfile,
+            DefaultApprovalPolicy = source.DefaultApprovalPolicy,
+            DefaultSandboxMode = source.DefaultSandboxMode,
+            CustomModels = source.CustomModels?.ToList() ?? new List<string>(),
+            CustomReasoningEfforts = source.CustomReasoningEfforts?.ToList() ?? new List<string>(),
+            CustomVerbosityOptions = source.CustomVerbosityOptions?.ToList() ?? new List<string>(),
+            SkillRoots = source.SkillRoots?.ToList() ?? new List<string>(),
+            EnabledSkillPaths = source.EnabledSkillPaths?.ToList() ?? new List<string>(),
+            DefaultUseMultiAgentOrchestration = source.DefaultUseMultiAgentOrchestration,
+            DefaultMaxAgentConcurrency = source.DefaultMaxAgentConcurrency,
+            DefaultAgentStrategy = source.DefaultAgentStrategy,
+            DefaultOrchestrationModel = source.DefaultOrchestrationModel,
+            DefaultBudgetDrivenModelSelection = source.DefaultBudgetDrivenModelSelection,
+            DefaultBudgetModel = source.DefaultBudgetModel,
+            DefaultInputAreaHeight = source.DefaultInputAreaHeight,
+            AgentRoles = DistinctAgentRoles(source.AgentRoles ?? new List<AgentRoleDefinition>()).Select(CloneAgentRole).ToList()
+        };
+    }
+
+    private static WorkspaceIdentity? CloneWorkspaceIdentity(WorkspaceIdentity? source)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        return new WorkspaceIdentity
+        {
+            Id = source.Id,
+            Name = source.Name,
+            RootPath = source.RootPath,
+            SolutionPath = source.SolutionPath,
+            SolutionRelativePath = source.SolutionRelativePath,
+            RepositoryRemote = source.RepositoryRemote,
+            MemoryRoot = source.MemoryRoot
+        };
+    }
+
+    private static void EnsureModelOption(List<string> models, string model)
+    {
+        if (string.IsNullOrWhiteSpace(model) || models.Any(x => x.Equals(model, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        models.Add(model.Trim());
     }
 
     private void SaveSettingsForCurrentWorkspace(ExtensionSettings settings)
     {
-        var identity = _workspace.CurrentWorkspaceIdentity;
+        SaveSettingsForWorkspace(CloneWorkspaceIdentity(_workspace.CurrentWorkspaceIdentity), settings);
+    }
+
+    private void SaveSettingsForWorkspace(WorkspaceIdentity? identity, ExtensionSettings settings)
+    {
         if (identity != null && !string.IsNullOrWhiteSpace(identity.Id))
         {
             _settingsStore.SaveForWorkspace(identity, settings);
@@ -2071,6 +2415,10 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         });
     }
 
-    public void Dispose() => _subscriptions.Dispose();
+    public void Dispose()
+    {
+        FlushPendingModelSettingsSave();
+        _subscriptions.Dispose();
+    }
     private sealed class CompositeDisposableLike : IDisposable { private readonly IDisposable[] _items; public CompositeDisposableLike(params IDisposable[] items) => _items = items; public void Dispose() { foreach (var item in _items) item.Dispose(); } }
 }

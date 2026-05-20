@@ -89,15 +89,15 @@ public sealed class VsixSurfaceTests
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexErrorListContextMenuGroup");
         RequireCommandPlacement(vsct, "OpenToolWindowCommandId", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "VSCodexEditorAllContextMenuGroup");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexEditorContextMenuGroup");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexProjectContextMenuGroup");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexSolutionContextMenuGroup");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexItemContextMenuGroup");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidSHLMainMenu", "IDG_VS_CTXT_EDITOR_ALL");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
-        RequireCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexErrorListContextMenuGroup");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "VSCodexEditorAllContextMenuGroup");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexEditorContextMenuGroup");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexProjectContextMenuGroup");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexSolutionContextMenuGroup");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexItemContextMenuGroup");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidSHLMainMenu", "IDG_VS_CTXT_EDITOR_ALL");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
+        RequireNoCommandPlacement(vsct, "VSCodexEditorContextMenu", "guidCommandSet", "CodexErrorListContextMenuGroup");
         RequireCommandPlacement(vsct, "AskCodexCommandId", "guidCommandSet", "CodexToolsMenuGroup");
         RequireCommandPlacement(vsct, "AskCodexCommandId", "guidCommandSet", "CodexItemContextMenuGroup");
         RequireCommandPlacement(vsct, "CreateTestFromSelectionCommandId", "guidCommandSet", "CodexToolsMenuGroup");
@@ -111,13 +111,13 @@ public sealed class VsixSurfaceTests
         RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidCommandSet", "CodexItemContextMenuGroup");
         RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidCommandSet", "CodexErrorListContextMenuGroup");
         RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
-        RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
+        RequireNoCommandPlacement(vsct, "DebugWithCodexCommandId", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
         RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidSHLMainMenu", "IDG_VS_CTXT_ERROR_CORRECTION");
         RequireCommandPlacement(vsct, "DebugWithCodexCommandId", "guidSHLMainMenu", "IDG_VS_ERRORLIST");
         RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
         RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
         RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidCommandSet", "CodexErrorCorrectionContextMenuGroup");
-        RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
+        RequireNoCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidSHLMainMenu", "IDG_VS_CODEWIN_DEBUG_STEP");
         RequireCommandPlacement(vsct, "FixActiveExceptionCommandId", "guidSHLMainMenu", "IDG_VS_CTXT_ERROR_CORRECTION");
         RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "VSCodexTopLevelMenuGroup");
         RequireCommandPlacement(vsct, "FixActiveErrorCommandId", "guidCommandSet", "VSCodexEditorContextMenuActionsGroup");
@@ -183,7 +183,7 @@ public sealed class VsixSurfaceTests
         RequireContains(assistantSource, "BuildTestFailurePrompt", "Coding assistant context must know how to build a test failure prompt.");
         RequireContains(assistantSource, "Fix the active Visual Studio test failure", "Test failure prompt must be scoped to Visual Studio test-failure assistance.");
         RequireContains(packageSource, "VisualStudioMenuIntegrationService.InitializeAsync(this)", "Package load must install visible VSCodex menu entries even if command-cache placement is stale.");
-        RequireContains(packageSource, "[ProvideMenuResource(\"Menus.ctmenu\", 4)]", "The menu resource version must be bumped when VSCT placements change so Visual Studio refreshes the cached command table.");
+        RequireContains(packageSource, "[ProvideMenuResource(\"Menus.ctmenu\", 5)]", "The menu resource version must be bumped when VSCT placements change so Visual Studio refreshes the cached command table.");
         RequireContains(menuBridge, "View.VSCodex", "Runtime menu bridge must expose the VSCodex tool window in the Visual Studio View menu.");
         RequireContains(menuBridge, "var viewPopup = viewCommandBar == null ? null : EnsurePopup(viewCommandBar, \"VSCodex Actions\")", "Runtime menu bridge must create a visible View > VSCodex Actions submenu without conflicting with the direct View > VSCodex command.");
         RequireContains(menuBridge, "FindControlByCaption(commandBar, command.Caption)", "Runtime menu bridge must detect existing static menu controls before adding replacements.");
@@ -196,10 +196,11 @@ public sealed class VsixSurfaceTests
         RequireContains(menuBridge, "var otherWindowsPopup = viewCommandBar == null ? null : FindControlByCaption(viewCommandBar, \"Other Windows\")", "Runtime menu bridge must also target the canonical View > Other Windows recovery surface.");
         RequireContains(menuBridge, "SetVisible", "Runtime menu bridge must force-added menu controls to be visible.");
         RequireContains(menuBridge, "SetVisible(existing);", "Runtime menu bridge must force existing VSCodex menu popups visible, not only newly-created popups.");
-        RequireContains(menuBridge, "VSCodex Actions", "Runtime menu bridge must expose VSCodex Actions on editor and Solution Explorer context menus.");
+        RequireContains(menuBridge, "Context menus are declared through VSCT only", "Runtime menu repair must not add duplicate editor context menu popups.");
         RequireContains(menuBridge, "Fix with VSCodex", "Runtime menu bridge must expose the requested vulnerability/error fix action.");
-        RequireContains(menuBridge, "Code Window", "Runtime menu bridge must target the editor context menu.");
-        RequireContains(menuBridge, "SolutionExplorerContextBars", "Runtime menu bridge must target Solution Explorer context menus.");
+        RequireDoesNotContain(menuBridge, "Code Window", "Runtime menu bridge must not inject editor context menu popups.");
+        RequireDoesNotContain(menuBridge, "Text Editor", "Runtime menu bridge must not inject editor context menu popups.");
+        RequireDoesNotContain(menuBridge, "SolutionExplorerContextBars", "Runtime menu bridge must not duplicate Solution Explorer context menus.");
     }
 
     [Test]
@@ -210,6 +211,7 @@ public sealed class VsixSurfaceTests
         var mcpConfig = ReadText("src/VSCodex/Services/McpConfigService.cs");
         var mcpTools = ReadText("src/VSCodex/Services/McpToolCatalogService.cs");
         var reactiveMemory = ReadText("src/VSCodex/Services/ReactiveMemoryService.cs");
+        var solutionMonitor = ReadText("src/VSCodex/Services/SolutionLoadMonitorService.cs");
         var appBuilder = ReadText("src/VSCodex/Infrastructure/RxAppBuilder.cs");
         var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
         var view = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml");
@@ -250,6 +252,13 @@ public sealed class VsixSurfaceTests
         RequireContains(reactiveMemory, "ScoreReactiveMemoryServer", "ReactiveMemory must pick the most capable configured MCP server instead of the first name match.");
         RequireContains(reactiveMemory, "cp-reactivememory-mcp-server", "ReactiveMemory should prefer the dnx package server already configured for Codex.");
         RequireContains(reactiveMemory, "CP.ReactiveMemory.Mcp.Server@", "ReactiveMemory should prefer versioned dnx package entries over stale fallback blocks.");
+        RequireContains(reactiveMemory, "if (!automatic && projectMinerTool != null)", "Automatic startup scans must not invoke unbounded ProjectMiner tools.");
+        RequireContains(solutionMonitor, "BuildWorkspaceIdentityFromSolutionPath", "Startup ProjectMiner scans must build a background-safe solution identity from the captured solution path.");
+        RequireContains(solutionMonitor, "Task.Run(async () =>", "Startup ProjectMiner scans must run from a background worker.");
+        RequireDoesNotContain(solutionMonitor, "_workspace.RefreshWorkspaceIdentity", "Startup ProjectMiner scans must not refresh DTE workspace state on the UI thread.");
+        RequireDoesNotContain(solutionMonitor, "await _joinableTaskFactory.SwitchToMainThreadAsync(_package.DisposalToken);", "Queued ProjectMiner scans must not switch back to the Visual Studio UI thread.");
+        RequireContains(ReadText("src/VSCodex/Services/CodingAssistantContextService.cs"), "Current solution context:", "ReactiveMemory setup prompts must include the active solution/workspace context instead of generic setup text.");
+        RequireContains(ReadText("src/VSCodex/Services/CodingAssistantContextService.cs"), "_workspace.RefreshWorkspaceIdentity();", "ReactiveMemory setup prompts must capture the currently loaded solution before building the prompt.");
         RequireContains(appBuilder, "RegisterSingleton<IReactiveMemoryService>", "ReactiveMemory service must be registered for the tool-window view model.");
         RequireContains(viewModel, "_reactiveMemory.ReactToPromptAsync", "Run must update ReactiveMemory context before calling Codex.");
         RequireContains(viewModel, "_reactiveMemory.WriteDiaryAsync", "Run completion must write a ReactiveMemory diary entry.");
@@ -353,10 +362,12 @@ public sealed class VsixSurfaceTests
         RequireContains(settingsStore, "static BehaviorSubject<ExtensionSettings>? SharedSettings", "Tools > Options and the tool window must share one live settings stream.");
         RequireContains(settingsStore, "SettingsChanged => _settings.AsObservable()", "Runtime services must observe Tools > Options changes through the shared settings stream.");
         RequireContains(settingsStore, "Normalize(settings);", "Saved Tools > Options values must be normalized before they are persisted and broadcast.");
+        RequireContains(settingsStore, "NormalizeAgentRoles", "Persisted agent roles must be de-duplicated before the Agents tool pane is populated.");
+        RequireContains(settingsStore, "Store.Write(path, settings);", "Workspace settings loaded from disk must be rewritten after normalization so duplicate agent roles are repaired.");
         RequireContains(viewModel, "_settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore)", "An open VSCodex tool window must react to Tools > Options changes without restarting Visual Studio.");
         RequireContains(viewModel, "ApplySettingsFromStore", "Tools > Options changes must update the live tool-window run settings.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.3.1\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.3.2\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
     }
 
@@ -574,6 +585,8 @@ public sealed class VsixSurfaceTests
         RequireContains(bridge, "emitCodexProgress(event)", "The SDK bridge must forward streamed progress while long-running requests are active.");
         RequireContains(bridge, "type: 'progress'", "The SDK bridge must emit user-visible progress events.");
         RequireContains(bridge, "type: 'rate-limits'", "The SDK bridge must emit rate-limit events to the WPF view model.");
+        RequireContains(bridge, "Codex turn completed; finalizing VSCodex results", "Codex turn-completed progress must indicate that VSCodex is still finalizing.");
+        RequireContains(bridge, "waiting for the final response", "Completed command-execution items must not look like the whole VSCodex request is finished.");
         RequireContains(bridge, "codex.rate_limits", "The SDK bridge parser must preserve real Codex rate-limit telemetry events.");
         RequireContains(bridge, "rateLimits: state.rateLimits", "The SDK bridge result must expose real Codex rate-limit telemetry to the WPF view model.");
         RequireContains(bridge, "isSdkJsonNoiseError", "The bridge retry must be limited to the known SDK JSON parsing failure.");
@@ -688,6 +701,17 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "Header=\"History\"", "Conversation history must replace the obsolete in-window settings tab.");
         RequireContains(view, "VisibleHistoryItems", "The history tab must show saved VSCodex conversation sessions.");
         RequireContains(view, "Rate limits remaining", "The tool window must surface hourly and weekly rate-limit details near the model controls.");
+        RequireContains(view, "x:Name=\"ConversationActionPanel\"", "Conversation actions and prompt actions must be grouped in one button panel above the prompt input.");
+        RequireContains(view, "Content=\"Review selection\"", "The unified action panel must include the selected-code review action.");
+        RequireContains(view, "Content=\"Fix active errors\"", "The unified action panel must include active error assistance.");
+        RequireContains(view, "Content=\"Write tests\"", "The unified action panel must include test generation.");
+        RequireContains(view, "Content=\"Plan work\"", "The unified action panel must include planning.");
+        RequireContains(view, "Content=\"+ Reference\"", "The unified action panel must include reference refresh.");
+        RequireContains(view, "Content=\"Docs\"", "The unified action panel must include documentation generation.");
+        RequireContains(view, "Content=\"Use as prompt\"", "Chat messages must let users move prior user input back into the prompt editor.");
+        RequireContains(view, "CopyMessageCommand", "Chat messages must expose a copy command for prior prompts and responses.");
+        RequireContains(viewModel, "UseMessageAsPromptCommand", "The view model must support reusing a prior user prompt as editable input.");
+        RequireContains(viewModel, "System.Windows.Clipboard.SetText", "The view model must copy message text to the Windows clipboard.");
         RequireContains(view, "Command=\"{Binding NewThreadCommand}\"", "The tool window must expose a first-class new thread action.");
         RequireContains(view, "AutomationProperties.Name=\"New VSCodex thread\"", "Icon-only header controls must have an accessible automation name.");
         RequireContains(view, "ToolTip=\"Start a fresh VSCodex thread.", "The new-thread action must be an icon button with an accessible tooltip.");
@@ -780,6 +804,14 @@ public sealed class VsixSurfaceTests
         RequireDoesNotContain(viewModel, "used \" + FormatTokenCount", "Observed token usage must not be surfaced as the real Codex rate-limit value.");
         RequireContains(viewModel, "CanEditSettings => !IsRunning", "Settings must not be editable while a task is running.");
         RequireContains(viewModel, "CanChangeSetting", "The view model must reject setting changes even if a delayed binding fires while a task is running.");
+        RequireContains(viewModel, "private const int ModelSettingsSaveDebounceMilliseconds = 350", "Model selector changes must be debounced before settings persistence.");
+        RequireContains(viewModel, "ScheduleModelSettingsSave", "Model selector changes must not synchronously save settings on the Visual Studio UI thread.");
+        RequireContains(viewModel, "Task.Delay(TimeSpan.FromMilliseconds(ModelSettingsSaveDebounceMilliseconds)", "Model setting persistence must wait until combo-box text and selection events settle.");
+        RequireContains(viewModel, "SaveSettingsForWorkspace(workspaceIdentity, settings)", "Debounced model setting persistence must write from the captured workspace snapshot.");
+        RequireContains(viewModel, "if (changed)", "Settings broadcasts must only refresh analytics when live tool-window settings actually changed.");
+        RequireContains(viewModel, "collection.Zip(snapshot, EqualityComparer<T>.Default.Equals).All", "Settings broadcasts must not clear and rebuild combo-box item collections when values are unchanged.");
+        RequireContains(view, "Text=\"{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged, Delay=250}\"", "The editable model combo box must debounce text updates so changing models cannot re-enter WPF selection handling on every keystroke.");
+        RequireDoesNotContain(viewModel, "SelectedModel { get => _selectedModel; set { if (!CanChangeSetting(_selectedModel, value)) return; this.RaiseAndSetIfChanged(ref _selectedModel, value); SaveModelSettings(); UpdateAnalytics(Prompt); } }", "Changing the current model must not synchronously save settings and recompute analytics from the property setter.");
         RequireContains(viewModel, "Math.Max(32d", "The persisted prompt height must accept the same one-line minimum as the mouse resize grip.");
         RequireContains(viewModel, "SetLiveInputAreaHeight", "Mouse resizing must preview height without saving settings on every drag tick.");
         RequireContains(viewModel, "CommitInputAreaHeight", "Mouse resizing must persist the prompt height once the drag completes.");
@@ -798,6 +830,10 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "BeginRenameHistoryCommand", "The history tab must support renaming saved sessions.");
         RequireContains(viewModel, "PromptSuggestions", "The view model must expose inline prompt suggestions.");
         RequireContains(viewModel, "UpdatePromptSuggestions", "Typing /, @, or # must update context-sensitive prompt suggestions.");
+        RequireContains(viewModel, "CreateAgentPlanPrompt", "Plan work must populate the Agents plan preview instead of leaving the Plan pane unused.");
+        RequireContains(viewModel, "RefreshAgentPlanPreview", "The Agents Plan pane must show a local plan preview before multi-agent execution events arrive.");
+        RequireContains(viewModel, "AgentsToolTabIndex", "Plan work must open the Agents controls tab so users can see and edit the plan.");
+        RequireContains(viewModel, "OrchestrationSections.Clear();", "Starting a new thread must clear stale agent plan sections.");
         RequireContains(viewModel, "TargetTab = \"browse-files\"", "Typing @ must offer a disk file picker for references outside the repository.");
         RequireContains(viewModel, "InsertFileReferencePaths", "Files selected from disk must be inserted into the prompt as @ references.");
         RequireContains(viewModel, "BuildSlashCommandSuggestions", "Typing / must list VSCodex commands, history, options handoff, and tool surfaces.");
@@ -1030,6 +1066,19 @@ public sealed class VsixSurfaceTests
         if (!exists)
         {
             throw new InvalidOperationException($"Command '{commandId}' must be placed under {expectedParentGuid}/{expectedParentId}.");
+        }
+    }
+
+    private static void RequireNoCommandPlacement(XDocument document, string commandId, string parentGuid, string parentId)
+    {
+        var exists = document.Descendants(Vsct + "CommandPlacement")
+            .Where(placement => (string?)placement.Attribute("id") == commandId)
+            .Elements(Vsct + "Parent")
+            .Any(parent => (string?)parent.Attribute("guid") == parentGuid && (string?)parent.Attribute("id") == parentId);
+
+        if (exists)
+        {
+            throw new InvalidOperationException($"Command '{commandId}' must not be placed under {parentGuid}/{parentId}; that placement creates duplicate Visual Studio context menu entries.");
         }
     }
 
