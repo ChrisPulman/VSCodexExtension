@@ -43,16 +43,31 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private readonly Dispatcher _uiDispatcher;
     private readonly IScheduler _uiScheduler;
     private readonly IDisposable _subscriptions;
+    private readonly CancellationTokenSource _lifetime = new CancellationTokenSource();
     private CodexSessionDocument _session;
     private int _promptChangeRevision;
     private string _lastWorkspaceIdentityId = string.Empty;
     private string _lastWorkspaceSettingsId = string.Empty;
     private readonly object _modelSettingsSaveGate = new object();
+    private readonly Queue<string> _queuedPrompts = new Queue<string>();
     private CancellationTokenSource? _modelSettingsSaveCancellation;
     private bool _hasPendingModelSettingsSave;
+    private bool _isProcessingRunQueue;
+    private int _queuedPromptCount;
+    private int _voiceTranscriptRevision;
     private int _modelSettingsSaveRevision;
     private const int ModelSettingsSaveDebounceMilliseconds = 350;
-    private const int AgentsToolTabIndex = 6;
+    private const int HistoryToolTabIndex = 0;
+    private const int SetupToolTabIndex = 1;
+    private const int ContextToolTabIndex = 2;
+    private const int SkillsToolTabIndex = 3;
+    private const int McpToolTabIndex = 4;
+    private const int AnalyticsToolTabIndex = 5;
+    private const int MemoryToolTabIndex = 6;
+    private const int AgentsToolTabIndex = 7;
+    private const int AttachmentsToolTabIndex = 8;
+    private static readonly string[] VoiceSubmitOnlyCommands = { "send", "send it", "submit", "submit it", "run", "run it", "send request", "submit request" };
+    private static readonly string[] VoiceSubmitSuffixes = { " and send", " then send", " and submit", " then submit", " and run", " then run" };
 
     private string _prompt = string.Empty;
     private string _status = "Ready";
@@ -176,11 +191,11 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         AgentStrategyOptions = new ObservableCollection<AgentExecutionStrategy>((AgentExecutionStrategy[])Enum.GetValues(typeof(AgentExecutionStrategy)));
         AgentModelSelectionModeOptions = new ObservableCollection<AgentModelSelectionMode>((AgentModelSelectionMode[])Enum.GetValues(typeof(AgentModelSelectionMode)));
 
-        var canRun = this.WhenAnyValue(x => x.Prompt, x => x.IsRunning, (p, r) => !string.IsNullOrWhiteSpace(p) && !r).ObserveOn(_uiScheduler);
+        var canRun = this.WhenAnyValue(x => x.Prompt, p => !string.IsNullOrWhiteSpace(p)).ObserveOn(_uiScheduler);
         var canCancel = this.WhenAnyValue(x => x.IsRunning).ObserveOn(_uiScheduler);
         var canSavePrompt = this.WhenAnyValue(x => x.Prompt, p => !string.IsNullOrWhiteSpace(p)).ObserveOn(_uiScheduler);
-        RunCommand = ReactiveCommand.CreateFromTask(RunAsync, canRun, _uiScheduler);
-        CancelCommand = ReactiveCommand.Create(() => { _taskOrchestrator.Cancel(); _codex.Cancel(); }, canCancel, _uiScheduler);
+        RunCommand = ReactiveCommand.CreateFromTask(SubmitPromptAsync, canRun, _uiScheduler);
+        CancelCommand = ReactiveCommand.Create(CancelActiveRun, canCancel, _uiScheduler);
         NewThreadCommand = ReactiveCommand.Create(StartNewThread, outputScheduler: _uiScheduler);
         ShowHistoryCommand = ReactiveCommand.Create(ShowHistory, this.WhenAnyValue(x => x.IsRunning, running => !running).ObserveOn(_uiScheduler), _uiScheduler);
         RefreshHistoryCommand = ReactiveCommand.Create(RefreshHistory, outputScheduler: _uiScheduler);
@@ -190,6 +205,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         SaveRenameHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(SaveRenameHistoryItem, outputScheduler: _uiScheduler);
         CancelRenameHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(CancelRenameHistoryItem, outputScheduler: _uiScheduler);
         CheckPrerequisitesCommand = ReactiveCommand.CreateFromTask(CheckPrerequisitesAsync, null, _uiScheduler);
+        CopyPrerequisiteCommand = ReactiveCommand.Create<PrerequisiteStatus>(CopyPrerequisiteCommandToClipboard, outputScheduler: _uiScheduler);
+        UpdatePrerequisiteCommand = ReactiveCommand.Create<PrerequisiteStatus>(StartPrerequisiteUpdate, outputScheduler: _uiScheduler);
         RefreshCommand = ReactiveCommand.Create(Refresh, outputScheduler: _uiScheduler);
         RefreshAnalyticsCommand = ReactiveCommand.Create(() => UpdateAnalytics(Prompt), outputScheduler: _uiScheduler);
         ApplyRecommendedModelCommand = ReactiveCommand.Create(ApplyRecommendedModel, outputScheduler: _uiScheduler);
@@ -231,16 +248,11 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             _settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore),
             _voiceInput.Transcript.ObserveOnSafe(_uiScheduler).Subscribe(AppendVoiceTranscript),
             _voiceInput.Status.ObserveOnSafe(_uiScheduler).Subscribe(UpdateVoiceInputStatus),
-            this.WhenAnyValue(x => x.Prompt).ThrottleDistinct(TimeSpan.FromMilliseconds(180), _uiScheduler).Subscribe(OnPromptChanged),
-            _voiceInput);
+            this.WhenAnyValue(x => x.Prompt).ThrottleDistinct(TimeSpan.FromMilliseconds(180), _uiScheduler).Subscribe(OnPromptChanged));
 
-        Refresh();
+        RefreshWorkspaceIdentityForStartup();
         UpdateAnalytics(Prompt);
-        _joinableTaskFactory.RunAsync(async () =>
-        {
-            await CheckPrerequisitesAsync().ConfigureAwait(true);
-            await RefreshRateLimitsAsync().ConfigureAwait(true);
-        }).Task.FireAndForget();
+        ScheduleStartupChecksInBackground();
     }
 
     public ObservableCollection<ChatMessage> Messages { get; }
@@ -281,6 +293,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<SessionHistoryItem, Unit> SaveRenameHistoryCommand { get; }
     public ReactiveCommand<SessionHistoryItem, Unit> CancelRenameHistoryCommand { get; }
     public ReactiveCommand<Unit, Unit> CheckPrerequisitesCommand { get; }
+    public ReactiveCommand<PrerequisiteStatus, Unit> CopyPrerequisiteCommand { get; }
+    public ReactiveCommand<PrerequisiteStatus, Unit> UpdatePrerequisiteCommand { get; }
     public ReactiveCommand<Unit, Unit> RefreshCommand { get; }
     public ReactiveCommand<Unit, Unit> RefreshAnalyticsCommand { get; }
     public ReactiveCommand<Unit, Unit> ApplyRecommendedModelCommand { get; }
@@ -313,7 +327,16 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<ChatMessage, Unit> CopyMessageCommand { get; }
     public ReactiveCommand<ChatMessage, Unit> UseMessageAsPromptCommand { get; }
 
-    public string Prompt { get => _prompt; set => this.RaiseAndSetIfChanged(ref _prompt, value); }
+    public string Prompt
+    {
+        get => _prompt;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _prompt, value);
+            this.RaisePropertyChanged(nameof(HasPromptText));
+            this.RaisePropertyChanged(nameof(IsRunControlInStopMode));
+        }
+    }
     public string Status { get => _status; set => this.RaiseAndSetIfChanged(ref _status, value); }
     public bool IsRunning
     {
@@ -322,9 +345,23 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _isRunning, value);
             this.RaisePropertyChanged(nameof(CanEditSettings));
+            this.RaisePropertyChanged(nameof(IsRunControlInStopMode));
         }
     }
 
+    public int QueuedPromptCount
+    {
+        get => _queuedPromptCount;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _queuedPromptCount, Math.Max(0, value));
+            this.RaisePropertyChanged(nameof(HasQueuedPrompts));
+        }
+    }
+
+    public bool HasPromptText => !string.IsNullOrWhiteSpace(Prompt);
+    public bool HasQueuedPrompts => QueuedPromptCount > 0;
+    public bool IsRunControlInStopMode => IsRunning && !HasPromptText;
     public bool CanEditSettings => !IsRunning;
     public bool IsToolPanelOpen { get => _isToolPanelOpen; set => this.RaiseAndSetIfChanged(ref _isToolPanelOpen, value); }
     public bool UseMultiAgentOrchestration { get => _useMultiAgentOrchestration; set { if (!CanChangeSetting(_useMultiAgentOrchestration, value)) return; this.RaiseAndSetIfChanged(ref _useMultiAgentOrchestration, value); } }
@@ -379,8 +416,24 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public string RateLimitUpdatedAt { get => _rateLimitUpdatedAt; set => this.RaiseAndSetIfChanged(ref _rateLimitUpdatedAt, value); }
     public string CodexSetupSummary { get => _codexSetupSummary; set => this.RaiseAndSetIfChanged(ref _codexSetupSummary, value); }
     public string CodexSetupInstructions { get => _codexSetupInstructions; set => this.RaiseAndSetIfChanged(ref _codexSetupInstructions, value); }
+    public string CurrentWorkspaceDisplay
+    {
+        get
+        {
+            var identity = _workspace.CurrentWorkspaceIdentity;
+            if (identity == null || string.IsNullOrWhiteSpace(identity.RootPath))
+            {
+                return "Workspace: waiting for Visual Studio solution";
+            }
+
+            var name = string.IsNullOrWhiteSpace(identity.Name) ? _workspace.CurrentWorkspaceName : identity.Name;
+            var solution = string.IsNullOrWhiteSpace(identity.SolutionRelativePath) ? string.Empty : " (" + identity.SolutionRelativePath + ")";
+            return "Workspace: " + name + solution;
+        }
+    }
     public string VoiceInputStatus { get => _voiceInputStatus; set => this.RaiseAndSetIfChanged(ref _voiceInputStatus, value); }
     public bool IsVoiceInputAvailable => _voiceInput.IsAvailable;
+    public int VoiceTranscriptRevision { get => _voiceTranscriptRevision; private set => this.RaiseAndSetIfChanged(ref _voiceTranscriptRevision, value); }
     public bool IsListeningToVoice => _voiceInput.IsListening;
     public PromptSuggestionItem? SelectedPromptSuggestion { get => _selectedPromptSuggestion; set => this.RaiseAndSetIfChanged(ref _selectedPromptSuggestion, value); }
     public bool IsPromptSuggestionOpen { get => _isPromptSuggestionOpen; set => this.RaiseAndSetIfChanged(ref _isPromptSuggestionOpen, value); }
@@ -525,7 +578,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         return true;
     }
 
-    private async Task RunAsync()
+    private async Task SubmitPromptAsync()
     {
         await _joinableTaskFactory.SwitchToMainThreadAsync();
         if (TryHandleLocalSlashCommand(Prompt))
@@ -533,7 +586,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             return;
         }
 
-        if (!await EnsureCodexSdkReadyForRunAsync().ConfigureAwait(true))
+        if (!IsRunning && !await EnsureCodexSdkReadyForRunAsync().ConfigureAwait(true))
         {
             return;
         }
@@ -542,20 +595,108 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         if (IsMcpDiscoveryPrompt(userPrompt))
         {
             ShowMcpServerList();
-            SelectedToolTabIndex = 3;
+            SelectedToolTabIndex = McpToolTabIndex;
             IsToolPanelOpen = true;
             return;
         }
 
-        Refresh();
-        if (!EnsureWorkspaceReadyForRun())
+        if (!IsRunning)
         {
+            Refresh();
+            if (!EnsureWorkspaceReadyForRun())
+            {
+                return;
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot))
+        {
+            Status = "Visual Studio solution context is still loading";
             return;
         }
 
         Prompt = string.Empty;
+        EnqueuePrompt(userPrompt);
+    }
+
+    private void EnqueuePrompt(string userPrompt)
+    {
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            return;
+        }
+
+        _queuedPrompts.Enqueue(userPrompt);
+        QueuedPromptCount = _queuedPrompts.Count;
+        if (_isProcessingRunQueue)
+        {
+            Status = $"Queued VSCodex request ({QueuedPromptCount} waiting). You can keep editing the next prompt.";
+            return;
+        }
+
+        _isProcessingRunQueue = true;
         IsRunning = true;
         Status = "Running VSCodex...";
+        _joinableTaskFactory.RunAsync(ProcessRunQueueAsync).Task.FireAndForget();
+    }
+
+    private void CancelActiveRun()
+    {
+        _queuedPrompts.Clear();
+        QueuedPromptCount = 0;
+        _taskOrchestrator.Cancel();
+        _codex.Cancel();
+        Status = "Stopping VSCodex request";
+    }
+
+    private async Task ProcessRunQueueAsync()
+    {
+        try
+        {
+            while (true)
+            {
+                await _joinableTaskFactory.SwitchToMainThreadAsync();
+                if (_queuedPrompts.Count == 0)
+                {
+                    return;
+                }
+
+                var nextPrompt = _queuedPrompts.Dequeue();
+                QueuedPromptCount = _queuedPrompts.Count;
+                await ProcessQueuedPromptAsync(nextPrompt).ConfigureAwait(true);
+            }
+        }
+        finally
+        {
+            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            _isProcessingRunQueue = false;
+            QueuedPromptCount = _queuedPrompts.Count;
+            if (QueuedPromptCount > 0)
+            {
+                _isProcessingRunQueue = true;
+                IsRunning = true;
+                _joinableTaskFactory.RunAsync(ProcessRunQueueAsync).Task.FireAndForget();
+            }
+            else
+            {
+                IsRunning = false;
+            }
+        }
+    }
+
+    private async Task ProcessQueuedPromptAsync(string userPrompt)
+    {
+        await _joinableTaskFactory.SwitchToMainThreadAsync();
+        Refresh();
+        if (!EnsureWorkspaceReadyForRun())
+        {
+            AddMessage(CodexMessageRole.Error, "VSCodex cannot run because Visual Studio has not provided a solution or project workspace root yet.");
+            return;
+        }
+
+        ApplyCurrentWorkspaceToSession();
+        Status = QueuedPromptCount > 0
+            ? $"Running VSCodex ({QueuedPromptCount} queued). You can keep editing the next prompt."
+            : "Running VSCodex...";
         AddMessage(CodexMessageRole.User, userPrompt);
         var progressSubscription = StartRunProgress("Preparing request for " + _workspace.CurrentWorkspaceRoot);
         try
@@ -621,7 +762,6 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         {
             await _joinableTaskFactory.SwitchToMainThreadAsync();
             progressSubscription.Dispose();
-            IsRunning = false;
         }
     }
 
@@ -629,8 +769,10 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     {
         try
         {
+            Status = "Refreshing VSCodex workspace context...";
             var previousIdentity = _lastWorkspaceIdentityId;
             _workspace.Refresh();
+            this.RaisePropertyChanged(nameof(CurrentWorkspaceDisplay));
             var currentIdentity = _workspace.CurrentWorkspaceIdentity.Id;
             if (!string.IsNullOrWhiteSpace(currentIdentity) && !string.Equals(_lastWorkspaceSettingsId, currentIdentity, StringComparison.OrdinalIgnoreCase))
             {
@@ -652,6 +794,35 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             RefreshRateLimitsInBackground();
         }
         catch (Exception ex) { Status = "Refresh failed: " + ex.Message; }
+    }
+
+    private void RefreshWorkspaceIdentityForStartup()
+    {
+        try
+        {
+            _workspace.RefreshWorkspaceIdentity();
+            this.RaisePropertyChanged(nameof(CurrentWorkspaceDisplay));
+            var currentIdentity = _workspace.CurrentWorkspaceIdentity.Id;
+            if (!string.IsNullOrWhiteSpace(currentIdentity) && !string.Equals(_lastWorkspaceSettingsId, currentIdentity, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastWorkspaceSettingsId = currentIdentity;
+                ApplySettingsFromStore(_settingsStore.LoadForWorkspace(_workspace.CurrentWorkspaceIdentity));
+            }
+
+            _lastWorkspaceIdentityId = currentIdentity;
+            if (!string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot))
+            {
+                _memoryStore.LoadWorkspace(_workspace.CurrentWorkspaceRoot);
+            }
+
+            Status = string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot)
+                ? "VSCodex ready; waiting for Visual Studio solution context"
+                : "VSCodex ready for " + _workspace.CurrentWorkspaceRoot;
+        }
+        catch (Exception ex)
+        {
+            Status = "VSCodex startup context deferred: " + ex.Message;
+        }
     }
 
     private async Task ScanProjectMemoryAsync()
@@ -910,36 +1081,41 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
                 Status = "Open Tools > Options > VSCodex to change settings";
                 Prompt = string.Empty;
                 return true;
+            case "/setup":
+            case "/prerequisites":
+                ShowToolPanel(SetupToolTabIndex, "VSCodex prerequisites");
+                Prompt = string.Empty;
+                return true;
             case "/context":
             case "/files":
             case "/selection":
-                ShowToolPanel(1, "VSCodex context");
+                ShowToolPanel(ContextToolTabIndex, "VSCodex context");
                 Prompt = string.Empty;
                 return true;
             case "/skills":
-                ShowToolPanel(2, "VSCodex skills");
+                ShowToolPanel(SkillsToolTabIndex, "VSCodex skills");
                 Prompt = string.Empty;
                 return true;
             case "/mcp":
             case "/tools":
                 ShowMcpServerList();
-                ShowToolPanel(3, "VSCodex MCP tools");
+                ShowToolPanel(McpToolTabIndex, "VSCodex MCP tools");
                 Prompt = string.Empty;
                 return true;
             case "/analytics":
-                ShowToolPanel(4, "VSCodex analytics");
+                ShowToolPanel(AnalyticsToolTabIndex, "VSCodex analytics");
                 Prompt = string.Empty;
                 return true;
             case "/memory":
-                ShowToolPanel(5, "VSCodex memory");
+                ShowToolPanel(MemoryToolTabIndex, "VSCodex memory");
                 Prompt = string.Empty;
                 return true;
             case "/agents":
-                ShowToolPanel(6, "VSCodex agents");
+                ShowToolPanel(AgentsToolTabIndex, "VSCodex agents");
                 Prompt = string.Empty;
                 return true;
             case "/attachments":
-                ShowToolPanel(7, "VSCodex attachments");
+                ShowToolPanel(AttachmentsToolTabIndex, "VSCodex attachments");
                 Prompt = string.Empty;
                 return true;
             case "/refresh":
@@ -984,7 +1160,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         if (dialog.ShowDialog() == true) AttachFiles(dialog.FileNames);
     }
 
-    private void ToggleVoiceInput()
+    public void ToggleVoiceInput()
     {
         if (_voiceInput.IsListening)
         {
@@ -1001,13 +1177,32 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
     private void AppendVoiceTranscript(string text)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        var transcript = (text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(transcript))
         {
             return;
         }
 
-        Prompt = string.IsNullOrWhiteSpace(Prompt) ? text.Trim() : Prompt.TrimEnd() + " " + text.Trim();
-        Status = "Voice transcript added";
+        var shouldSubmit = TryExtractVoiceSubmit(ref transcript);
+        if (!string.IsNullOrWhiteSpace(transcript))
+        {
+            Prompt = string.IsNullOrWhiteSpace(Prompt) ? transcript : Prompt.TrimEnd() + " " + transcript;
+            VoiceTranscriptRevision++;
+            Status = shouldSubmit ? "Voice command added; sending VSCodex request" : "Voice transcript added";
+        }
+        else if (shouldSubmit)
+        {
+            Status = string.IsNullOrWhiteSpace(Prompt)
+                ? "Voice command heard; dictate a prompt before saying send"
+                : "Voice command sending VSCodex request";
+        }
+
+        if (shouldSubmit && !string.IsNullOrWhiteSpace(Prompt))
+        {
+            _voiceInput.Stop();
+            this.RaisePropertyChanged(nameof(IsListeningToVoice));
+            _joinableTaskFactory.RunAsync(async () => await SubmitPromptAsync().ConfigureAwait(true)).Task.FireAndForget();
+        }
     }
 
     private void UpdateVoiceInputStatus(string status)
@@ -1015,6 +1210,28 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         VoiceInputStatus = status;
         this.RaisePropertyChanged(nameof(IsListeningToVoice));
         this.RaisePropertyChanged(nameof(IsVoiceInputAvailable));
+    }
+
+    private static bool TryExtractVoiceSubmit(ref string transcript)
+    {
+        var normalized = CompactLine(transcript, 400).Trim().TrimEnd('.', '!', '?', ',');
+        if (VoiceSubmitOnlyCommands.Any(command => string.Equals(normalized, command, StringComparison.OrdinalIgnoreCase)))
+        {
+            transcript = string.Empty;
+            return true;
+        }
+
+        foreach (var suffix in VoiceSubmitSuffixes)
+        {
+            if (normalized.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                transcript = normalized.Substring(0, normalized.Length - suffix.Length).Trim();
+                return true;
+            }
+        }
+
+        transcript = normalized;
+        return false;
     }
 
     public void ShowHistory()
@@ -1027,18 +1244,55 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
         RefreshHistory();
         IsToolPanelOpen = true;
-        SelectedToolTabIndex = 0;
+        SelectedToolTabIndex = HistoryToolTabIndex;
         Status = "VSCodex history";
     }
 
-    private async Task CheckPrerequisitesAsync()
+    private void ScheduleStartupChecksInBackground()
+    {
+        _joinableTaskFactory.RunAsync(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(4), _lifetime.Token).ConfigureAwait(false);
+                await _joinableTaskFactory.SwitchToMainThreadAsync(_lifetime.Token);
+                Status = "Loading VSCodex tools and checking setup in the background...";
+                var workspaceRoot = _workspace.CurrentWorkspaceRoot;
+                var skillRoots = _settingsStore.Current.SkillRoots
+                    .Concat(new[] { Path.Combine(workspaceRoot ?? string.Empty, ".codex", "skills") })
+                    .ToList();
+
+                await Task.Run(() =>
+                {
+                    _mcpConfig.Refresh();
+                    _skillIndex.Refresh(skillRoots);
+                }, _lifetime.Token).ConfigureAwait(false);
+
+                await CheckPrerequisitesAsync(showSystemMessage: false).ConfigureAwait(true);
+                await Task.Delay(TimeSpan.FromSeconds(6), _lifetime.Token).ConfigureAwait(false);
+                await RefreshRateLimitsAsync().ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                await _joinableTaskFactory.SwitchToMainThreadAsync();
+                Status = "VSCodex background startup checks failed: " + ex.Message;
+            }
+        }).Task.FireAndForget();
+    }
+
+    private Task CheckPrerequisitesAsync() => CheckPrerequisitesAsync(showSystemMessage: true);
+
+    private async Task CheckPrerequisitesAsync(bool showSystemMessage)
     {
         await _joinableTaskFactory.SwitchToMainThreadAsync();
         Status = "Checking VSCodex prerequisites...";
         CodexSetupSummary = "Checking VSCodex prerequisites...";
         var report = await _environment.CheckAsync(_settingsStore.Current).ConfigureAwait(false);
         await _joinableTaskFactory.SwitchToMainThreadAsync();
-        ApplyEnvironmentReport(report, showSystemMessage: !report.CanRunSdkBridge);
+        ApplyEnvironmentReport(report, showSystemMessage: showSystemMessage && !report.CanRunSdkBridge);
     }
 
     private void RefreshRateLimitsInBackground()
@@ -1118,9 +1372,61 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         CodexSetupSummary = report.Summary;
         CodexSetupInstructions = report.Instructions;
         Status = report.CanRunSdkBridge ? "VSCodex prerequisites ready" : "VSCodex setup required";
+        if (!report.CanRunSdkBridge)
+        {
+            IsToolPanelOpen = true;
+            SelectedToolTabIndex = SetupToolTabIndex;
+        }
+
         if (showSystemMessage)
         {
             AddMessage(CodexMessageRole.System, report.Summary + Environment.NewLine + Environment.NewLine + report.Instructions);
+        }
+    }
+
+    private void CopyPrerequisiteCommandToClipboard(PrerequisiteStatus? prerequisite)
+    {
+        var command = prerequisite?.ActionCommand;
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            Status = "No prerequisite command to copy";
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(command);
+            Status = "Copied " + prerequisite!.Name + " prerequisite command";
+        }
+        catch (Exception ex)
+        {
+            Status = "Could not copy prerequisite command: " + ex.Message;
+        }
+    }
+
+    private void StartPrerequisiteUpdate(PrerequisiteStatus? prerequisite)
+    {
+        var command = prerequisite?.ActionCommand;
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            Status = "No prerequisite update command available";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/d /s /k " + QuoteForCmd(command + " && echo. && echo VSCodex prerequisite command finished. Restart Visual Studio if PATH changed, then run Check again."),
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                UseShellExecute = true
+            });
+            Status = "Started prerequisite update for " + prerequisite!.Name;
+        }
+        catch (Exception ex)
+        {
+            Status = "Could not start prerequisite update: " + ex.Message;
         }
     }
 
@@ -1138,10 +1444,98 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         UpdateAnalytics(Prompt);
     }
 
+    private void ApplyCurrentWorkspaceToSession()
+    {
+        var identity = _workspace.CurrentWorkspaceIdentity;
+        if (identity == null || string.IsNullOrWhiteSpace(identity.Id))
+        {
+            return;
+        }
+
+        _session.WorkspaceIdentityId = identity.Id;
+        _session.WorkspaceName = string.IsNullOrWhiteSpace(identity.Name) ? _workspace.CurrentWorkspaceName : identity.Name;
+        _session.WorkspaceRoot = identity.RootPath;
+        _session.WorkspaceSolutionPath = identity.SolutionPath;
+    }
+
+    private static bool SessionBelongsToCurrentWorkspace(CodexSessionDocument session, WorkspaceIdentity identity)
+    {
+        if (identity == null || string.IsNullOrWhiteSpace(identity.Id))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(session.WorkspaceIdentityId) && string.IsNullOrWhiteSpace(session.WorkspaceRoot))
+        {
+            return true;
+        }
+
+        return string.Equals(session.WorkspaceIdentityId, identity.Id, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(session.WorkspaceRoot) && string.Equals(session.WorkspaceRoot, identity.RootPath, StringComparison.OrdinalIgnoreCase))
+            || (!string.IsNullOrWhiteSpace(session.WorkspaceSolutionPath) && string.Equals(session.WorkspaceSolutionPath, identity.SolutionPath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsKnownDifferentWorkspace(CodexSessionDocument session, WorkspaceIdentity identity)
+    {
+        if (identity == null || string.IsNullOrWhiteSpace(identity.Id))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(session.WorkspaceIdentityId) && string.IsNullOrWhiteSpace(session.WorkspaceRoot) && string.IsNullOrWhiteSpace(session.WorkspaceSolutionPath))
+        {
+            return false;
+        }
+
+        return !SessionBelongsToCurrentWorkspace(session, identity);
+    }
+
+    private CodexSessionDocument ForkSessionForCurrentWorkspace(CodexSessionDocument source)
+    {
+        var fork = _sessionStore.Create();
+        fork.Title = source.Title;
+        fork.Messages = (source.Messages ?? new List<ChatMessage>())
+            .Where(message => message != null && !message.IsTransient)
+            .Select(CloneMessage)
+            .ToList();
+        ApplyWorkspaceToSession(fork, _workspace.CurrentWorkspaceIdentity);
+        if (fork.Messages.Count > 0)
+        {
+            fork.Updated = fork.Messages.Max(message => message.Timestamp);
+        }
+
+        return fork;
+    }
+
+    private static void ApplyWorkspaceToSession(CodexSessionDocument session, WorkspaceIdentity identity)
+    {
+        if (session == null || identity == null || string.IsNullOrWhiteSpace(identity.Id))
+        {
+            return;
+        }
+
+        session.WorkspaceIdentityId = identity.Id;
+        session.WorkspaceName = identity.Name;
+        session.WorkspaceRoot = identity.RootPath;
+        session.WorkspaceSolutionPath = identity.SolutionPath;
+    }
+
+    private static ChatMessage CloneMessage(ChatMessage source) => new ChatMessage
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        Role = source.Role,
+        Timestamp = source.Timestamp,
+        Content = source.Content,
+        CorrelationId = source.CorrelationId,
+        IsTransient = source.IsTransient
+    };
+
     private void RefreshHistory()
     {
+        var identity = _workspace.CurrentWorkspaceIdentity;
         var items = _sessionStore.LoadRecent(100)
             .Where(session => session.Messages.Count > 0 || !string.IsNullOrWhiteSpace(session.ThreadId))
+            .Where(session => SessionBelongsToCurrentWorkspace(session, identity))
             .Select(BuildHistoryItem)
             .ToList();
         Replace(HistoryItems, items);
@@ -1182,11 +1576,12 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         }
 
         SaveCurrentSessionIfNeeded();
-        _session = loaded;
-        ThreadId = loaded.ThreadId;
+        var loadedFromAnotherWorkspace = IsKnownDifferentWorkspace(loaded, _workspace.CurrentWorkspaceIdentity);
+        _session = loadedFromAnotherWorkspace ? ForkSessionForCurrentWorkspace(loaded) : loaded;
+        ThreadId = loadedFromAnotherWorkspace ? null : loaded.ThreadId;
         Prompt = string.Empty;
         Messages.Clear();
-        foreach (var message in loaded.Messages ?? new List<ChatMessage>())
+        foreach (var message in _session.Messages ?? new List<ChatMessage>())
         {
             Messages.Add(message);
         }
@@ -1194,7 +1589,9 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         Attachments.Clear();
         SelectedHistoryItem = item;
         IsToolPanelOpen = false;
-        Status = "Loaded history: " + item.Title;
+        Status = loadedFromAnotherWorkspace
+            ? "Loaded history for the current workspace without reusing the previous Codex thread"
+            : "Loaded history: " + item.Title;
         UpdateAnalytics(Prompt);
     }
 
@@ -1284,6 +1681,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             return;
         }
 
+        ApplyCurrentWorkspaceToSession();
         _session.ThreadId = ThreadId;
         if (string.IsNullOrWhiteSpace(_session.Title))
         {
@@ -1300,6 +1698,10 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         ThreadId = session.ThreadId,
         Title = DeriveSessionTitle(session),
         Preview = DeriveSessionPreview(session),
+        WorkspaceIdentityId = session.WorkspaceIdentityId,
+        WorkspaceName = session.WorkspaceName,
+        WorkspaceRoot = session.WorkspaceRoot,
+        WorkspaceSolutionPath = session.WorkspaceSolutionPath,
         Updated = session.Updated,
         MessageCount = session.Messages?.Count ?? 0
     };
@@ -1521,6 +1923,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         });
     }
 
+    private static string QuoteForCmd(string value) => "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
+
     private string BuildAgentSummary()
     {
         var sb = new StringBuilder();
@@ -1624,17 +2028,20 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         });
     }
 
-    private ChatMessage AddMessage(CodexMessageRole role, string content)
+    private ChatMessage AddMessage(CodexMessageRole role, string content, bool persist = true)
     {
-        var message = new ChatMessage { Role = role, Content = content ?? string.Empty };
+        var message = new ChatMessage { Role = role, Content = content ?? string.Empty, IsTransient = !persist };
         RunOnUiThread(() =>
         {
             Messages.Add(message);
-            _session.Messages.Add(message);
-            _session.Updated = message.Timestamp;
-            if (role == CodexMessageRole.User && string.IsNullOrWhiteSpace(_session.Title))
+            if (!message.IsTransient)
             {
-                _session.Title = CompactLine(content, 90);
+                _session.Messages.Add(message);
+                _session.Updated = message.Timestamp;
+                if (role == CodexMessageRole.User && string.IsNullOrWhiteSpace(_session.Title))
+                {
+                    _session.Title = CompactLine(content, 90);
+                }
             }
         });
         return message;
@@ -1644,7 +2051,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     {
         _activeRunStartedAt = DateTimeOffset.Now;
         _activeRunStage = stage;
-        _activeProgressMessage = AddMessage(CodexMessageRole.System, BuildRunProgressMessage(stage));
+        _activeProgressMessage = AddMessage(CodexMessageRole.System, BuildRunProgressMessage(stage), persist: false);
         return Observable.Interval(TimeSpan.FromSeconds(15), _uiScheduler)
             .Subscribe(_ => RefreshRunProgress());
     }
@@ -1712,8 +2119,23 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private void UpdateReferenceSuggestions(string prompt)
     {
         var token = LastReferenceToken(prompt);
-        Replace(FileSuggestions, _workspace.SearchFiles(token != null && token.StartsWith("@", StringComparison.Ordinal) ? token : string.Empty, 16));
-        Replace(ContextSuggestions, _workspace.SearchContextReferences(token != null && token.StartsWith("#", StringComparison.Ordinal) ? token : string.Empty, 12));
+        if (token != null && token.StartsWith("@", StringComparison.Ordinal))
+        {
+            Replace(FileSuggestions, _workspace.SearchFiles(token, 16));
+        }
+        else
+        {
+            Replace(FileSuggestions, Array.Empty<WorkspaceFileReference>());
+        }
+
+        if (token != null && token.StartsWith("#", StringComparison.Ordinal))
+        {
+            Replace(ContextSuggestions, _workspace.SearchContextReferences(token, 12));
+        }
+        else
+        {
+            Replace(ContextSuggestions, Array.Empty<WorkspaceFileReference>());
+        }
     }
 
     private void UpdatePromptSuggestions(string prompt)
@@ -2417,8 +2839,10 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
     public void Dispose()
     {
+        _lifetime.Cancel();
         FlushPendingModelSettingsSave();
         _subscriptions.Dispose();
+        _lifetime.Dispose();
     }
     private sealed class CompositeDisposableLike : IDisposable { private readonly IDisposable[] _items; public CompositeDisposableLike(params IDisposable[] items) => _items = items; public void Dispose() { foreach (var item in _items) item.Dispose(); } }
 }

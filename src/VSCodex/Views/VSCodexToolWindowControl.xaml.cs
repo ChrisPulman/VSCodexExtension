@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -6,6 +8,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.VisualStudio.PlatformUI;
 using VSCodex.Models;
 using VSCodex.ViewModels;
@@ -18,13 +21,24 @@ public partial class VSCodexToolWindowControl : UserControl
     private double _promptResizeStartHeight;
     private double _promptResizeVerticalDelta;
     private Thumb? _promptResizeThumb;
+    private INotifyCollectionChanged? _messagesCollection;
+    private INotifyPropertyChanged? _viewModelNotifications;
 
     public VSCodexToolWindowControl()
     {
         InitializeComponent();
         DataObject.AddPastingHandler(PromptTextBox, OnPromptPasting);
-        Loaded += (_, _) => ApplyVisualStudioThemeToComboBoxes();
-        Unloaded += (_, _) => FinishPromptResizeSafely(commit: false);
+        DataContextChanged += OnDataContextChanged;
+        Loaded += (_, _) =>
+        {
+            AttachViewModel(ViewModel);
+            ApplyVisualStudioThemeToComboBoxes();
+        };
+        Unloaded += (_, _) =>
+        {
+            AttachViewModel(null);
+            FinishPromptResizeSafely(commit: false);
+        };
     }
 
     private VSCodexToolWindowViewModel? ViewModel => DataContext as VSCodexToolWindowViewModel;
@@ -69,6 +83,13 @@ public partial class VSCodexToolWindowControl : UserControl
 
         if (e.Key == Key.Enter && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
+            InsertPromptNewLine();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter)
+        {
             ExecuteIfAvailable(ViewModel.RunCommand);
             e.Handled = true;
             return;
@@ -90,7 +111,7 @@ public partial class VSCodexToolWindowControl : UserControl
                 return;
             }
 
-            if (e.Key == Key.Tab || e.Key == Key.Enter)
+            if (e.Key == Key.Tab)
             {
                 InsertSelectedPromptSuggestion();
                 e.Handled = true;
@@ -126,6 +147,117 @@ public partial class VSCodexToolWindowControl : UserControl
         }
     }
 
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        AttachViewModel(e.NewValue as VSCodexToolWindowViewModel);
+    }
+
+    private void AttachViewModel(VSCodexToolWindowViewModel? viewModel)
+    {
+        if (_viewModelNotifications != null)
+        {
+            _viewModelNotifications.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        _viewModelNotifications = viewModel;
+        if (_viewModelNotifications != null)
+        {
+            _viewModelNotifications.PropertyChanged += OnViewModelPropertyChanged;
+        }
+
+        AttachMessagesCollection(viewModel?.Messages);
+    }
+
+    private void AttachMessagesCollection(INotifyCollectionChanged? collection)
+    {
+        if (ReferenceEquals(_messagesCollection, collection))
+        {
+            return;
+        }
+
+        if (_messagesCollection != null)
+        {
+            _messagesCollection.CollectionChanged -= OnMessagesCollectionChanged;
+        }
+
+        _messagesCollection = collection;
+        if (_messagesCollection != null)
+        {
+            _messagesCollection.CollectionChanged += OnMessagesCollectionChanged;
+        }
+    }
+
+    private void OnMessagesCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action != NotifyCollectionChangedAction.Add && e.Action != NotifyCollectionChangedAction.Reset)
+        {
+            return;
+        }
+
+#pragma warning disable VSTHRD001, VSTHRD110
+        _ = Dispatcher.BeginInvoke(new Action(ScrollConversationToLatest), DispatcherPriority.Background);
+#pragma warning restore VSTHRD001, VSTHRD110
+    }
+
+    private void ScrollConversationToLatest()
+    {
+        if (ViewModel == null || ViewModel.Messages.Count == 0)
+        {
+            return;
+        }
+
+        ConversationListBox.ScrollIntoView(ViewModel.Messages[ViewModel.Messages.Count - 1]);
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(VSCodexToolWindowViewModel.VoiceTranscriptRevision))
+        {
+            return;
+        }
+
+#pragma warning disable VSTHRD001, VSTHRD110
+        _ = Dispatcher.BeginInvoke(new Action(SyncPromptTextBoxAfterVoiceTranscript), DispatcherPriority.Background);
+#pragma warning restore VSTHRD001, VSTHRD110
+    }
+
+    private void SyncPromptTextBoxAfterVoiceTranscript()
+    {
+        if (ViewModel == null)
+        {
+            return;
+        }
+
+        PromptTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+        var prompt = ViewModel.Prompt ?? string.Empty;
+        if (!string.Equals(PromptTextBox.Text, prompt, StringComparison.Ordinal))
+        {
+            PromptTextBox.SetCurrentValue(TextBox.TextProperty, prompt);
+            PromptTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        }
+
+        PromptTextBox.Focus();
+        PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
+        PromptTextBox.SelectionLength = 0;
+        PromptTextBox.ScrollToEnd();
+    }
+
+    private void InsertPromptNewLine()
+    {
+        var selectionStart = PromptTextBox.SelectionStart;
+        var selectionLength = PromptTextBox.SelectionLength;
+        var text = PromptTextBox.Text ?? string.Empty;
+        var prompt = text.Remove(selectionStart, selectionLength).Insert(selectionStart, Environment.NewLine);
+        if (ViewModel != null)
+        {
+            ViewModel.Prompt = prompt;
+        }
+
+        PromptTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+        PromptTextBox.SelectionStart = selectionStart + Environment.NewLine.Length;
+        PromptTextBox.SelectionLength = 0;
+    }
+
     private void OnCloseToolPanelClick(object sender, RoutedEventArgs e) => ViewModel?.IsToolPanelOpen = false;
 
     private void OnRunControlClick(object sender, RoutedEventArgs e)
@@ -135,7 +267,20 @@ public partial class VSCodexToolWindowControl : UserControl
             return;
         }
 
-        ExecuteIfAvailable(ViewModel.IsRunning ? ViewModel.CancelCommand : ViewModel.RunCommand);
+        ExecuteIfAvailable(ViewModel.IsRunControlInStopMode ? ViewModel.CancelCommand : ViewModel.RunCommand);
+    }
+
+    private void OnToggleVoiceInputClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel == null)
+        {
+            return;
+        }
+
+        ViewModel.ToggleVoiceInput();
+        PromptTextBox.Focus();
+        PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
+        e.Handled = true;
     }
 
     private void OnReferenceSuggestionDoubleClick(object sender, MouseButtonEventArgs e)

@@ -289,11 +289,14 @@ public sealed class VsixSurfaceTests
         RequireContains(packageSource, "ProvideAutoLoad(VSConstants.UICONTEXT.NoSolution_string", "Package must auto-load before a solution is open.");
         RequireContains(packageSource, "ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExists_string", "Package must auto-load when a solution exists.");
         RequireContains(packageSource, "OpenVSCodexToolWindowCommand.InitializeAsync(this)", "Package initialization must register VSCodex commands.");
+        RequireContains(packageSource, "ScheduleReactiveMemoryProjectMinerInitialization();", "ReactiveMemory startup monitoring must be scheduled after command registration.");
+        RequireDoesNotContain(packageSource, "await InitializeReactiveMemoryProjectMinerAsync(cancellationToken)", "Package initialization must not synchronously wait for ProjectMiner monitoring setup.");
         RequireContains(packageSource, "ScheduleShowToolWindowOnFirstLaunch();", "First-run tool-window launch must be scheduled after command registration.");
         RequireContains(packageSource, "JoinableTaskFactory.RunAsync", "First-run tool-window launch must not block package initialization.");
         RequireContains(packageSource, "Task.Delay(TimeSpan.FromMilliseconds(1500)", "First-run tool-window launch must wait for the shell to settle.");
         RequireContains(packageSource, "FirstLaunchToolWindowOpened", "First-run state must be persisted so user layout is respected thereafter.");
         RequireContains(packageSource, "FirstLaunchToolWindowOpenedV8", "The first-run key must advance when the tool-window launch behavior changes.");
+        RequireContains(packageSource, "FirstLaunchToolWindowOpenedV7", "First-run tool-window creation must respect older first-run markers after extension updates.");
         RequireContains(packageSource, "ShowToolWindowAsync(typeof(VSCodexToolWindowPane)", "The package must still show the VSCodex tool window on first run.");
         RequireDoesNotContain(packageSource, "await ShowToolWindowOnFirstLaunchAsync(cancellationToken)", "Package initialization must not synchronously await WPF tool-window creation.");
         RequireContains(commandSource, "ShowToolWindowAsync(typeof(VSCodexToolWindowPane)", "The VSCodex tool window must still open through the explicit command path.");
@@ -367,7 +370,7 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "_settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore)", "An open VSCodex tool window must react to Tools > Options changes without restarting Visual Studio.");
         RequireContains(viewModel, "ApplySettingsFromStore", "Tools > Options changes must update the live tool-window run settings.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.3.2\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.4.0\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
     }
 
@@ -585,8 +588,10 @@ public sealed class VsixSurfaceTests
         RequireContains(bridge, "emitCodexProgress(event)", "The SDK bridge must forward streamed progress while long-running requests are active.");
         RequireContains(bridge, "type: 'progress'", "The SDK bridge must emit user-visible progress events.");
         RequireContains(bridge, "type: 'rate-limits'", "The SDK bridge must emit rate-limit events to the WPF view model.");
-        RequireContains(bridge, "Codex turn completed; finalizing VSCodex results", "Codex turn-completed progress must indicate that VSCodex is still finalizing.");
-        RequireContains(bridge, "waiting for the final response", "Completed command-execution items must not look like the whole VSCodex request is finished.");
+        RequireContains(bridge, "VSCodex is finalizing the response; you can queue the next prompt", "Codex turn-completed progress must make the prompt queue availability explicit without claiming the visible task is complete.");
+        RequireContains(bridge, "you can queue the next prompt", "Completed command-execution items must tell users they can continue prompting instead of implying the workflow is locked.");
+        RequireDoesNotContain(bridge, "waiting for the final response", "Progress wording must not imply that the VSCodex prompt is blocked until a final response arrives.");
+        RequireDoesNotContain(bridge, "Codex turn completed", "Interim progress must not say the Codex turn is complete before VSCodex has delivered the assistant response.");
         RequireContains(bridge, "codex.rate_limits", "The SDK bridge parser must preserve real Codex rate-limit telemetry events.");
         RequireContains(bridge, "rateLimits: state.rateLimits", "The SDK bridge result must expose real Codex rate-limit telemetry to the WPF view model.");
         RequireContains(bridge, "isSdkJsonNoiseError", "The bridge retry must be limited to the known SDK JSON parsing failure.");
@@ -621,6 +626,11 @@ public sealed class VsixSurfaceTests
         RequireContains(environmentService, "/d /s /c call", "Windows .cmd launchers must run through cmd.exe when UseShellExecute is false.");
         RequireContains(appBuilder, "RegisterSingleton<ICodexEnvironmentService>", "The prerequisite service must be registered with the ReactiveUI app builder.");
         RequireContains(viewModel, "CheckPrerequisitesCommand", "The tool-window view model must expose an explicit setup check command.");
+        RequireContains(viewModel, "CopyPrerequisiteCommand", "Missing setup requirements must expose command-copy actions.");
+        RequireContains(viewModel, "UpdatePrerequisiteCommand", "Missing or outdated setup requirements must expose update actions.");
+        RequireContains(view, "Header=\"Setup\"", "Prerequisite actions must be available from the controls pane.");
+        RequireContains(view, "CanCopyCommand", "Prerequisite command copy buttons must only appear for unmet requirements.");
+        RequireContains(view, "CanUpdate", "Prerequisite update buttons must only appear when an action command exists.");
         RequireContains(viewModel, "EnsureCodexSdkReadyForRunAsync", "Run must be blocked with guidance when the SDK is missing.");
         RequireContains(viewModel, "CheckPrerequisitesAsync", "Startup must check VSCodex prerequisites.");
         RequireContains(viewModel, "AddMessage(CodexMessageRole.System, CodexSetupInstructions)", "Missing prerequisites must still write Windows setup instructions into the conversation.");
@@ -683,6 +693,8 @@ public sealed class VsixSurfaceTests
         var view = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml");
         var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
         var codeBehind = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml.cs");
+        var voiceInput = ReadText("src/VSCodex/Services/VoiceInputService.cs");
+        var models = ReadText("src/VSCodex/Models/CodexModels.cs");
 
         RequireContains(view, "MinWidth=\"240\"", "The tool window must allow narrow docking while the inner controls wrap and scroll.");
         RequireContains(view, "MaxWidth=\"{Binding ActualWidth, ElementName=Root}\"", "The settings panel must be constrained to the actual tool-window width.");
@@ -717,8 +729,9 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "ToolTip=\"Start a fresh VSCodex thread.", "The new-thread action must be an icon button with an accessible tooltip.");
         RequireContains(view, "AutomationProperties.Name=\"Open VSCodex history\"", "The history icon must have an accessible automation name.");
         RequireContains(view, "ToolTip=\"Open VSCodex conversation history.", "The history action must be an icon button with an accessible tooltip.");
-        RequireContains(view, "Content=\"Controls\"", "The header must expose a discoverable controls entry point.");
+        RequireDoesNotContain(view, "Content=\"Controls\"", "The controls entry point must be a symbolic header button.");
         RequireContains(view, "AutomationProperties.Name=\"Open VSCodex controls\"", "The controls entry point must have an accessible automation name.");
+        RequireContains(view, "Open VSCodex controls for setup", "The controls cog must remain discoverable through an accessible tooltip.");
         RequireContains(view, "Click=\"OnOpenToolPanelClick\"", "The controls entry point must open the tool panel without relying on slash commands.");
         RequireContains(codeBehind, "private void OnOpenToolPanelClick", "The controls entry point must be wired in the view code-behind.");
         RequireContains(codeBehind, "ViewModel.IsToolPanelOpen = true", "Clicking Controls must reveal the tool panel.");
@@ -727,6 +740,13 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "x:Name=\"SendIcon\"", "The idle run control must show a send icon.");
         RequireContains(view, "x:Name=\"StopIcon\"", "The running run control must show a stop icon.");
         RequireContains(view, "Click=\"OnRunControlClick\"", "The visual run control must route send and stop through one button.");
+        RequireContains(view, "IsRunControlInStopMode", "The run control must only show the stop state when there is no prompt text to queue.");
+        RequireContains(viewModel, "Queue<string> _queuedPrompts", "VSCodex must keep accepting prompts while a long Codex turn is active.");
+        RequireContains(viewModel, "RunCommand = ReactiveCommand.CreateFromTask(SubmitPromptAsync", "Run command execution must submit or queue a prompt without waiting for the full Codex turn.");
+        RequireContains(viewModel, "ProcessRunQueueAsync", "Queued prompts must be processed sequentially in the background.");
+        RequireContains(viewModel, "Queued VSCodex request", "Users must get visible feedback when a prompt is queued behind an active run.");
+        RequireContains(viewModel, "IsRunControlInStopMode => IsRunning && !HasPromptText", "Typing a prompt during an active run must switch the run button back to send mode.");
+        RequireContains(codeBehind, "ViewModel.IsRunControlInStopMode ? ViewModel.CancelCommand : ViewModel.RunCommand", "The shared run button must queue typed prompts during active runs instead of always cancelling.");
         RequireContains(view, "IsIndeterminate=\"True\"", "The running stop state must show an animated progress element.");
         RequireDoesNotContain(view, "Content=\"Run\"", "The prompt footer must not use a text Run button.");
         RequireDoesNotContain(view, "Content=\"Cancel\"", "The prompt footer must not use a text Cancel button.");
@@ -739,7 +759,7 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "AutomationProperties.Name=\"Close VSCodex controls\"", "The controls panel close action must be accessible.");
         RequireContains(view, "PreviewKeyDown=\"OnPromptPreviewKeyDown\"", "The prompt box must support keyboard shortcuts.");
         RequireContains(view, "AutomationProperties.Name=\"VSCodex prompt input\"", "The prompt box must have an accessible name.");
-        RequireContains(view, "Ctrl+Enter", "The run shortcut must be visible in the prompt UI.");
+        RequireContains(view, "Enter sends, Ctrl+Enter inserts a newline", "The prompt UI must show the Visual Studio shortcut behavior.");
         RequireContains(view, "PromptSuggestionPopup", "The prompt box must show inline VSCodex suggestions for /, @, and # tokens.");
         RequireContains(view, "ItemsSource=\"{Binding PromptSuggestions}\"", "Inline prompt suggestions must be backed by the view-model suggestion list.");
         RequireContains(view, "IsOpen=\"{Binding IsPromptSuggestionOpen, Mode=TwoWay}\"", "The prompt suggestion popup must be controlled by view-model state.");
@@ -749,8 +769,27 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "SelectedMcpServer.Name", "The MCP tab must edit the selected server in a dedicated detail pane.");
         RequireContains(view, "GridSplitter", "Dense tool panels must provide resizable regions instead of fixed tiny rows.");
         RequireContains(view, "Header=\"Tool input\"", "MCP tool argument editing must have a dedicated input pane.");
-        RequireContains(view, "ToggleVoiceInputCommand", "The prompt footer must expose voice-to-text input.");
+        RequireContains(view, "Click=\"OnToggleVoiceInputClick\"", "The prompt footer voice button must route clicks directly to voice capture.");
+        RequireContains(codeBehind, "private void OnToggleVoiceInputClick", "The voice input button must have an explicit click handler.");
+        RequireContains(codeBehind, "ViewModel.ToggleVoiceInput();", "Clicking the voice input button must invoke the view-model toggle without WPF command parameter conversion.");
+        RequireContains(view, "VoiceInputButtonStyle", "The voice input button must have a distinct active-listening visual state.");
+        RequireContains(view, "VoiceListeningDot", "The voice input button must show a visible recording dot while listening.");
+        RequireContains(view, "Text=\"Listening\"", "The prompt footer must make the listening state obvious without relying on tooltip hover.");
         RequireContains(view, "VoiceInputStatus", "Voice input must surface ready, listening, and unavailable states.");
+        RequireContains(viewModel, "VoiceTranscriptRevision", "Voice transcript appends must notify the view so dictated text is visibly synchronized into the prompt input.");
+        RequireContains(codeBehind, "SyncPromptTextBoxAfterVoiceTranscript", "The prompt input must refresh after voice transcripts even when the text box has focus.");
+        RequireContains(codeBehind, "GetBindingExpression(TextBox.TextProperty)?.UpdateTarget()", "Voice transcript synchronization must preserve the prompt binding and pull the latest view-model prompt.");
+        RequireDoesNotContain(codeBehind, "PromptTextBox.Text =", "Prompt code-behind must not replace the bound Text property and break later voice transcript updates.");
+        RequireContains(viewModel, "TryExtractVoiceSubmit", "Voice transcripts must understand spoken send commands.");
+        RequireContains(viewModel, "VoiceSubmitOnlyCommands", "Voice input must support short spoken submit commands like send or run.");
+        RequireContains(voiceInput, "Task.Run(StartListeningCore)", "Speech recognizer COM initialization must be lazy and off the Visual Studio startup UI path.");
+        RequireContains(voiceInput, "InvalidComObjectException", "Voice input must catch separated RCW failures from System.Speech.");
+        RequireContains(voiceInput, "BehaviorSubject<string>", "Voice input status must replay the current recognizer state to the tool-window view model after construction.");
+        RequireContains(voiceInput, "InstalledRecognizers()", "Voice input must select an installed Windows speech recognizer instead of assuming the Visual Studio UI culture is installed.");
+        RequireContains(voiceInput, "SpeechDetected", "Voice input must surface microphone activity while listening.");
+        RequireContains(voiceInput, "SpeechRecognitionRejected", "Voice input must surface recognizer rejection feedback when speech is heard but not captured as text.");
+        RequireDoesNotContain(voiceInput, "result.Confidence < 0.12", "Recognized dictation text must be inserted into the prompt instead of silently discarded by a confidence cutoff.");
+        RequireContains(voiceInput, "low-confidence transcript; review it", "Low-confidence dictation must still be visible in the prompt with review guidance.");
         RequireContains(view, "FileTabSelectedBackgroundBrushKey", "Selected tool tabs must use Visual Studio file-tab selected background resources for contrast.");
         RequireContains(view, "FileTabSelectedTextBrushKey", "Selected tool tabs must use Visual Studio file-tab selected text resources for contrast.");
         RequireContains(view, "ContentSource=\"Header\"", "Tab headers must be rendered by the themed template so selected text remains readable.");
@@ -784,6 +823,11 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "VSCodex is working", "Run progress feedback must be visible in the conversation transcript.");
         RequireContains(viewModel, "Observable.Interval(TimeSpan.FromSeconds(15)", "Long-running requests must refresh visible progress periodically.");
         RequireContains(viewModel, "RefreshRateLimitsAsync", "The tool window must refresh real Codex rate-limit telemetry on startup and workspace refresh.");
+        RequireContains(viewModel, "RefreshWorkspaceIdentityForStartup", "Tool-window creation must avoid rebuilding the workspace file index during Visual Studio startup.");
+        RequireContains(viewModel, "ScheduleStartupChecksInBackground", "Prerequisite and telemetry checks must be deferred from initial tool-window construction.");
+        RequireContains(viewModel, "Task.Delay(TimeSpan.FromSeconds(4)", "Startup setup checks must be delayed so Visual Studio can finish loading visibly.");
+        RequireContains(viewModel, "Array.Empty<WorkspaceFileReference>()", "Empty prompt startup updates must not trigger full file suggestion indexing.");
+        RequireDoesNotContain(viewModel, "this.WhenAnyValue(x => x.Prompt).ThrottleDistinct(TimeSpan.FromMilliseconds(180), _uiScheduler).Subscribe(OnPromptChanged),\r\n            _voiceInput", "The tool-window view model must not dispose the singleton voice service when the pane closes.");
         RequireContains(viewModel, "_codex.GetRateLimitsAsync", "Rate-limit rows must be fed by the Codex bridge, not synthetic usage estimates.");
         RequireContains(viewModel, "Fetching Codex telemetry", "Users must see visible progress while rate-limit telemetry is loading.");
         RequireContains(viewModel, "Codex telemetry unavailable", "Users must see explicit telemetry failure state instead of stale waiting text.");
@@ -817,6 +861,7 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "CommitInputAreaHeight", "Mouse resizing must persist the prompt height once the drag completes.");
         RequireContains(viewModel, "SaveSettingsForCurrentWorkspace", "Settings changed from the tool window must be retained per Visual Studio solution.");
         RequireContains(viewModel, "ToggleVoiceInputCommand", "The view model must expose a voice-input toggle command.");
+        RequireContains(viewModel, "public void ToggleVoiceInput()", "The view must be able to invoke voice input directly from the click handler.");
         RequireContains(view, "AutomationProperties.Name=\"Toggle VSCodex voice input\"", "The voice input button must be accessible.");
         RequireContains(view, "AutomationProperties.Name=\"Send or stop VSCodex request\"", "The visual run control must be accessible in send and stop states.");
         RequireContains(viewModel, "AppendVoiceTranscript", "Recognized speech must append to the current prompt.");
@@ -828,6 +873,11 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "LoadHistoryCommand", "The history tab must be able to reopen saved sessions.");
         RequireContains(viewModel, "DeleteHistoryCommand", "The history tab must be able to delete saved sessions.");
         RequireContains(viewModel, "BeginRenameHistoryCommand", "The history tab must support renaming saved sessions.");
+        RequireContains(models, "WorkspaceIdentityId", "Conversation history must carry Visual Studio workspace identity metadata.");
+        RequireContains(viewModel, "SessionBelongsToCurrentWorkspace", "History must default to the current Visual Studio solution or workspace.");
+        RequireContains(viewModel, "ForkSessionForCurrentWorkspace", "Loading a known foreign-workspace transcript must not reuse another workspace's Codex thread.");
+        RequireContains(view, "CurrentWorkspaceDisplay", "The tool window must surface the active Visual Studio workspace context.");
+        RequireContains(viewModel, "persist: false", "Live progress messages must not be persisted as durable conversation history.");
         RequireContains(viewModel, "PromptSuggestions", "The view model must expose inline prompt suggestions.");
         RequireContains(viewModel, "UpdatePromptSuggestions", "Typing /, @, or # must update context-sensitive prompt suggestions.");
         RequireContains(viewModel, "CreateAgentPlanPrompt", "Plan work must populate the Agents plan preview instead of leaving the Plan pane unused.");
@@ -845,7 +895,9 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "activeToken.StartsWith(\"#\"", "Context suggestions must include selected code and reference tokens.");
         RequireContains(viewModel, "ReviewSelectionCommand", "Context-sensitive code actions must be available in the tool-window view model.");
         RequireContains(viewModel, "NewThreadCommand", "The tool-window view model must support starting a new VSCodex thread.");
-        RequireContains(codeBehind, "Keyboard.Modifiers.HasFlag(ModifierKeys.Control)", "Ctrl+Enter must run the active VSCodex prompt.");
+        RequireContains(codeBehind, "InsertPromptNewLine", "Ctrl+Enter must insert a newline in the prompt input.");
+        RequireContains(codeBehind, "e.Key == Key.Enter", "Enter must run the active VSCodex prompt.");
+        RequireContains(codeBehind, "ConversationListBox.ScrollIntoView", "Conversation history must auto-scroll to newly added messages.");
         RequireContains(codeBehind, "Key.Tab", "Tab must insert the selected inline prompt suggestion.");
         RequireContains(codeBehind, "Key.Down", "Arrow keys must navigate inline prompt suggestions.");
         RequireContains(codeBehind, "InsertSelectedPromptSuggestion", "The prompt UI must insert the selected suggestion from keyboard or mouse.");

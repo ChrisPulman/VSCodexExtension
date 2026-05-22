@@ -52,7 +52,7 @@ Debugging from Visual Studio installs the VSIX into the Experimental instance th
 The VSCodex tool window is the primary workflow surface. It includes:
 
 - Conversation history with user, system, assistant, and error messages.
-- A prompt composer with Ctrl+Enter to run and Esc to cancel.
+- A prompt composer with Enter to send, Ctrl+Enter for a newline, and Esc to cancel.
 - Voice-to-text prompt input on Windows installations with speech recognition and a microphone available.
 - Quick actions for review, active errors, tests, planning, explain, fix, optimize, and documentation.
 - Inline context suggestions for `/`, `#`, and `@`.

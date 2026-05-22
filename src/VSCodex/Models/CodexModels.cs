@@ -70,11 +70,26 @@ public sealed class PrerequisiteStatus : ReactiveObject
 
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
-    public PrerequisiteState State { get => _state; set => this.RaiseAndSetIfChanged(ref _state, value); }
+    public PrerequisiteState State
+    {
+        get => _state;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _state, value);
+            this.RaisePropertyChanged(nameof(CanCopyCommand));
+            this.RaisePropertyChanged(nameof(CanUpdate));
+            this.RaisePropertyChanged(nameof(ActionButtonText));
+        }
+    }
     public string Status { get => _status; set => this.RaiseAndSetIfChanged(ref _status, value ?? string.Empty); }
     public string Details { get => _details; set => this.RaiseAndSetIfChanged(ref _details, value ?? string.Empty); }
     public string InstallCommand { get; set; } = string.Empty;
+    public string UpdateCommand { get; set; } = string.Empty;
     public bool IsBlocking { get; set; }
+    public bool CanCopyCommand => State != PrerequisiteState.Ready && !string.IsNullOrWhiteSpace(ActionCommand);
+    public bool CanUpdate => State != PrerequisiteState.Ready && !string.IsNullOrWhiteSpace(ActionCommand);
+    public string ActionCommand => string.IsNullOrWhiteSpace(UpdateCommand) ? InstallCommand : UpdateCommand;
+    public string ActionButtonText => State == PrerequisiteState.Missing || Status.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0 ? "Install" : "Update";
 }
 
 public sealed class CodexEnvironmentReport
@@ -143,6 +158,7 @@ public sealed class ChatMessage : ReactiveObject
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;
     public string Content { get => _content; set => this.RaiseAndSetIfChanged(ref _content, value); }
     public string? CorrelationId { get; set; }
+    public bool IsTransient { get; set; }
 }
 
 public sealed class CodexAttachment : ReactiveObject
@@ -351,6 +367,10 @@ public sealed class CodexSessionDocument
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string? ThreadId { get; set; }
+    public string WorkspaceIdentityId { get; set; } = string.Empty;
+    public string WorkspaceName { get; set; } = string.Empty;
+    public string WorkspaceRoot { get; set; } = string.Empty;
+    public string WorkspaceSolutionPath { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public DateTimeOffset Created { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset Updated { get; set; } = DateTimeOffset.Now;
@@ -366,10 +386,17 @@ public sealed class SessionHistoryItem : ReactiveObject
     public string? ThreadId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Preview { get; set; } = string.Empty;
+    public string WorkspaceIdentityId { get; set; } = string.Empty;
+    public string WorkspaceName { get; set; } = string.Empty;
+    public string WorkspaceRoot { get; set; } = string.Empty;
+    public string WorkspaceSolutionPath { get; set; } = string.Empty;
     public DateTimeOffset Updated { get; set; }
     public int MessageCount { get; set; }
     public string UpdatedDisplay => Updated.ToLocalTime().ToString("g");
     public string MessageCountDisplay => MessageCount == 1 ? "1 message" : MessageCount + " messages";
+    public string WorkspaceDisplay => string.IsNullOrWhiteSpace(WorkspaceName)
+        ? string.IsNullOrWhiteSpace(WorkspaceRoot) ? "Current workspace" : WorkspaceRoot
+        : WorkspaceName;
     public bool IsRenaming { get => _isRenaming; set => this.RaiseAndSetIfChanged(ref _isRenaming, value); }
     public string DraftTitle { get => _draftTitle; set => this.RaiseAndSetIfChanged(ref _draftTitle, value ?? string.Empty); }
 }

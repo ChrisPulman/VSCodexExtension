@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +16,7 @@ using VSCodex.ToolWindows;
 namespace VSCodex;
 
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.3.2")]
+[InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.4.0")]
 [ProvideMenuResource("Menus.ctmenu", 5)]
 [ProvideOptionPage(typeof(OptionsProvider.GeneralOptions), "VSCodex", "General", 0, 0, true)]
 [ProvideProfile(typeof(OptionsProvider.GeneralOptions), "VSCodex", "General", 0, 0, true)]
@@ -28,14 +29,44 @@ public sealed class VSCodexPackage : AsyncPackage
     public const string PackageGuidString = "cc277233-b28f-43d6-a597-1cc515cb0110";
     private const string SettingsCollection = "VSCodex";
     private const string FirstLaunchToolWindowOpened = "FirstLaunchToolWindowOpenedV8";
+    private static readonly string[] FirstLaunchToolWindowOpenedKeys =
+    {
+        FirstLaunchToolWindowOpened,
+        "FirstLaunchToolWindowOpenedV7",
+        "FirstLaunchToolWindowOpenedV6",
+        "FirstLaunchToolWindowOpenedV5",
+        "FirstLaunchToolWindowOpenedV4",
+        "FirstLaunchToolWindowOpenedV3",
+        "FirstLaunchToolWindowOpenedV2",
+        "FirstLaunchToolWindowOpened"
+    };
     private Services.SolutionLoadMonitorService? _solutionLoadMonitor;
 
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await OpenVSCodexToolWindowCommand.InitializeAsync(this).ConfigureAwait(true);
-        await InitializeReactiveMemoryProjectMinerAsync(cancellationToken).ConfigureAwait(true);
+        ScheduleReactiveMemoryProjectMinerInitialization();
         ScheduleMenuInitialization();
         ScheduleShowToolWindowOnFirstLaunch();
+    }
+
+    private void ScheduleReactiveMemoryProjectMinerInitialization()
+    {
+        JoinableTaskFactory.RunAsync(async () =>
+        {
+            try
+            {
+                await WaitForShellInitializedAsync(DisposalToken).ConfigureAwait(false);
+                await InitializeReactiveMemoryProjectMinerAsync(DisposalToken).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) when (DisposalToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                ActivityLog.TryLogError(nameof(VSCodexPackage), ex.ToString());
+            }
+        }).Task.FireAndForget();
     }
 
     private async Task InitializeReactiveMemoryProjectMinerAsync(CancellationToken cancellationToken)
@@ -177,9 +208,14 @@ public sealed class VSCodexPackage : AsyncPackage
 
     private static bool HasOpenedToolWindowOnFirstLaunch(WritableSettingsStore settingsStore)
     {
-        return settingsStore.CollectionExists(SettingsCollection)
-            && settingsStore.PropertyExists(SettingsCollection, FirstLaunchToolWindowOpened)
-            && settingsStore.GetBoolean(SettingsCollection, FirstLaunchToolWindowOpened);
+        if (!settingsStore.CollectionExists(SettingsCollection))
+        {
+            return false;
+        }
+
+        return FirstLaunchToolWindowOpenedKeys.Any(key =>
+            settingsStore.PropertyExists(SettingsCollection, key)
+            && settingsStore.GetBoolean(SettingsCollection, key));
     }
 
     private static void MarkToolWindowOpenedOnFirstLaunch(WritableSettingsStore settingsStore)
