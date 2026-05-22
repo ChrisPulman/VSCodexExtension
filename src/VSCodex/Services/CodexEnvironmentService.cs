@@ -118,6 +118,7 @@ public sealed class CodexEnvironmentService : ICodexEnvironmentService
             Status = "Found but failed",
             Details = TrimForUi(result.Error + Environment.NewLine + result.Output),
             InstallCommand = installCommand,
+            UpdateCommand = installCommand,
             IsBlocking = name != "Codex CLI fallback"
         };
     }
@@ -144,6 +145,7 @@ public sealed class CodexEnvironmentService : ICodexEnvironmentService
             Status = "Missing",
             Details = TrimForUi(details),
             InstallCommand = installCommand,
+            UpdateCommand = installCommand,
             IsBlocking = isBlocking
         };
     }
