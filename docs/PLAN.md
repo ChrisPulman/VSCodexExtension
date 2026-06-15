@@ -8,9 +8,9 @@ VSCodex is a classic in-process Visual Studio VSIX that hosts Codex through a do
 
 - `src/VSCodex.slnx` is the only solution entry point.
 - `src/VSCodex/VSCodexPackage.cs` registers the package, menus, first-run tool-window launch, and command table.
-- `WorkspaceContextService` resolves the loaded solution or active project to the containing Git repository root and builds a stable workspace identity without creating repository-local VSCodex metadata files.
+- `WorkspaceContextService` resolves the loaded solution, Visual Studio open-folder project, or active project to the containing Git repository root and builds a stable project identity without creating repository-local VSCodex metadata files.
 - `CodexSdkJsonClient`, `CodexCliClient`, and `codex-bridge.mjs` run requests from the resolved repository root.
-- `PromptBuilder` enriches requests with workspace identity, selected files, selected code, skills, MCP servers, memory, and ReactiveMemory hooks.
+- `PromptBuilder` enriches requests with workspace identity, selected files, selected code, skills, MCP servers, recovered ReactiveMemory context, and local memory display-cache entries.
 - `MemoryStore` keeps only a workspace-scoped in-memory display cache; durable memory is handled by ReactiveMemory.
 - `SolutionLoadMonitorService` listens for Visual Studio solution events and schedules a delayed, throttled ReactiveMemory ProjectMiner-compatible scan for the active repository; the Memory tab exposes an explicit full scan action.
 

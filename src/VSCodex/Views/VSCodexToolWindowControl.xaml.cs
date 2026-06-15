@@ -270,6 +270,17 @@ public partial class VSCodexToolWindowControl : UserControl
         ExecuteIfAvailable(ViewModel.IsRunControlInStopMode ? ViewModel.CancelCommand : ViewModel.RunCommand);
     }
 
+    private void OnStopControlClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel == null)
+        {
+            return;
+        }
+
+        ExecuteIfAvailable(ViewModel.CancelCommand);
+        e.Handled = true;
+    }
+
     private void OnToggleVoiceInputClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel == null)

@@ -33,7 +33,8 @@ VSCodex reads local Codex configuration from `%USERPROFILE%\.codex\config.toml`.
 4. Authenticate Codex/OpenAI from PowerShell if your account requires it.
 5. Install VSCodex from the Marketplace or build the VSIX locally.
 6. Open Visual Studio. VSCodex opens on first run and can be reopened from the VSCodex, View, Tools, editor context, project, solution, error, and debug menus.
-7. Open the VSCodex tool window, select Settings, and run setup validation if prompted.
+7. Open a solution or repository folder. VSCodex treats that opened project as the Codex project boundary and runs Codex from the resolved repository root.
+8. Open the VSCodex tool window, select Settings, and run setup validation if prompted.
 
 ## Build and Test
 
@@ -112,7 +113,7 @@ If setup is incomplete, VSCodex shows Windows-specific instructions in the conve
 
 The MCP tab reads and writes server configuration from `%USERPROFILE%\.codex\config.toml`. It can list configured servers, discover tools, prompt for required inputs, and insert MCP tool calls into the current prompt.
 
-ReactiveMemory is configured as the default durable memory server. VSCodex adds a `[mcp_servers.reactivememory]` entry if one is missing. If the ReactiveMemory source repo is present locally it can launch that project; otherwise it falls back to the `CP.ReactiveMemory.Mcp.Server` package identity so users can install or override the command. When Visual Studio opens a solution, VSCodex waits until startup has settled before running a small, throttled ProjectMiner-compatible scan. Full repository mining is available from the Memory tab with the Scan project button, so Visual Studio load is not dominated by memory writes.
+ReactiveMemory is configured as the default durable memory server. VSCodex prefers the Codex-shared `[mcp_servers.cp-reactivememory-mcp-server]` entry and migrates the older VSCodex fallback `[mcp_servers.reactivememory]` entry instead of keeping both active. If the ReactiveMemory source repo is present locally it can launch that project; otherwise it falls back to the versioned `CP.ReactiveMemory.Mcp.Server` package identity through `dnx`. When Visual Studio opens a solution or repository folder, VSCodex waits until startup has settled before running a small, throttled ProjectMiner-compatible scan. Full repository mining is available from the Memory tab with the Scan project button, so Visual Studio load is not dominated by memory writes.
 
 ReactiveMemory source: https://github.com/ChrisPulman/ReactiveMemory.MCP.Server
 
@@ -122,7 +123,7 @@ Memory support is designed to reduce lost context across sessions:
 
 - User memories capture durable preferences and recurring instructions.
 - Workspace memories capture repository-specific facts.
-- Prompt builder hooks call ReactiveMemory status and prompt-reaction tools when available.
+- VSCodex calls ReactiveMemory before each request, injects recovered project memory into the Codex prompt, and writes a diary entry after meaningful responses complete.
 - The tool window keeps an in-memory session cache for display and search, but durable memory is stored through ReactiveMemory instead of repository-local JSON files.
 
 The Memory tab exposes explicit save actions, while the prompt builder also injects memory context automatically with minimal user input.

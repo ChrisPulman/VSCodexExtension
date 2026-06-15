@@ -20,6 +20,8 @@ public interface IMcpConfigService
 }
 public sealed class McpConfigService : IMcpConfigService
 {
+    private const string PreferredReactiveMemoryServerName = "cp-reactivememory-mcp-server";
+    private const string LegacyReactiveMemoryServerName = "reactivememory";
     private readonly BehaviorSubject<IReadOnlyList<McpServerDefinition>> _servers = new BehaviorSubject<IReadOnlyList<McpServerDefinition>>(Array.Empty<McpServerDefinition>());
     public IObservable<IReadOnlyList<McpServerDefinition>> Servers => _servers.AsObservable();
     public IReadOnlyList<McpServerDefinition> Snapshot => _servers.Value;
@@ -109,23 +111,32 @@ public sealed class McpConfigService : IMcpConfigService
     private static void EnsureReactiveMemoryDefault(string path)
     {
         var text = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-        var existingBlock = Regex.Match(text, @"(?ms)^\s*\[mcp_servers\.reactivememory\](?<body>.*?)(?=^\s*\[|\z)");
-        if (existingBlock.Success)
+        var preferredBlock = FindMcpServerBlock(text, PreferredReactiveMemoryServerName);
+        if (preferredBlock.Success)
         {
-            if (Regex.IsMatch(existingBlock.Groups["body"].Value, @"(?im)^\s*enabled\s*=\s*false\s*$"))
+            var updated = EnsureMcpServerBlockEnabled(text, preferredBlock);
+            updated = DisableLegacyReactiveMemoryFallback(updated);
+            if (!StringComparer.Ordinal.Equals(updated, text))
             {
-                text = Regex.Replace(text, @"(?ims)(^\s*\[mcp_servers\.reactivememory\].*?^\s*enabled\s*=\s*)false(\s*$)", "$1true$2");
-                File.WriteAllText(path, text);
+                File.WriteAllText(path, updated);
             }
 
             return;
         }
 
-        var args = BuildReactiveMemoryArgs();
+        var legacyBlock = FindMcpServerBlock(text, LegacyReactiveMemoryServerName);
+        if (legacyBlock.Success)
+        {
+            var migrated = MigrateLegacyReactiveMemoryBlock(text, legacyBlock);
+            File.WriteAllText(path, EnsureMcpServerBlockEnabled(migrated, FindMcpServerBlock(migrated, PreferredReactiveMemoryServerName)));
+            return;
+        }
+
+        var command = BuildReactiveMemoryCommand(out var args);
         var defaultBlock = Environment.NewLine
-            + "# VSCodex default durable memory system." + Environment.NewLine
-            + "[mcp_servers.reactivememory]" + Environment.NewLine
-            + "command = \"dotnet\"" + Environment.NewLine
+            + "# VSCodex default durable memory system. Uses the same MCP server name Codex desktop, CLI, and IDE extension share." + Environment.NewLine
+            + "[mcp_servers." + PreferredReactiveMemoryServerName + "]" + Environment.NewLine
+            + "command = \"" + command + "\"" + Environment.NewLine
             + "args = [" + string.Join(", ", args.Select(x => "\"" + x.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"")) + "]" + Environment.NewLine
             + "enabled = true" + Environment.NewLine;
 
@@ -134,15 +145,99 @@ public sealed class McpConfigService : IMcpConfigService
         File.AppendAllText(path, defaultBlock);
     }
 
-    private static IReadOnlyList<string> BuildReactiveMemoryArgs()
+    private static string BuildReactiveMemoryCommand(out IReadOnlyList<string> args)
     {
         var project = FindReactiveMemoryProject();
         if (!string.IsNullOrWhiteSpace(project))
         {
-            return new[] { "run", "--project", project! };
+            args = new[] { "run", "--project", project! };
+            return "dotnet";
         }
 
-        return new[] { "tool", "run", "CP.ReactiveMemory.Mcp.Server" };
+        args = new[] { "CP.ReactiveMemory.Mcp.Server@1.*", "--yes" };
+        return "dnx";
+    }
+
+    private static Match FindMcpServerBlock(string text, string serverName)
+        => Regex.Match(text ?? string.Empty, @"(?ims)^\s*\[mcp_servers\." + Regex.Escape(serverName) + @"\](?<body>.*?)(?=^\s*\[|\z)");
+
+    private static string EnsureMcpServerBlockEnabled(string text, Match block)
+    {
+        if (!block.Success)
+        {
+            return text;
+        }
+
+        var serverName = ServerNameFromBlock(block);
+        if (string.IsNullOrWhiteSpace(serverName))
+        {
+            return text;
+        }
+
+        if (Regex.IsMatch(block.Groups["body"].Value, @"(?im)^\s*enabled\s*=\s*false\s*$"))
+        {
+            return Regex.Replace(text, @"(?ims)(^\s*\[mcp_servers\." + Regex.Escape(serverName) + @"\].*?^\s*enabled\s*=\s*)false(\s*$)", "$1true$2");
+        }
+
+        if (!Regex.IsMatch(block.Groups["body"].Value, @"(?im)^\s*enabled\s*="))
+        {
+            var insertAt = block.Index + block.Length;
+            return text.Insert(insertAt, Environment.NewLine + "enabled = true");
+        }
+
+        return text;
+    }
+
+    private static string ServerNameFromBlock(Match block)
+    {
+        var header = Regex.Match(block.Value, @"(?im)^\s*\[mcp_servers\.(?<name>[^\]]+)\]");
+        return header.Success ? header.Groups["name"].Value.Trim() : string.Empty;
+    }
+
+    private static string MigrateLegacyReactiveMemoryBlock(string text, Match legacyBlock)
+    {
+        if (!legacyBlock.Success)
+        {
+            return text;
+        }
+
+        var header = Regex.Match(legacyBlock.Value, @"(?im)^\s*\[mcp_servers\.reactivememory\]");
+        if (!header.Success)
+        {
+            return text;
+        }
+
+        return text.Remove(legacyBlock.Index + header.Index, header.Length)
+            .Insert(legacyBlock.Index + header.Index, "[mcp_servers." + PreferredReactiveMemoryServerName + "]");
+    }
+
+    private static string DisableLegacyReactiveMemoryFallback(string text)
+    {
+        var legacyBlock = FindMcpServerBlock(text, LegacyReactiveMemoryServerName);
+        if (!legacyBlock.Success || !LooksLikeReactiveMemoryServerBlock(legacyBlock))
+        {
+            return text;
+        }
+
+        if (Regex.IsMatch(legacyBlock.Groups["body"].Value, @"(?im)^\s*enabled\s*=\s*false\s*$"))
+        {
+            return text;
+        }
+
+        if (Regex.IsMatch(legacyBlock.Groups["body"].Value, @"(?im)^\s*enabled\s*="))
+        {
+            return Regex.Replace(text, @"(?ims)(^\s*\[mcp_servers\.reactivememory\].*?^\s*enabled\s*=\s*)true(\s*$)", "$1false$2");
+        }
+
+        return text.Insert(legacyBlock.Index + legacyBlock.Length, Environment.NewLine + "enabled = false");
+    }
+
+    private static bool LooksLikeReactiveMemoryServerBlock(Match block)
+    {
+        var value = block.Value ?? string.Empty;
+        return value.IndexOf("ReactiveMemory", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("CP.ReactiveMemory.Mcp.Server", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("CP.ReactiveMemory.MCP.Server", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private static string? FindReactiveMemoryProject()

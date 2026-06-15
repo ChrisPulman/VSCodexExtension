@@ -170,9 +170,9 @@ public sealed class VSCodexOptionsModel : BaseOptionModel<VSCodexOptionsModel>
 
     [Category("Context, skills, and memory")]
     [DisplayName("ReactiveMemory MCP server")]
-    [Description("CP.ReactiveMemory.Mcp.Server is provisioned automatically as [mcp_servers.reactivememory] and is called before and after each request so Visual Studio project context is preserved.")]
-    [DefaultValue("CP.ReactiveMemory.Mcp.Server")]
-    public string ReactiveMemoryServer { get; set; } = "CP.ReactiveMemory.Mcp.Server";
+    [Description("CP.ReactiveMemory.Mcp.Server is provisioned automatically as [mcp_servers.cp-reactivememory-mcp-server] and is called before and after each request so Visual Studio project context is preserved.")]
+    [DefaultValue("cp-reactivememory-mcp-server")]
+    public string ReactiveMemoryServer { get; set; } = "cp-reactivememory-mcp-server";
 
     public void LoadFromSettingsStore()
     {
@@ -198,7 +198,7 @@ public sealed class VSCodexOptionsModel : BaseOptionModel<VSCodexOptionsModel>
         DefaultInputAreaHeight = settings.DefaultInputAreaHeight;
         SkillRoots = JoinLines(settings.SkillRoots);
         EnabledSkillPaths = JoinLines(settings.EnabledSkillPaths);
-        ReactiveMemoryServer = "CP.ReactiveMemory.Mcp.Server";
+        ReactiveMemoryServer = "cp-reactivememory-mcp-server";
     }
 
     public void SaveToSettingsStore()

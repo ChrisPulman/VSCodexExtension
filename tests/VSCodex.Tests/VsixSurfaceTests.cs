@@ -225,8 +225,10 @@ public sealed class VsixSurfaceTests
         RequireContains(models, "gpt-5.4-mini", "Budget defaults must include a cheaper model option.");
         RequireContains(promptBuilder, "reactivememory_status", "Prompt builder must inject ReactiveMemory session-start hooks.");
         RequireContains(promptBuilder, "reactivememory_react_to_prompt", "Prompt builder must inject per-prompt ReactiveMemory hooks.");
-        RequireContains(mcpConfig, "[mcp_servers.reactivememory]", "MCP config service must install ReactiveMemory as the default memory server.");
-        RequireContains(mcpConfig, "existingBlock.Success", "MCP config service must validate the real ReactiveMemory server block instead of matching unrelated text.");
+        RequireContains(promptBuilder, "Recovered ReactiveMemory context", "Prompt builder must inject recovered ReactiveMemory output into the Codex prompt.");
+        RequireContains(mcpConfig, "PreferredReactiveMemoryServerName = \"cp-reactivememory-mcp-server\"", "MCP config service must install ReactiveMemory under the Codex-shared server name.");
+        RequireContains(mcpConfig, "MigrateLegacyReactiveMemoryBlock", "MCP config service must migrate the older VSCodex ReactiveMemory fallback instead of keeping duplicate memory servers active.");
+        RequireContains(mcpConfig, "FindMcpServerBlock", "MCP config service must validate the real ReactiveMemory server block instead of matching unrelated text.");
         RequireContains(mcpConfig, "enabled\\s*=\\s*false", "MCP config service must re-enable the default ReactiveMemory server when it is explicitly disabled.");
         RequireContains(mcpConfig, "void Save(IEnumerable<McpServerDefinition> servers)", "MCP config service must persist user-managed MCP server edits.");
         RequireContains(mcpConfig, "CreateTemplate(string transportType)", "MCP config service must create stdio and URL MCP server drafts from the UI.");
@@ -247,6 +249,7 @@ public sealed class VsixSurfaceTests
         RequireContains(reactiveMemory, "ReactToPromptAsync", "ReactiveMemory must be called before requests so context can be restored.");
         RequireContains(reactiveMemory, "WriteDiaryAsync", "ReactiveMemory must write durable memories after requests complete.");
         RequireContains(reactiveMemory, "AddMemoryAsync", "Explicit memory commands must persist through ReactiveMemory.");
+        RequireContains(reactiveMemory, "reactivememory_check_duplicate", "Explicit memory saves should check for duplicates before adding durable memories.");
         RequireContains(reactiveMemory, "InvokeToolAsync(server, toolName, arguments)", "ReactiveMemory must use real MCP tool calls.");
         RequireContains(reactiveMemory, "reactivememory_add_drawer", "ReactiveMemory ProjectMiner fallback must call the known drawer filing tool when discovery cannot list tools.");
         RequireContains(reactiveMemory, "ScoreReactiveMemoryServer", "ReactiveMemory must pick the most capable configured MCP server instead of the first name match.");
@@ -261,6 +264,7 @@ public sealed class VsixSurfaceTests
         RequireContains(ReadText("src/VSCodex/Services/CodingAssistantContextService.cs"), "_workspace.RefreshWorkspaceIdentity();", "ReactiveMemory setup prompts must capture the currently loaded solution before building the prompt.");
         RequireContains(appBuilder, "RegisterSingleton<IReactiveMemoryService>", "ReactiveMemory service must be registered for the tool-window view model.");
         RequireContains(viewModel, "_reactiveMemory.ReactToPromptAsync", "Run must update ReactiveMemory context before calling Codex.");
+        RequireContains(viewModel, "ReactiveMemoryContext = memoryReaction.ContextText", "Run must pass recovered ReactiveMemory context into the Codex request.");
         RequireContains(viewModel, "_reactiveMemory.WriteDiaryAsync", "Run completion must write a ReactiveMemory diary entry.");
         RequireContains(viewModel, "_reactiveMemory.AddMemoryAsync", "Memory buttons must persist through ReactiveMemory.");
         RequireContains(viewModel, "AddMcpStdioServerCommand", "Tool window must expose an Add stdio MCP server command.");
@@ -493,6 +497,7 @@ public sealed class VsixSurfaceTests
         var package = ReadText("src/VSCodex/VSCodexPackage.cs");
 
         RequireContains(workspace, "ResolveWorkspaceStartDirectory", "Workspace discovery must start from the loaded solution and fall back to the active project.");
+        RequireContains(workspace, "GetOpenFolderDirectory", "Workspace discovery must support Visual Studio Open Folder as a first-class Codex project root.");
         RequireContains(workspace, "FindRepositoryRoot(startDirectory)", "Workspace discovery must promote src-hosted solutions to the repository root.");
         RequireContains(workspace, "Directory.Exists(gitPath) || File.Exists(gitPath)", "Repository discovery must handle normal Git folders and Git worktree files.");
         RequireContains(workspace, "GetActiveProjectDirectory", "Single-project Visual Studio sessions must still get a stable workspace root.");
@@ -501,6 +506,7 @@ public sealed class VsixSurfaceTests
         RequireContains(workspace, "GetActiveDocumentDirectory", "Workspace discovery must fall back to the active document directory when solution and project data are still loading.");
         RequireContains(workspace, "BuildWorkspaceIdentity", "Workspace refresh must create a stable project identity for Codex and memory systems.");
         RequireContains(workspace, "ComputeWorkspaceIdentityId", "Workspace identity must be deterministic across Visual Studio sessions.");
+        RequireContains(workspace, "ComputeWorkspaceIdentityId(repositoryRemote, workspaceRoot)", "Workspace identity must be anchored to the opened repository or folder, not the specific solution file.");
         RequireContains(workspace, "ReadRepositoryRemote", "Workspace identity should include the repository remote when available.");
         RequireDoesNotContain(workspace, "vscodex-workspace.json", "VSCodex must not create redundant repository .codex workspace metadata.");
         RequireDoesNotContain(localPaths, "MemoryFile", "VSCodex must not expose a repository-local JSON memory fallback path.");
@@ -522,6 +528,7 @@ public sealed class VsixSurfaceTests
         RequireContains(promptBuilder, "Workspace root:", "The enriched prompt must clearly tell Codex which repository root is the execution root.");
         RequireContains(promptBuilder, "Workspace identity:", "The enriched prompt must include the stable project identity.");
         RequireContains(promptBuilder, "Project memory root:", "The enriched prompt must include the project memory root.");
+        RequireContains(promptBuilder, "Recovered ReactiveMemory context", "The enriched prompt must include recovered ReactiveMemory context before the user request.");
         RequireContains(promptBuilder, "Scope all memory operations to workspace identity", "ReactiveMemory hooks must be project-scoped to avoid cross-repository memory bleed.");
         RequireContains(sdkClient, "[\"workspaceRoot\"] = request.WorkspaceRoot", "The SDK payload must run from the repository root resolved by Visual Studio.");
         RequireContains(sdkClient, "[\"workspaceIdentity\"]", "The SDK payload must include workspace identity metadata for bridge-aware Codex SDKs.");
@@ -532,7 +539,9 @@ public sealed class VsixSurfaceTests
         RequireContains(bridge, "cwd: request.workspaceRoot", "Resilient CLI parsing must execute from the Visual Studio workspace root.");
         RequireDoesNotContain(bridge, "process.cwd()", "The bridge must never fall back to the installed VSIX payload directory.");
         RequireContains(orchestrator, "WorkspaceIdentity = request.WorkspaceIdentity", "Failover and enriched requests must preserve workspace identity.");
+        RequireContains(orchestrator, "ReactiveMemoryContext = request.ReactiveMemoryContext", "Failover and enriched requests must preserve recovered ReactiveMemory context.");
         RequireContains(orchestration, "WorkspaceIdentity = request.WorkspaceIdentity", "Multi-agent section and synthesis requests must preserve workspace identity.");
+        RequireContains(orchestration, "ReactiveMemoryContext = request.ReactiveMemoryContext", "Multi-agent section and synthesis requests must preserve recovered ReactiveMemory context.");
         RequireContains(memoryStore, "_workspaceMemories", "The in-window memory cache must be workspace-scoped without creating repository files.");
         RequireDoesNotContain(memoryStore, "memory.json", "Workspace memory must be durable through ReactiveMemory instead of a repository-local JSON file.");
         RequireContains(reactiveMemory, "ScanWorkspaceAsync", "ReactiveMemory must expose a ProjectMiner scan entry point for the active Visual Studio workspace.");
@@ -848,6 +857,7 @@ public sealed class VsixSurfaceTests
         RequireDoesNotContain(viewModel, "used \" + FormatTokenCount", "Observed token usage must not be surfaced as the real Codex rate-limit value.");
         RequireContains(viewModel, "CanEditSettings => !IsRunning", "Settings must not be editable while a task is running.");
         RequireContains(viewModel, "CanChangeSetting", "The view model must reject setting changes even if a delayed binding fires while a task is running.");
+        RequireContains(viewModel, "QueueStatusDisplay", "Queued prompts must have visible composer feedback while Codex is running.");
         RequireContains(viewModel, "private const int ModelSettingsSaveDebounceMilliseconds = 350", "Model selector changes must be debounced before settings persistence.");
         RequireContains(viewModel, "ScheduleModelSettingsSave", "Model selector changes must not synchronously save settings on the Visual Studio UI thread.");
         RequireContains(viewModel, "Task.Delay(TimeSpan.FromMilliseconds(ModelSettingsSaveDebounceMilliseconds)", "Model setting persistence must wait until combo-box text and selection events settle.");
@@ -864,6 +874,8 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "public void ToggleVoiceInput()", "The view must be able to invoke voice input directly from the click handler.");
         RequireContains(view, "AutomationProperties.Name=\"Toggle VSCodex voice input\"", "The voice input button must be accessible.");
         RequireContains(view, "AutomationProperties.Name=\"Send or stop VSCodex request\"", "The visual run control must be accessible in send and stop states.");
+        RequireContains(view, "AutomationProperties.Name=\"Stop VSCodex request\"", "A persistent stop control must remain visible while Codex is running.");
+        RequireContains(view, "QueueStatusDisplay", "The composer must show queued prompt count beside the run control.");
         RequireContains(viewModel, "AppendVoiceTranscript", "Recognized speech must append to the current prompt.");
         RequireContains(viewModel, "Task.Run(async () => await _mcpTools.DiscoverToolsAsync", "MCP discovery must avoid blocking the Visual Studio UI thread.");
         RequireContains(viewModel, "VSCodex settings are locked while a task is running", "Blocked setting changes must produce visible user feedback.");

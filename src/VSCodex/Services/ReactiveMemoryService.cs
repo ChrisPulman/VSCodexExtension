@@ -24,6 +24,7 @@ public sealed class ReactiveMemoryCallResult
 {
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
+    public string ContextText { get; set; } = string.Empty;
     public JObject? RawResult { get; set; }
 }
 
@@ -53,7 +54,11 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
             ["prompt"] = BuildProjectPrompt(prompt, identity),
             ["agentName"] = "VSCodex",
             ["sector"] = WorkspaceSector(identity),
-            ["vault"] = identity?.RootPath ?? string.Empty
+            ["vault"] = MemoryVault(identity),
+            ["workspaceIdentity"] = identity?.Id ?? string.Empty,
+            ["workspaceRoot"] = identity?.RootPath ?? string.Empty,
+            ["memoryRoot"] = identity?.MemoryRoot ?? string.Empty,
+            ["threadId"] = threadId ?? string.Empty
         };
         return InvokeReactiveMemoryAsync(args, "reactivememory_react_to_prompt", "react_to_prompt", "current_user_prompt", "current user prompt");
     }
@@ -65,20 +70,75 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
         {
             ["agentName"] = "VSCodex",
             ["topic"] = WorkspaceSector(identity),
+            ["sector"] = WorkspaceSector(identity),
+            ["vault"] = MemoryVault(identity),
+            ["workspaceIdentity"] = identity?.Id ?? string.Empty,
+            ["workspaceRoot"] = identity?.RootPath ?? string.Empty,
+            ["memoryRoot"] = identity?.MemoryRoot ?? string.Empty,
+            ["threadId"] = threadId ?? string.Empty,
             ["entry"] = "Workspace identity: " + (identity?.Id ?? string.Empty) + Environment.NewLine + "Workspace root: " + (identity?.RootPath ?? string.Empty) + Environment.NewLine + "Thread: " + (threadId ?? string.Empty) + Environment.NewLine + Environment.NewLine + entry
         };
         return InvokeReactiveMemoryAsync(args, "reactivememory_diary_write", "diary_write", "agent_diary", "agent diary");
     }
 
-    public Task<ReactiveMemoryCallResult> AddMemoryAsync(string text, string scope, WorkspaceIdentity identity)
+    public async Task<ReactiveMemoryCallResult> AddMemoryAsync(string text, string scope, WorkspaceIdentity identity)
     {
+        var content = text ?? string.Empty;
+        var sector = WorkspaceSector(identity);
+        var vault = MemoryVault(identity);
         var args = new JObject
         {
             ["agentName"] = "VSCodex",
-            ["topic"] = WorkspaceSector(identity) + " " + scope + " memory",
-            ["entry"] = "Workspace identity: " + (identity?.Id ?? string.Empty) + Environment.NewLine + "Workspace root: " + (identity?.RootPath ?? string.Empty) + Environment.NewLine + Environment.NewLine + (text ?? string.Empty)
+            ["topic"] = sector + " " + scope + " memory",
+            ["sector"] = sector,
+            ["vault"] = vault,
+            ["drawer"] = scope,
+            ["scope"] = scope ?? string.Empty,
+            ["content"] = content,
+            ["sourceFile"] = "VSCodex explicit memory",
+            ["addedBy"] = "VSCodex",
+            ["workspaceIdentity"] = identity?.Id ?? string.Empty,
+            ["workspaceRoot"] = identity?.RootPath ?? string.Empty,
+            ["memoryRoot"] = identity?.MemoryRoot ?? string.Empty,
+            ["entry"] = "Workspace identity: " + (identity?.Id ?? string.Empty) + Environment.NewLine + "Workspace root: " + (identity?.RootPath ?? string.Empty) + Environment.NewLine + Environment.NewLine + content
         };
-        return InvokeReactiveMemoryAsync(args, "reactivememory_diary_write", "diary_write", "agent_diary", "agent diary");
+
+        try
+        {
+            var server = FindReactiveMemoryServer();
+            if (server == null)
+            {
+                return Unavailable("ReactiveMemory MCP server is not enabled in Codex config.");
+            }
+
+            var tools = await _mcpTools.DiscoverToolsAsync(server).ConfigureAwait(false);
+            var duplicateTool = tools.FirstOrDefault(tool => ToolMatches(tool, "reactivememory_check_duplicate") || ToolMatches(tool, "check_duplicate"));
+            if (duplicateTool != null)
+            {
+                try
+                {
+                    await _mcpTools.InvokeToolAsync(server, duplicateTool.Name, args).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Duplicate checks improve memory quality but must not block an explicit save.
+                }
+            }
+
+            var addTool = tools.FirstOrDefault(tool => ToolMatches(tool, "reactivememory_add_drawer") || ToolMatches(tool, "add_drawer"))
+                ?? tools.FirstOrDefault(tool => ToolMatches(tool, "reactivememory_facts_add") || ToolMatches(tool, "facts_add"));
+            if (addTool != null)
+            {
+                var result = await _mcpTools.InvokeToolAsync(server, addTool.Name, args).ConfigureAwait(false);
+                return new ReactiveMemoryCallResult { Success = true, Message = "ReactiveMemory saved explicit memory through " + addTool.Name, ContextText = ExtractContextText(result), RawResult = result };
+            }
+        }
+        catch
+        {
+            // Fall through to diary_write so explicit saves still have a durable target.
+        }
+
+        return await InvokeReactiveMemoryAsync(args, "reactivememory_add_drawer", "add_drawer", "reactivememory_facts_add", "facts_add", "reactivememory_diary_write", "diary_write", "agent_diary", "agent diary").ConfigureAwait(false);
     }
 
     public async Task<ReactiveMemoryCallResult> ScanWorkspaceAsync(WorkspaceIdentity identity, bool automatic = false)
@@ -122,7 +182,10 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
                     ["workspaceRoot"] = identity.RootPath,
                     ["solutionPath"] = identity.SolutionPath ?? string.Empty,
                     ["sector"] = WorkspaceSector(identity),
-                    ["agentName"] = "VSCodex"
+                    ["agentName"] = "VSCodex",
+                    ["workspaceIdentity"] = identity.Id ?? string.Empty,
+                    ["memoryRoot"] = identity.MemoryRoot ?? string.Empty,
+                    ["vault"] = MemoryVault(identity)
                 }).ConfigureAwait(false);
                 LastWorkspaceScans[scanCacheKey] = DateTimeOffset.UtcNow;
                 MarkAutomaticScan(key, automatic);
@@ -187,7 +250,7 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
             }
 
             var result = await _mcpTools.InvokeToolAsync(server, toolName, arguments).ConfigureAwait(false);
-            return new ReactiveMemoryCallResult { Success = true, Message = "ReactiveMemory updated through " + toolName, RawResult = result };
+            return new ReactiveMemoryCallResult { Success = true, Message = "ReactiveMemory updated through " + toolName, ContextText = ExtractContextText(result), RawResult = result };
         }
         catch (Exception ex)
         {
@@ -234,14 +297,98 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
     private static string BuildProjectPrompt(string prompt, WorkspaceIdentity identity)
         => "Workspace identity: " + (identity?.Id ?? string.Empty)
             + Environment.NewLine + "Workspace root: " + (identity?.RootPath ?? string.Empty)
+            + Environment.NewLine + "ReactiveMemory scope: " + (identity?.MemoryRoot ?? string.Empty)
             + Environment.NewLine + "Solution: " + (identity?.SolutionRelativePath ?? string.Empty)
             + Environment.NewLine + Environment.NewLine + (prompt ?? string.Empty);
+
+    private static string ExtractContextText(JObject? result)
+    {
+        if (result == null)
+        {
+            return string.Empty;
+        }
+
+        var values = new List<string>();
+        CollectText(values, result.SelectToken("content"), 8);
+        CollectText(values, result.SelectToken("structuredContent"), 8);
+        CollectText(values, result.SelectToken("memory"), 4);
+        CollectText(values, result.SelectToken("memories"), 8);
+        CollectText(values, result.SelectToken("facts"), 8);
+        CollectText(values, result.SelectToken("result"), 4);
+        CollectText(values, result.SelectToken("summary"), 2);
+        CollectText(values, result.SelectToken("response"), 2);
+        CollectText(values, result.SelectToken("text"), 2);
+        CollectText(values, result.SelectToken("message"), 1);
+
+        var context = string.Join(Environment.NewLine, values
+            .Select(x => Trim(x.Trim(), 1800))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+        return Trim(context, 12000);
+    }
+
+    private static void CollectText(ICollection<string> values, JToken? token, int limit)
+    {
+        if (token == null || values.Count >= limit)
+        {
+            return;
+        }
+
+        if (token.Type == JTokenType.String)
+        {
+            var text = token.Value<string>();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                values.Add(text!);
+            }
+
+            return;
+        }
+
+        if (token is JArray array)
+        {
+            foreach (var item in array)
+            {
+                if (values.Count >= limit)
+                {
+                    return;
+                }
+
+                CollectText(values, item, limit);
+            }
+
+            return;
+        }
+
+        if (token is JObject obj)
+        {
+            var directText = (string?)obj["text"] ?? (string?)obj["content"] ?? (string?)obj["summary"] ?? (string?)obj["value"];
+            if (!string.IsNullOrWhiteSpace(directText))
+            {
+                values.Add(directText!);
+                return;
+            }
+
+            foreach (var property in obj.Properties())
+            {
+                if (values.Count >= limit)
+                {
+                    return;
+                }
+
+                CollectText(values, property.Value, limit);
+            }
+        }
+    }
 
     private static string WorkspaceSector(WorkspaceIdentity? identity)
     {
         var name = identity?.Name;
         return string.IsNullOrWhiteSpace(name) ? "VSCodex workspace" : name!;
     }
+
+    private static string MemoryVault(WorkspaceIdentity? identity)
+        => string.IsNullOrWhiteSpace(identity?.MemoryRoot) ? identity?.RootPath ?? string.Empty : identity!.MemoryRoot;
 
     private static IEnumerable<McpToolInvocation> BuildProjectMinerFallbackInvocations(WorkspaceIdentity identity, string toolName, int maxFiles, int maxChunks)
     {
@@ -274,6 +421,9 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
                     {
                         ["sector"] = sector,
                         ["vault"] = DetectProjectVault(file, content, identity.RootPath),
+                        ["workspaceVault"] = MemoryVault(identity),
+                        ["workspaceIdentity"] = identity.Id ?? string.Empty,
+                        ["memoryRoot"] = identity.MemoryRoot ?? string.Empty,
                         ["content"] = chunk,
                         ["sourceFile"] = MakeRelative(identity.RootPath, file),
                         ["addedBy"] = "project_miner"

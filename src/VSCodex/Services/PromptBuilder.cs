@@ -32,6 +32,13 @@ public sealed class PromptBuilder
             sb.AppendLine("After a meaningful interaction, call `reactivememory_diary_write` to preserve the session summary with minimal user input.");
             sb.AppendLine();
         }
+        if (!string.IsNullOrWhiteSpace(request.ReactiveMemoryContext))
+        {
+            sb.AppendLine("## Recovered ReactiveMemory context");
+            sb.AppendLine("Use this durable project memory as context for the current turn. If it conflicts with the user's explicit request or current files, prefer the current request and files.");
+            sb.AppendLine(request.ReactiveMemoryContext.Length > 12000 ? request.ReactiveMemoryContext.Substring(0, 12000) : request.ReactiveMemoryContext);
+            sb.AppendLine();
+        }
         if (request.Options.IncludeMemory && request.Memories.Any()) { sb.AppendLine("## Relevant memory"); foreach (var m in request.Memories.Take(12)) sb.AppendLine($"- [{m.Scope}] {m.Text}"); sb.AppendLine(); }
         if (request.Options.IncludeSkills && request.Skills.Any()) { sb.AppendLine("## Enabled skills"); foreach (var s in request.Skills.Where(x => x.IsEnabled).Take(8)) { sb.AppendLine($"### {s.Name}"); sb.AppendLine(s.Description); sb.AppendLine(s.Content.Length > 4000 ? s.Content.Substring(0, 4000) : s.Content); sb.AppendLine(); } }
         if (request.Options.IncludeMcpServers && request.McpServers.Any()) { sb.AppendLine("## MCP servers available through local Codex config"); foreach (var s in request.McpServers.Where(x => x.IsEnabled)) sb.AppendLine($"- {s.Name}: {s.Command} {string.Join(" ", s.Args)} ({s.Health})"); sb.AppendLine(); }
