@@ -827,6 +827,7 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "Markdown=\"{Binding Content}\"", "The Markdown renderer must bind directly to chat message content.");
         RequireContains(view, "TargetType=\"{x:Type controls:MarkdownTextBlock}\"", "Rendered Markdown must use Visual Studio themed text resources.");
         RequireContains(ReadText("src/VSCodex/Controls/MarkdownTextBlock.cs"), "Hyperlink", "Rendered Markdown must support clickable Markdown links.");
+        RequireContains(view, "ScrollViewer.CanContentScroll=\"False\"", "The conversation list must use pixel-based scrolling so tall messages are fully readable and not clipped at the viewport boundary.");
         RequireContains(viewModel, "RateLimits", "Rate-limit rows must be backed by view-model state.");
         RequireContains(viewModel, "StartRunProgress", "Run must add immediate in-chat feedback before long Codex calls complete.");
         RequireContains(viewModel, "VSCodex is working", "Run progress feedback must be visible in the conversation transcript.");
