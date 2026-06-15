@@ -210,6 +210,7 @@ public sealed class CodexRunRequest
     public string WorkspaceName { get; set; } = string.Empty;
     public string WorkspaceSolutionPath { get; set; } = string.Empty;
     public string WorkspaceMemoryRoot { get; set; } = string.Empty;
+    public string ReactiveMemoryContext { get; set; } = string.Empty;
     public WorkspaceIdentity WorkspaceIdentity { get; set; } = new WorkspaceIdentity();
     public CodexRunOptions Options { get; set; } = new CodexRunOptions();
     public IReadOnlyList<CodexAttachment> Attachments { get; set; } = Array.Empty<CodexAttachment>();

@@ -220,7 +220,7 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
         var name = string.IsNullOrWhiteSpace(root)
             ? Path.GetFileNameWithoutExtension(solutionPath)
             : Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var id = Sha256((repositoryRemote ?? string.Empty) + "|" + root + "|" + solutionRelativePath + "|" + solutionPath);
+        var id = ComputeWorkspaceIdentityId(repositoryRemote, root);
 
         return new WorkspaceIdentity
         {
@@ -230,7 +230,7 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
             SolutionPath = solutionPath,
             SolutionRelativePath = solutionRelativePath,
             RepositoryRemote = repositoryRemote ?? string.Empty,
-            MemoryRoot = string.Empty
+            MemoryRoot = BuildWorkspaceMemoryRoot(id)
         };
     }
 
@@ -320,10 +320,33 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
         return string.Empty;
     }
 
-    private static string Sha256(string value)
+    private static string ComputeWorkspaceIdentityId(params string[] parts)
     {
+        var key = string.Join("|", parts.Where(part => !string.IsNullOrWhiteSpace(part)).Select(NormalizeIdentityPart));
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
         using var sha = SHA256.Create();
-        return string.Concat(sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty)).Select(b => b.ToString("x2")));
+        return ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes(key)), 12);
+    }
+
+    private static string BuildWorkspaceMemoryRoot(string workspaceIdentityId)
+        => string.IsNullOrWhiteSpace(workspaceIdentityId) ? string.Empty : "reactivememory://workspace/" + workspaceIdentityId;
+
+    private static string NormalizeIdentityPart(string value)
+        => value.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).Trim().ToLowerInvariant();
+
+    private static string ToHex(byte[] bytes, int byteCount)
+    {
+        var builder = new StringBuilder(byteCount * 2);
+        for (var i = 0; i < Math.Min(bytes.Length, byteCount); i++)
+        {
+            builder.Append(bytes[i].ToString("x2"));
+        }
+
+        return builder.ToString();
     }
 
     public void Dispose()

@@ -1639,6 +1639,37 @@
                             </Grid>
                         </Grid>
                     </Button>
+                    <Button
+                        Margin="4,0,0,6"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Stop VSCodex request"
+                        Click="OnStopControlClick"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTip="Stop the active VSCodex request and clear queued prompts."
+                        Visibility="{Binding IsRunning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid Width="16" Height="16">
+                            <controls:ProgressRing
+                                Width="16"
+                                Height="16"
+                                Margin="0"
+                                IsIndeterminate="True"
+                                Opacity="0.35" />
+                            <Rectangle
+                                Width="7"
+                                Height="7"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Fill="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+                        </Grid>
+                    </Button>
+                    <TextBlock
+                        Margin="6,0,0,6"
+                        VerticalAlignment="Center"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        Opacity="0.72"
+                        Text="{Binding QueueStatusDisplay}"
+                        Visibility="{Binding HasQueuedPrompts, Converter={StaticResource BooleanToVisibilityConverter}}" />
                 </WrapPanel>
             </Grid>
         </Border>

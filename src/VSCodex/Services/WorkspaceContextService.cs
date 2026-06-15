@@ -74,7 +74,7 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
         ThreadHelper.ThrowIfNotOnUIThread();
         var dte = _serviceProvider.GetService(typeof(DTE)) as DTE;
         var solutionPath = GetSolutionPath(dte);
-        var startDirectory = ResolveWorkspaceStartDirectory(solutionPath, GetActiveProjectDirectory(dte), GetActiveDocumentDirectory(dte));
+        var startDirectory = ResolveWorkspaceStartDirectory(solutionPath, GetOpenFolderDirectory(dte), GetActiveProjectDirectory(dte), GetActiveDocumentDirectory(dte));
         var root = ResolveWorkspaceRoot(startDirectory);
         var identity = BuildWorkspaceIdentity(root, solutionPath);
         _workspaceIdentity = identity;
@@ -619,7 +619,7 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
         var dteSolution = dte?.Solution?.FullName ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(dteSolution))
         {
-            return dteSolution;
+            return File.Exists(dteSolution) ? dteSolution : string.Empty;
         }
 
         try
@@ -646,7 +646,35 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
         return string.Empty;
     }
 
-    private static string ResolveWorkspaceStartDirectory(string solutionPath, string activeProjectDirectory, string activeDocumentDirectory)
+    private string GetOpenFolderDirectory(DTE? dte)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var dteSolution = dte?.Solution?.FullName ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(dteSolution) && Directory.Exists(dteSolution))
+        {
+            return dteSolution;
+        }
+
+        try
+        {
+            var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
+            if (solution != null && Microsoft.VisualStudio.ErrorHandler.Succeeded(solution.GetSolutionInfo(out var directory, out var file, out _)))
+            {
+                if (string.IsNullOrWhiteSpace(file) && !string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
+                {
+                    return directory;
+                }
+            }
+        }
+        catch
+        {
+            return string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveWorkspaceStartDirectory(string solutionPath, string openFolderDirectory, string activeProjectDirectory, string activeDocumentDirectory)
     {
         if (!string.IsNullOrWhiteSpace(solutionPath))
         {
@@ -655,6 +683,11 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
             {
                 return solutionDirectory;
             }
+        }
+
+        if (!string.IsNullOrWhiteSpace(openFolderDirectory))
+        {
+            return openFolderDirectory;
         }
 
         return !string.IsNullOrWhiteSpace(activeProjectDirectory) ? activeProjectDirectory : activeDocumentDirectory;
@@ -704,7 +737,7 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
         var name = BuildWorkspaceName(workspaceRoot, solutionPath);
         var id = string.IsNullOrWhiteSpace(workspaceRoot) && string.IsNullOrWhiteSpace(solutionPath)
             ? string.Empty
-            : ComputeWorkspaceIdentityId(repositoryRemote, workspaceRoot, solutionRelativePath, solutionPath);
+            : ComputeWorkspaceIdentityId(repositoryRemote, workspaceRoot);
 
         return new WorkspaceIdentity
         {
@@ -714,7 +747,7 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
             SolutionPath = solutionPath,
             SolutionRelativePath = solutionRelativePath,
             RepositoryRemote = repositoryRemote,
-            MemoryRoot = string.Empty
+            MemoryRoot = BuildWorkspaceMemoryRoot(id)
         };
     }
 
@@ -875,6 +908,9 @@ public sealed class WorkspaceContextService : IWorkspaceContextService
             return ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes(key)), 12);
         }
     }
+
+    private static string BuildWorkspaceMemoryRoot(string workspaceIdentityId)
+        => string.IsNullOrWhiteSpace(workspaceIdentityId) ? string.Empty : "reactivememory://workspace/" + workspaceIdentityId;
 
     private static string NormalizeIdentityPart(string value) => value.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).Trim().ToLowerInvariant();
 

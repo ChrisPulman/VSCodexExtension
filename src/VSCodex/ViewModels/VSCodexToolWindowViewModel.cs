@@ -356,12 +356,14 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _queuedPromptCount, Math.Max(0, value));
             this.RaisePropertyChanged(nameof(HasQueuedPrompts));
+            this.RaisePropertyChanged(nameof(QueueStatusDisplay));
         }
     }
 
     public bool HasPromptText => !string.IsNullOrWhiteSpace(Prompt);
     public bool HasQueuedPrompts => QueuedPromptCount > 0;
     public bool IsRunControlInStopMode => IsRunning && !HasPromptText;
+    public string QueueStatusDisplay => QueuedPromptCount <= 0 ? string.Empty : QueuedPromptCount == 1 ? "1 queued" : QueuedPromptCount + " queued";
     public bool CanEditSettings => !IsRunning;
     public bool IsToolPanelOpen { get => _isToolPanelOpen; set => this.RaiseAndSetIfChanged(ref _isToolPanelOpen, value); }
     public bool UseMultiAgentOrchestration { get => _useMultiAgentOrchestration; set { if (!CanChangeSetting(_useMultiAgentOrchestration, value)) return; this.RaiseAndSetIfChanged(ref _useMultiAgentOrchestration, value); } }
@@ -423,12 +425,12 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             var identity = _workspace.CurrentWorkspaceIdentity;
             if (identity == null || string.IsNullOrWhiteSpace(identity.RootPath))
             {
-                return "Workspace: waiting for Visual Studio solution";
+                return "Project: open a Visual Studio solution or repository folder";
             }
 
             var name = string.IsNullOrWhiteSpace(identity.Name) ? _workspace.CurrentWorkspaceName : identity.Name;
             var solution = string.IsNullOrWhiteSpace(identity.SolutionRelativePath) ? string.Empty : " (" + identity.SolutionRelativePath + ")";
-            return "Workspace: " + name + solution;
+            return "Project: " + name + solution;
         }
     }
     public string VoiceInputStatus { get => _voiceInputStatus; set => this.RaiseAndSetIfChanged(ref _voiceInputStatus, value); }
@@ -610,7 +612,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         }
         else if (string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot))
         {
-            Status = "Visual Studio solution context is still loading";
+            Status = "Visual Studio project context is still loading";
             return;
         }
 
@@ -689,7 +691,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         Refresh();
         if (!EnsureWorkspaceReadyForRun())
         {
-            AddMessage(CodexMessageRole.Error, "VSCodex cannot run because Visual Studio has not provided a solution or project workspace root yet.");
+            AddMessage(CodexMessageRole.Error, "VSCodex cannot run because Visual Studio has not provided a solution or repository folder project root yet.");
             return;
         }
 
@@ -705,6 +707,11 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             var memoryReaction = await _reactiveMemory.ReactToPromptAsync(userPrompt, _workspace.CurrentWorkspaceIdentity, ThreadId).ConfigureAwait(false);
             await _joinableTaskFactory.SwitchToMainThreadAsync();
             SetRunProgress(memoryReaction.Success ? memoryReaction.Message : "ReactiveMemory unavailable; continuing with local context");
+            if (!string.IsNullOrWhiteSpace(memoryReaction.ContextText))
+            {
+                AddMessage(CodexMessageRole.Memory, "Recovered ReactiveMemory context for this project.", persist: false);
+            }
+
             SetRunProgress("Resolving VSCodex references and attachments");
             var workspaceFiles = _workspace.ResolveMentions(userPrompt, 12000)
                 .Concat(_workspace.ResolveHashReferences(userPrompt, 0))
@@ -729,7 +736,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
                 BudgetDrivenModelSelection = BudgetDrivenModelSelection,
                 BudgetModel = BudgetModel
             };
-            var request = new CodexRunRequest { Prompt = userPrompt, ThreadId = ThreadId, WorkspaceRoot = _workspace.CurrentWorkspaceRoot, WorkspaceName = _workspace.CurrentWorkspaceName, WorkspaceSolutionPath = _workspace.CurrentSolutionPath, WorkspaceMemoryRoot = _workspace.CurrentWorkspaceMemoryRoot, WorkspaceIdentity = _workspace.CurrentWorkspaceIdentity, Options = options, Attachments = Attachments.ToList(), Skills = Skills.Where(x => x.IsEnabled).ToList(), Memories = _memoryStore.Search(userPrompt, 10), McpServers = McpServers.Where(x => x.IsEnabled).ToList(), WorkspaceFiles = workspaceFiles, AgentRoles = selectedAgents };
+            var request = new CodexRunRequest { Prompt = userPrompt, ThreadId = ThreadId, WorkspaceRoot = _workspace.CurrentWorkspaceRoot, WorkspaceName = _workspace.CurrentWorkspaceName, WorkspaceSolutionPath = _workspace.CurrentSolutionPath, WorkspaceMemoryRoot = _workspace.CurrentWorkspaceMemoryRoot, ReactiveMemoryContext = memoryReaction.ContextText, WorkspaceIdentity = _workspace.CurrentWorkspaceIdentity, Options = options, Attachments = Attachments.ToList(), Skills = Skills.Where(x => x.IsEnabled).ToList(), Memories = _memoryStore.Search(userPrompt, 10), McpServers = McpServers.Where(x => x.IsEnabled).ToList(), WorkspaceFiles = workspaceFiles, AgentRoles = selectedAgents };
             ModelEstimate = _modelAnalytics.Estimate(request);
             this.RaisePropertyChanged(nameof(AnalyticsSummary));
             this.RaisePropertyChanged(nameof(AnalyticsRecommendation));
@@ -739,7 +746,14 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             UpdateRateLimitsFromJson(result.RawJson);
             ThreadId = result.ThreadId ?? ThreadId;
             AddMessage(CodexMessageRole.Assistant, result.FinalResponse);
-            _ = _reactiveMemory.WriteDiaryAsync(userPrompt, result.FinalResponse, _workspace.CurrentWorkspaceIdentity, ThreadId);
+            SetRunProgress("Saving ReactiveMemory diary");
+            var diary = await _reactiveMemory.WriteDiaryAsync(userPrompt, result.FinalResponse, _workspace.CurrentWorkspaceIdentity, ThreadId).ConfigureAwait(false);
+            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            if (!diary.Success)
+            {
+                AddMessage(CodexMessageRole.Memory, "ReactiveMemory diary was not saved: " + diary.Message, persist: false);
+            }
+
             FinishRunProgress(result.UsedFallback ? "Completed using CLI fallback" : "Completed");
             Status = result.UsedFallback ? "Complete using CLI fallback" : "Complete";
             _session.ThreadId = ThreadId;
@@ -790,7 +804,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             _memoryStore.LoadWorkspace(_workspace.CurrentWorkspaceRoot);
             _skillIndex.Refresh(_settingsStore.Current.SkillRoots.Concat(new[] { System.IO.Path.Combine(_workspace.CurrentWorkspaceRoot ?? string.Empty, ".codex", "skills") }));
             _mcpConfig.Refresh();
-            Status = string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot) ? "Visual Studio solution context is still loading" : "Refreshed VSCodex context for " + _workspace.CurrentWorkspaceRoot;
+            Status = string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot) ? "Visual Studio project context is still loading" : "Refreshed VSCodex context for " + _workspace.CurrentWorkspaceRoot;
             RefreshRateLimitsInBackground();
         }
         catch (Exception ex) { Status = "Refresh failed: " + ex.Message; }
@@ -816,7 +830,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             }
 
             Status = string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRoot)
-                ? "VSCodex ready; waiting for Visual Studio solution context"
+                ? "VSCodex ready; open a solution or repository folder"
                 : "VSCodex ready for " + _workspace.CurrentWorkspaceRoot;
         }
         catch (Exception ex)
@@ -830,7 +844,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         var identity = _workspace.CurrentWorkspaceIdentity;
         if (identity == null || string.IsNullOrWhiteSpace(identity.RootPath))
         {
-            Status = "Open a solution before scanning project memory";
+            Status = "Open a solution or repository folder before scanning project memory";
             return;
         }
 
@@ -854,9 +868,9 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             return true;
         }
 
-        var message = "VSCodex cannot run yet because Visual Studio has not provided a solution or project workspace root. Wait for the solution to finish loading, open a solution/project, or use @ references after a workspace is available. The installed VSIX folder will not be used as the execution root.";
+        var message = "VSCodex cannot run yet because Visual Studio has not provided a solution or repository folder project root. Wait for the project to finish loading, open a solution or repository folder, or use @ references after a project is available. The installed VSIX folder will not be used as the execution root.";
         AddMessage(CodexMessageRole.System, message);
-        Status = "VSCodex waiting for Visual Studio solution context";
+        Status = "VSCodex waiting for Visual Studio project context";
         return false;
     }
 

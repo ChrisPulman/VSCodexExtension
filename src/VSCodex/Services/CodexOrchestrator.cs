@@ -15,7 +15,7 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
     public IObservable<CodexEvent> Events => _events.AsObservable();
     public async Task<CodexRunResult> RunAsync(CodexRunRequest request)
     {
-        var enriched = new CodexRunRequest { Prompt = _promptBuilder.Build(request), ThreadId = request.ThreadId, WorkspaceRoot = request.WorkspaceRoot, WorkspaceName = request.WorkspaceName, WorkspaceSolutionPath = request.WorkspaceSolutionPath, WorkspaceMemoryRoot = request.WorkspaceMemoryRoot, WorkspaceIdentity = request.WorkspaceIdentity, Options = request.Options, Attachments = request.Attachments, Skills = request.Skills, Memories = request.Memories, McpServers = request.McpServers, WorkspaceFiles = request.WorkspaceFiles, AgentRoles = request.AgentRoles };
+        var enriched = new CodexRunRequest { Prompt = _promptBuilder.Build(request), ThreadId = request.ThreadId, WorkspaceRoot = request.WorkspaceRoot, WorkspaceName = request.WorkspaceName, WorkspaceSolutionPath = request.WorkspaceSolutionPath, WorkspaceMemoryRoot = request.WorkspaceMemoryRoot, ReactiveMemoryContext = request.ReactiveMemoryContext, WorkspaceIdentity = request.WorkspaceIdentity, Options = request.Options, Attachments = request.Attachments, Skills = request.Skills, Memories = request.Memories, McpServers = request.McpServers, WorkspaceFiles = request.WorkspaceFiles, AgentRoles = request.AgentRoles };
         try { return await (request.Options.Transport == CodexTransportKind.CliFallback ? _cli : _sdk).RunAsync(enriched).ConfigureAwait(false); }
         catch (Exception ex) when (request.Options.Transport == CodexTransportKind.SdkBridge)
         {
@@ -94,6 +94,7 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
             WorkspaceName = request.WorkspaceName,
             WorkspaceSolutionPath = request.WorkspaceSolutionPath,
             WorkspaceMemoryRoot = request.WorkspaceMemoryRoot,
+            ReactiveMemoryContext = request.ReactiveMemoryContext,
             WorkspaceIdentity = request.WorkspaceIdentity,
             Options = options,
             Attachments = request.Attachments,
