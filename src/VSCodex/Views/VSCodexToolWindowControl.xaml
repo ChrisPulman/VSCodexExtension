@@ -606,7 +606,8 @@
                 <ListBox
                     x:Name="ConversationListBox"
                     BorderThickness="0"
-                    ItemsSource="{Binding Messages}">
+                    ItemsSource="{Binding Messages}"
+                    ScrollViewer.CanContentScroll="False">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Border
