@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 using ReactiveUI;
@@ -17,6 +19,7 @@ public enum AgentModelSelectionMode { Explicit, BudgetDriven }
 public enum OrchestrationSectionStatus { Pending, Running, Completed, Failed, Cancelled }
 public enum ModelTaskComplexity { Low, Medium, High }
 public enum PrerequisiteState { Ready, Warning, Missing, Error }
+public enum RunActivityKind { User, Agent, Mcp, Skill, Files, Assistant, System, File }
 
 public sealed class ModelProfile
 {
@@ -159,6 +162,63 @@ public sealed class ChatMessage : ReactiveObject
     public string Content { get => _content; set => this.RaiseAndSetIfChanged(ref _content, value); }
     public string? CorrelationId { get; set; }
     public bool IsTransient { get; set; }
+}
+
+public sealed class RunActivityNode : ReactiveObject
+{
+    private string _title = string.Empty;
+    private string _detail = string.Empty;
+    private string _elapsedText = string.Empty;
+    private bool _isExpanded = true;
+
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public RunActivityKind Kind { get; set; } = RunActivityKind.Agent;
+    public ObservableCollection<RunActivityNode> Children { get; } = new ObservableCollection<RunActivityNode>();
+    public DateTimeOffset StartedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset? CompletedAt { get; set; }
+    public string FilePath { get; set; } = string.Empty;
+    public bool IsDeleted { get; set; }
+    public bool CanOpenFile => !IsDeleted && !string.IsNullOrWhiteSpace(FilePath) && File.Exists(FilePath);
+    public bool HasDetail => !string.IsNullOrWhiteSpace(Detail);
+    public bool IsFileNode => Kind == RunActivityKind.File;
+    public string TimestampText => StartedAt == default ? string.Empty : StartedAt.LocalDateTime.ToString("HH:mm:ss");
+    public string HeaderText => string.IsNullOrWhiteSpace(ElapsedText) ? Title : Title + "  " + ElapsedText;
+
+    public string Title
+    {
+        get => _title;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _title, value ?? string.Empty);
+            this.RaisePropertyChanged(nameof(HeaderText));
+        }
+    }
+
+    public string Detail
+    {
+        get => _detail;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _detail, value ?? string.Empty);
+            this.RaisePropertyChanged(nameof(HasDetail));
+        }
+    }
+
+    public string ElapsedText
+    {
+        get => _elapsedText;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _elapsedText, value ?? string.Empty);
+            this.RaisePropertyChanged(nameof(HeaderText));
+        }
+    }
+
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set => this.RaiseAndSetIfChanged(ref _isExpanded, value);
+    }
 }
 
 public sealed class CodexAttachment : ReactiveObject
