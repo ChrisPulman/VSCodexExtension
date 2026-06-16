@@ -225,6 +225,10 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
                 RawResult = new JObject { ["requested"] = invocations.Count, ["completed"] = completed }
             };
         }
+        catch (OperationCanceledException)
+        {
+            return Unavailable("ReactiveMemory ProjectMiner scan was cancelled by the host; continuing without blocking VSCodex.");
+        }
         catch (Exception ex)
         {
             return Unavailable("ReactiveMemory ProjectMiner scan failed: " + ex.Message);
@@ -251,6 +255,10 @@ public sealed class ReactiveMemoryService : IReactiveMemoryService
 
             var result = await _mcpTools.InvokeToolAsync(server, toolName, arguments).ConfigureAwait(false);
             return new ReactiveMemoryCallResult { Success = true, Message = "ReactiveMemory updated through " + toolName, ContextText = ExtractContextText(result), RawResult = result };
+        }
+        catch (OperationCanceledException)
+        {
+            return Unavailable("ReactiveMemory MCP call was cancelled by the host; continuing without blocking VSCodex.");
         }
         catch (Exception ex)
         {

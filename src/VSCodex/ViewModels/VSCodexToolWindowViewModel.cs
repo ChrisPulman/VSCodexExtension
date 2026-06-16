@@ -96,7 +96,9 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private string _codexSetupSummary = "Checking VSCodex prerequisites...";
     private string _codexSetupInstructions = string.Empty;
     private string _voiceInputStatus = "Voice input ready";
-    private ChatMessage? _activeProgressMessage;
+    private RunActivityNode? _activeRunActivity;
+    private RunActivityNode? _activeProgressNode;
+    private string _pendingUserActivityPromptToSuppress = string.Empty;
     private DateTimeOffset _activeRunStartedAt;
     private string _activeRunStage = string.Empty;
     private CodexEnvironmentReport? _lastEnvironmentReport;
@@ -164,6 +166,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         _inputAreaHeight = ClampInputHeight(settings.DefaultInputAreaHeight);
 
         Messages = new ObservableCollection<ChatMessage>();
+        RunActivityRoots = new ObservableCollection<RunActivityNode>();
         Attachments = new ObservableCollection<CodexAttachment>();
         Skills = new ObservableCollection<SkillDefinition>();
         Memories = new ObservableCollection<MemoryEntry>();
@@ -238,6 +241,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         GenerateDocsCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildDocumentationPrompt(); }, outputScheduler: _uiScheduler);
         CopyMessageCommand = ReactiveCommand.Create<ChatMessage>(CopyMessageToClipboard, outputScheduler: _uiScheduler);
         UseMessageAsPromptCommand = ReactiveCommand.Create<ChatMessage>(UseMessageAsPrompt, outputScheduler: _uiScheduler);
+        OpenActivityFileCommand = ReactiveCommand.Create<RunActivityNode>(OpenActivityFile, outputScheduler: _uiScheduler);
 
         _subscriptions = new CompositeDisposableLike(
             _codex.Events.ObserveOnSafe(_uiScheduler).Subscribe(OnCodexEvent),
@@ -256,6 +260,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     }
 
     public ObservableCollection<ChatMessage> Messages { get; }
+    public ObservableCollection<RunActivityNode> RunActivityRoots { get; }
     public ObservableCollection<CodexAttachment> Attachments { get; }
     public ObservableCollection<SkillDefinition> Skills { get; }
     public ObservableCollection<MemoryEntry> Memories { get; }
@@ -326,6 +331,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> GenerateDocsCommand { get; }
     public ReactiveCommand<ChatMessage, Unit> CopyMessageCommand { get; }
     public ReactiveCommand<ChatMessage, Unit> UseMessageAsPromptCommand { get; }
+    public ReactiveCommand<RunActivityNode, Unit> OpenActivityFileCommand { get; }
 
     public string Prompt
     {
@@ -335,6 +341,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _prompt, value);
             this.RaisePropertyChanged(nameof(HasPromptText));
             this.RaisePropertyChanged(nameof(IsRunControlInStopMode));
+            this.RaisePropertyChanged(nameof(IsPersistentStopControlVisible));
         }
     }
     public string Status { get => _status; set => this.RaiseAndSetIfChanged(ref _status, value); }
@@ -346,6 +353,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _isRunning, value);
             this.RaisePropertyChanged(nameof(CanEditSettings));
             this.RaisePropertyChanged(nameof(IsRunControlInStopMode));
+            this.RaisePropertyChanged(nameof(IsPersistentStopControlVisible));
         }
     }
 
@@ -363,6 +371,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public bool HasPromptText => !string.IsNullOrWhiteSpace(Prompt);
     public bool HasQueuedPrompts => QueuedPromptCount > 0;
     public bool IsRunControlInStopMode => IsRunning && !HasPromptText;
+    public bool IsPersistentStopControlVisible => IsRunning && HasPromptText;
     public string QueueStatusDisplay => QueuedPromptCount <= 0 ? string.Empty : QueuedPromptCount == 1 ? "1 queued" : QueuedPromptCount + " queued";
     public bool CanEditSettings => !IsRunning;
     public bool IsToolPanelOpen { get => _isToolPanelOpen; set => this.RaiseAndSetIfChanged(ref _isToolPanelOpen, value); }
@@ -688,7 +697,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private async Task ProcessQueuedPromptAsync(string userPrompt)
     {
         await _joinableTaskFactory.SwitchToMainThreadAsync();
-        Refresh();
+        _workspace.RefreshWorkspaceIdentity();
+        this.RaisePropertyChanged(nameof(CurrentWorkspaceDisplay));
         if (!EnsureWorkspaceReadyForRun())
         {
             AddMessage(CodexMessageRole.Error, "VSCodex cannot run because Visual Studio has not provided a solution or repository folder project root yet.");
@@ -696,6 +706,37 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         }
 
         ApplyCurrentWorkspaceToSession();
+        var runRoot = BeginRunActivity(userPrompt);
+        _pendingUserActivityPromptToSuppress = userPrompt;
+        var workspaceRoot = _workspace.CurrentWorkspaceRoot;
+        var workspaceName = _workspace.CurrentWorkspaceName;
+        var solutionPath = _workspace.CurrentSolutionPath;
+        var memoryRoot = _workspace.CurrentWorkspaceMemoryRoot;
+        var workspaceIdentity = CloneWorkspaceIdentity(_workspace.CurrentWorkspaceIdentity) ?? new WorkspaceIdentity();
+        var threadIdSnapshot = ThreadId;
+        var hashReferences = _workspace.ResolveHashReferences(userPrompt, 0);
+        var selectedAgents = ApplyModelSelection(AgentRoles.Where(x => x.IsEnabled)).ToList();
+        var skills = Skills.Where(x => x.IsEnabled).ToList();
+        var mcpServers = McpServers.Where(x => x.IsEnabled).ToList();
+        var attachments = Attachments.ToList();
+        var options = new CodexRunOptions
+        {
+            Mode = Mode,
+            Model = EffectiveMainModel(),
+            FailoverModel = FailoverModel,
+            ReasoningEffort = SelectedReasoning,
+            Verbosity = SelectedVerbosity,
+            ApprovalPolicy = ApprovalPolicy,
+            SandboxMode = SandboxMode,
+            Transport = Transport,
+            UseMultiAgentOrchestration = UseMultiAgentOrchestration,
+            MaxAgentConcurrency = MaxAgentConcurrency,
+            AgentStrategy = AgentStrategy,
+            OrchestrationModel = EffectiveOrchestrationModel(),
+            BudgetDrivenModelSelection = BudgetDrivenModelSelection,
+            BudgetModel = BudgetModel
+        };
+
         Status = QueuedPromptCount > 0
             ? $"Running VSCodex ({QueuedPromptCount} queued). You can keep editing the next prompt."
             : "Running VSCodex...";
@@ -703,79 +744,104 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         var progressSubscription = StartRunProgress("Preparing request for " + _workspace.CurrentWorkspaceRoot);
         try
         {
+            AddRunActivity(RunActivityKind.Agent, "Run started", "Mode: " + options.Mode + Environment.NewLine + "Model: " + options.Model);
+            if (selectedAgents.Count > 0)
+            {
+                AddRunActivity(RunActivityKind.Agent, "Selected agents", string.Join(Environment.NewLine, selectedAgents.Select(agent => "- " + agent.Name + " (" + agent.Role + ")")));
+            }
+
+            if (skills.Count > 0)
+            {
+                AddRunActivity(RunActivityKind.Skill, "Enabled skills", string.Join(Environment.NewLine, skills.Select(skill => "- " + skill.Name)));
+            }
+
+            if (mcpServers.Count > 0)
+            {
+                AddRunActivity(RunActivityKind.Mcp, "Available MCP servers", string.Join(Environment.NewLine, mcpServers.Select(server => "- " + server.Name)));
+            }
+
             SetRunProgress("Updating ReactiveMemory context");
-            var memoryReaction = await _reactiveMemory.ReactToPromptAsync(userPrompt, _workspace.CurrentWorkspaceIdentity, ThreadId).ConfigureAwait(false);
-            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            var memoryReaction = await _reactiveMemory.ReactToPromptAsync(userPrompt, workspaceIdentity, threadIdSnapshot).ConfigureAwait(false);
             SetRunProgress(memoryReaction.Success ? memoryReaction.Message : "ReactiveMemory unavailable; continuing with local context");
+            AddRunActivity(RunActivityKind.Mcp, "ReactiveMemory prompt context", memoryReaction.Message, string.Empty, false);
             if (!string.IsNullOrWhiteSpace(memoryReaction.ContextText))
             {
                 AddMessage(CodexMessageRole.Memory, "Recovered ReactiveMemory context for this project.", persist: false);
             }
 
             SetRunProgress("Resolving VSCodex references and attachments");
-            var workspaceFiles = _workspace.ResolveMentions(userPrompt, 12000)
-                .Concat(_workspace.ResolveHashReferences(userPrompt, 0))
-                .GroupBy(x => string.IsNullOrWhiteSpace(x.ReferenceKey) ? x.Path : x.ReferenceKey, StringComparer.OrdinalIgnoreCase)
-                .Select(x => x.First())
-                .ToList();
-            var selectedAgents = ApplyModelSelection(AgentRoles.Where(x => x.IsEnabled)).ToList();
-            var options = new CodexRunOptions
+            var workspaceFiles = await Task.Run(() => _workspace.ResolveMentions(userPrompt, 12000)
+                    .Concat(hashReferences)
+                    .GroupBy(x => string.IsNullOrWhiteSpace(x.ReferenceKey) ? x.Path : x.ReferenceKey, StringComparer.OrdinalIgnoreCase)
+                    .Select(x => x.First())
+                    .ToList())
+                .ConfigureAwait(false);
+            if (workspaceFiles.Count > 0)
             {
-                Mode = Mode,
-                Model = EffectiveMainModel(),
-                FailoverModel = FailoverModel,
-                ReasoningEffort = SelectedReasoning,
-                Verbosity = SelectedVerbosity,
-                ApprovalPolicy = ApprovalPolicy,
-                SandboxMode = SandboxMode,
-                Transport = Transport,
-                UseMultiAgentOrchestration = UseMultiAgentOrchestration,
-                MaxAgentConcurrency = MaxAgentConcurrency,
-                AgentStrategy = AgentStrategy,
-                OrchestrationModel = EffectiveOrchestrationModel(),
-                BudgetDrivenModelSelection = BudgetDrivenModelSelection,
-                BudgetModel = BudgetModel
-            };
-            var request = new CodexRunRequest { Prompt = userPrompt, ThreadId = ThreadId, WorkspaceRoot = _workspace.CurrentWorkspaceRoot, WorkspaceName = _workspace.CurrentWorkspaceName, WorkspaceSolutionPath = _workspace.CurrentSolutionPath, WorkspaceMemoryRoot = _workspace.CurrentWorkspaceMemoryRoot, ReactiveMemoryContext = memoryReaction.ContextText, WorkspaceIdentity = _workspace.CurrentWorkspaceIdentity, Options = options, Attachments = Attachments.ToList(), Skills = Skills.Where(x => x.IsEnabled).ToList(), Memories = _memoryStore.Search(userPrompt, 10), McpServers = McpServers.Where(x => x.IsEnabled).ToList(), WorkspaceFiles = workspaceFiles, AgentRoles = selectedAgents };
-            ModelEstimate = _modelAnalytics.Estimate(request);
-            this.RaisePropertyChanged(nameof(AnalyticsSummary));
-            this.RaisePropertyChanged(nameof(AnalyticsRecommendation));
+                AddRunActivity(RunActivityKind.Agent, "Resolved prompt references", string.Join(Environment.NewLine, workspaceFiles.Select(file => "- " + file.ReferenceKey)));
+            }
+
+            var memories = await Task.Run(() => _memoryStore.Search(userPrompt, 10)).ConfigureAwait(false);
+            var request = new CodexRunRequest { Prompt = userPrompt, ThreadId = threadIdSnapshot, WorkspaceRoot = workspaceRoot, WorkspaceName = workspaceName, WorkspaceSolutionPath = solutionPath, WorkspaceMemoryRoot = memoryRoot, ReactiveMemoryContext = memoryReaction.ContextText, WorkspaceIdentity = workspaceIdentity, Options = options, Attachments = attachments, Skills = skills, Memories = memories, McpServers = mcpServers, WorkspaceFiles = workspaceFiles, AgentRoles = selectedAgents };
+            var estimate = await Task.Run(() => _modelAnalytics.Estimate(request)).ConfigureAwait(false);
+            RunOnUiThread(() =>
+            {
+                ModelEstimate = estimate;
+                this.RaisePropertyChanged(nameof(AnalyticsSummary));
+                this.RaisePropertyChanged(nameof(AnalyticsRecommendation));
+            });
             SetRunProgress("Sending request to Codex. Longer project analysis can take several minutes.");
             var result = await (UseMultiAgentOrchestration ? _taskOrchestrator.RunAsync(request) : _codex.RunAsync(request)).ConfigureAwait(false);
-            await _joinableTaskFactory.SwitchToMainThreadAsync();
-            UpdateRateLimitsFromJson(result.RawJson);
-            ThreadId = result.ThreadId ?? ThreadId;
+            RunOnUiThread(() =>
+            {
+                UpdateRateLimitsFromJson(result.RawJson);
+                ThreadId = result.ThreadId ?? ThreadId;
+            });
             AddMessage(CodexMessageRole.Assistant, result.FinalResponse);
             SetRunProgress("Saving ReactiveMemory diary");
-            var diary = await _reactiveMemory.WriteDiaryAsync(userPrompt, result.FinalResponse, _workspace.CurrentWorkspaceIdentity, ThreadId).ConfigureAwait(false);
-            await _joinableTaskFactory.SwitchToMainThreadAsync();
+            var diary = await _reactiveMemory.WriteDiaryAsync(userPrompt, result.FinalResponse, workspaceIdentity, ThreadId).ConfigureAwait(false);
+            AddRunActivity(RunActivityKind.Mcp, "ReactiveMemory diary", diary.Message);
             if (!diary.Success)
             {
                 AddMessage(CodexMessageRole.Memory, "ReactiveMemory diary was not saved: " + diary.Message, persist: false);
             }
 
+            SetRunProgress("Collecting changed files");
+            var changedFiles = await Task.Run(() => CollectChangedFilesForWorkspace(workspaceRoot)).ConfigureAwait(false);
+            AddChangedFilesActivity(changedFiles);
             FinishRunProgress(result.UsedFallback ? "Completed using CLI fallback" : "Completed");
-            Status = result.UsedFallback ? "Complete using CLI fallback" : "Complete";
-            _session.ThreadId = ThreadId;
-            if (string.IsNullOrWhiteSpace(_session.Title))
+            RunOnUiThread(() =>
             {
-                _session.Title = DeriveSessionTitle(_session);
-            }
+                Status = result.UsedFallback ? "Complete using CLI fallback" : "Complete";
+                runRoot.CompletedAt = DateTimeOffset.Now;
+                UpdateRunActivityElapsed(runRoot);
+                _session.ThreadId = ThreadId;
+                if (string.IsNullOrWhiteSpace(_session.Title))
+                {
+                    _session.Title = DeriveSessionTitle(_session);
+                }
 
-            _sessionStore.Save(_session);
-            RefreshHistory();
+                _sessionStore.Save(_session);
+                RefreshHistory();
+            });
         }
         catch (Exception ex)
         {
-            await _joinableTaskFactory.SwitchToMainThreadAsync();
             FinishRunProgress("Failed: " + ex.Message);
             AddMessage(CodexMessageRole.Error, ex.ToString());
-            Status = "Failed: " + ex.Message;
+            RunOnUiThread(() =>
+            {
+                runRoot.CompletedAt = DateTimeOffset.Now;
+                UpdateRunActivityElapsed(runRoot);
+                Status = "Failed: " + ex.Message;
+            });
         }
         finally
         {
-            await _joinableTaskFactory.SwitchToMainThreadAsync();
             progressSubscription.Dispose();
+            _activeRunActivity = null;
+            _activeProgressNode = null;
+            _pendingUserActivityPromptToSuppress = string.Empty;
         }
     }
 
@@ -1451,6 +1517,10 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         Prompt = string.Empty;
         ThreadId = null;
         Messages.Clear();
+        RunActivityRoots.Clear();
+        _activeRunActivity = null;
+        _activeProgressNode = null;
+        _pendingUserActivityPromptToSuppress = string.Empty;
         Attachments.Clear();
         OrchestrationSections.Clear();
         Status = "New VSCodex thread";
@@ -1599,6 +1669,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         {
             Messages.Add(message);
         }
+        RebuildActivityTreeFromMessages();
 
         Attachments.Clear();
         SelectedHistoryItem = item;
@@ -1624,6 +1695,10 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             Prompt = string.Empty;
             ThreadId = null;
             Messages.Clear();
+            RunActivityRoots.Clear();
+            _activeRunActivity = null;
+            _activeProgressNode = null;
+            _pendingUserActivityPromptToSuppress = string.Empty;
             Attachments.Clear();
             UpdateAnalytics(Prompt);
         }
@@ -2019,6 +2094,321 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         Status = message.Role == CodexMessageRole.User ? "Copied user prompt back to input" : "Copied message back to input";
     }
 
+    private void OpenActivityFile(RunActivityNode? node)
+    {
+        if (node == null || string.IsNullOrWhiteSpace(node.FilePath))
+        {
+            Status = "No file is associated with this activity";
+            return;
+        }
+
+        if (node.IsDeleted || !File.Exists(node.FilePath))
+        {
+            Status = "Changed file no longer exists: " + node.FilePath;
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = node.FilePath,
+                UseShellExecute = true
+            });
+            Status = "Opened " + node.FilePath;
+        }
+        catch (Exception ex)
+        {
+            Status = "Could not open changed file: " + ex.Message;
+        }
+    }
+
+    private RunActivityNode BeginRunActivity(string prompt)
+    {
+        var started = DateTimeOffset.Now;
+        var root = new RunActivityNode
+        {
+            Kind = RunActivityKind.User,
+            Title = "User request",
+            Detail = prompt ?? string.Empty,
+            StartedAt = started,
+            IsExpanded = true
+        };
+        UpdateRunActivityElapsed(root);
+        AddDefaultActivitySections(root);
+        RunActivityRoots.Add(root);
+        _activeRunActivity = root;
+        return root;
+    }
+
+    private void AddDefaultActivitySections(RunActivityNode root)
+    {
+        root.Children.Add(CreateSection(RunActivityKind.Agent, "Agent actions"));
+        root.Children.Add(CreateSection(RunActivityKind.Mcp, "MCP usage"));
+        root.Children.Add(CreateSection(RunActivityKind.Skill, "Skill usage"));
+        root.Children.Add(CreateSection(RunActivityKind.Files, "Files changed"));
+        root.Children.Add(CreateSection(RunActivityKind.Assistant, "Assistant response"));
+        root.Children.Add(CreateSection(RunActivityKind.System, "System prompts and diagnostics"));
+    }
+
+    private static RunActivityNode CreateSection(RunActivityKind kind, string title) => new RunActivityNode
+    {
+        Kind = kind,
+        Title = title,
+        StartedAt = DateTimeOffset.Now,
+        IsExpanded = kind != RunActivityKind.System
+    };
+
+    private RunActivityNode? CurrentActivityRoot()
+        => _activeRunActivity ?? RunActivityRoots.LastOrDefault();
+
+    private RunActivityNode GetActivitySection(RunActivityKind kind)
+    {
+        var root = CurrentActivityRoot();
+        if (root == null)
+        {
+            root = BeginRunActivity("System activity");
+        }
+
+        var sectionKind = kind == RunActivityKind.File ? RunActivityKind.Files : kind;
+        var section = root.Children.FirstOrDefault(child => child.Kind == sectionKind);
+        if (section != null)
+        {
+            return section;
+        }
+
+        section = CreateSection(sectionKind, ActivitySectionTitle(sectionKind));
+        var system = root.Children.FirstOrDefault(child => child.Kind == RunActivityKind.System);
+        if (system == null)
+        {
+            root.Children.Add(section);
+        }
+        else
+        {
+            root.Children.Insert(Math.Max(0, root.Children.IndexOf(system)), section);
+        }
+
+        return section;
+    }
+
+    private static string ActivitySectionTitle(RunActivityKind kind)
+        => kind switch
+        {
+            RunActivityKind.Agent => "Agent actions",
+            RunActivityKind.Mcp => "MCP usage",
+            RunActivityKind.Skill => "Skill usage",
+            RunActivityKind.Files => "Files changed",
+            RunActivityKind.Assistant => "Assistant response",
+            RunActivityKind.System => "System prompts and diagnostics",
+            _ => "Activity"
+        };
+
+    private RunActivityNode AddRunActivity(RunActivityKind kind, string title, string detail = "", string filePath = "", bool isDeleted = false)
+    {
+        var node = new RunActivityNode
+        {
+            Kind = string.IsNullOrWhiteSpace(filePath) ? kind : RunActivityKind.File,
+            Title = title ?? string.Empty,
+            Detail = detail ?? string.Empty,
+            FilePath = filePath ?? string.Empty,
+            IsDeleted = isDeleted,
+            StartedAt = DateTimeOffset.Now,
+            IsExpanded = kind != RunActivityKind.System
+        };
+
+        RunOnUiThread(() =>
+        {
+            var section = GetActivitySection(kind);
+            section.Children.Add(node);
+            section.IsExpanded = true;
+        });
+        return node;
+    }
+
+    private void AppendMessageToActivityTree(ChatMessage message)
+    {
+        if (message == null || message.IsTransient)
+        {
+            return;
+        }
+
+        if (message.Role == CodexMessageRole.User)
+        {
+            if (!string.IsNullOrWhiteSpace(_pendingUserActivityPromptToSuppress)
+                && _activeRunActivity != null
+                && string.Equals(_activeRunActivity.Detail, message.Content, StringComparison.Ordinal)
+                && string.Equals(_pendingUserActivityPromptToSuppress, message.Content, StringComparison.Ordinal))
+            {
+                _pendingUserActivityPromptToSuppress = string.Empty;
+                return;
+            }
+
+            BeginRunActivity(message.Content);
+            return;
+        }
+
+        AddRunActivity(ActivityKindForRole(message.Role), ActivityTitleForRole(message.Role), message.Content);
+    }
+
+    private void RebuildActivityTreeFromMessages()
+    {
+        RunActivityRoots.Clear();
+        _activeRunActivity = null;
+        _activeProgressNode = null;
+        _pendingUserActivityPromptToSuppress = string.Empty;
+        foreach (var message in Messages)
+        {
+            AppendMessageToActivityTree(message);
+        }
+    }
+
+    private static RunActivityKind ActivityKindForRole(CodexMessageRole role)
+        => role switch
+        {
+            CodexMessageRole.Assistant => RunActivityKind.Assistant,
+            CodexMessageRole.Mcp or CodexMessageRole.Memory => RunActivityKind.Mcp,
+            CodexMessageRole.Skill => RunActivityKind.Skill,
+            CodexMessageRole.System or CodexMessageRole.Error => RunActivityKind.System,
+            _ => RunActivityKind.Agent
+        };
+
+    private static string ActivityTitleForRole(CodexMessageRole role)
+        => role switch
+        {
+            CodexMessageRole.Assistant => "Final assistant response",
+            CodexMessageRole.Mcp => "MCP event",
+            CodexMessageRole.Memory => "ReactiveMemory",
+            CodexMessageRole.Skill => "Skill event",
+            CodexMessageRole.Error => "Error",
+            CodexMessageRole.System => "System",
+            _ => "Agent event"
+        };
+
+    private void UpdateRunActivityElapsed(RunActivityNode? root)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        var end = root.CompletedAt ?? DateTimeOffset.Now;
+        root.ElapsedText = "started " + root.StartedAt.LocalDateTime.ToString("HH:mm:ss") + " | elapsed " + FormatElapsed(end - root.StartedAt);
+    }
+
+    private void AddChangedFilesActivity(IReadOnlyList<ChangedFileActivity> files)
+    {
+        RunOnUiThread(() =>
+        {
+            var section = GetActivitySection(RunActivityKind.Files);
+            section.Children.Clear();
+            if (files.Count == 0)
+            {
+                section.Children.Add(new RunActivityNode
+                {
+                    Kind = RunActivityKind.Files,
+                    Title = "No changed files detected",
+                    Detail = "Git did not report workspace file changes after this request.",
+                    StartedAt = DateTimeOffset.Now
+                });
+                return;
+            }
+
+            foreach (var file in files.OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase))
+            {
+                section.Children.Add(new RunActivityNode
+                {
+                    Kind = RunActivityKind.File,
+                    Title = file.RelativePath,
+                    Detail = file.Status,
+                    FilePath = file.FullPath,
+                    IsDeleted = file.IsDeleted,
+                    StartedAt = DateTimeOffset.Now,
+                    IsExpanded = false
+                });
+            }
+
+            section.IsExpanded = true;
+        });
+    }
+
+    private static IReadOnlyList<ChangedFileActivity> CollectChangedFilesForWorkspace(string workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot) || !Directory.Exists(workspaceRoot))
+        {
+            return Array.Empty<ChangedFileActivity>();
+        }
+
+        try
+        {
+            using (var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "git",
+                Arguments = "-C " + QuoteForCmd(workspaceRoot) + " status --porcelain=v1 --untracked-files=all",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }))
+            {
+                if (process == null)
+                {
+                    return Array.Empty<ChangedFileActivity>();
+                }
+
+                var output = process.StandardOutput.ReadToEnd();
+                if (!process.WaitForExit(5000) || process.ExitCode != 0)
+                {
+                    return Array.Empty<ChangedFileActivity>();
+                }
+
+                return output
+                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => ParseChangedFileLine(workspaceRoot, line))
+                    .Where(file => file != null)
+                    .Cast<ChangedFileActivity>()
+                    .ToList();
+            }
+        }
+        catch
+        {
+            return Array.Empty<ChangedFileActivity>();
+        }
+    }
+
+    private static ChangedFileActivity? ParseChangedFileLine(string root, string line)
+    {
+        if (string.IsNullOrWhiteSpace(line) || line.Length < 4)
+        {
+            return null;
+        }
+
+        var status = line.Substring(0, 2).Trim();
+        var path = line.Substring(3).Trim();
+        var renameIndex = path.IndexOf(" -> ", StringComparison.Ordinal);
+        if (renameIndex >= 0)
+        {
+            path = path.Substring(renameIndex + 4).Trim();
+        }
+
+        path = path.Trim('"');
+        var fullPath = Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar));
+        return new ChangedFileActivity
+        {
+            RelativePath = path,
+            FullPath = fullPath,
+            Status = string.IsNullOrWhiteSpace(status) ? "modified" : status,
+            IsDeleted = status.IndexOf("D", StringComparison.OrdinalIgnoreCase) >= 0 || !File.Exists(fullPath)
+        };
+    }
+
+    private sealed class ChangedFileActivity
+    {
+        public string RelativePath { get; set; } = string.Empty;
+        public string FullPath { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public bool IsDeleted { get; set; }
+    }
+
     private void OnCodexEvent(CodexEvent ev)
     {
         RunOnUiThread(() =>
@@ -2048,6 +2438,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         RunOnUiThread(() =>
         {
             Messages.Add(message);
+            AppendMessageToActivityTree(message);
             if (!message.IsTransient)
             {
                 _session.Messages.Add(message);
@@ -2065,7 +2456,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     {
         _activeRunStartedAt = DateTimeOffset.Now;
         _activeRunStage = stage;
-        _activeProgressMessage = AddMessage(CodexMessageRole.System, BuildRunProgressMessage(stage), persist: false);
+        _activeProgressNode = AddRunActivity(RunActivityKind.Agent, "VSCodex is working", BuildRunProgressMessage(stage));
         return Observable.Interval(TimeSpan.FromSeconds(15), _uiScheduler)
             .Subscribe(_ => RefreshRunProgress());
     }
@@ -2082,24 +2473,27 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
 
     private void RefreshRunProgress()
     {
-        if (_activeProgressMessage == null || !IsRunning)
+        if (_activeProgressNode == null || !IsRunning)
         {
             return;
         }
 
-        _activeProgressMessage.Content = BuildRunProgressMessage(_activeRunStage);
+        _activeProgressNode.Title = string.IsNullOrWhiteSpace(_activeRunStage) ? "VSCodex is working" : _activeRunStage;
+        _activeProgressNode.Detail = BuildRunProgressMessage(_activeRunStage);
+        UpdateRunActivityElapsed(_activeRunActivity);
     }
 
     private void FinishRunProgress(string stage)
     {
         RunOnUiThread(() =>
         {
-            if (_activeProgressMessage != null)
+            if (_activeProgressNode != null)
             {
-                _activeProgressMessage.Content = BuildRunProgressMessage(stage);
+                _activeProgressNode.Title = string.IsNullOrWhiteSpace(stage) ? "VSCodex complete" : stage;
+                _activeProgressNode.Detail = BuildRunProgressMessage(stage);
             }
 
-            _activeProgressMessage = null;
+            _activeProgressNode = null;
             _activeRunStage = string.Empty;
         });
     }

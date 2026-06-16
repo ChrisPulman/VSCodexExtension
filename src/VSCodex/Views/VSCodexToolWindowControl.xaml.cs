@@ -21,7 +21,7 @@ public partial class VSCodexToolWindowControl : UserControl
     private double _promptResizeStartHeight;
     private double _promptResizeVerticalDelta;
     private Thumb? _promptResizeThumb;
-    private INotifyCollectionChanged? _messagesCollection;
+    private INotifyCollectionChanged? _activityRootsCollection;
     private INotifyPropertyChanged? _viewModelNotifications;
 
     public VSCodexToolWindowControl()
@@ -165,29 +165,29 @@ public partial class VSCodexToolWindowControl : UserControl
             _viewModelNotifications.PropertyChanged += OnViewModelPropertyChanged;
         }
 
-        AttachMessagesCollection(viewModel?.Messages);
+        AttachActivityRootsCollection(viewModel?.RunActivityRoots);
     }
 
-    private void AttachMessagesCollection(INotifyCollectionChanged? collection)
+    private void AttachActivityRootsCollection(INotifyCollectionChanged? collection)
     {
-        if (ReferenceEquals(_messagesCollection, collection))
+        if (ReferenceEquals(_activityRootsCollection, collection))
         {
             return;
         }
 
-        if (_messagesCollection != null)
+        if (_activityRootsCollection != null)
         {
-            _messagesCollection.CollectionChanged -= OnMessagesCollectionChanged;
+            _activityRootsCollection.CollectionChanged -= OnActivityRootsCollectionChanged;
         }
 
-        _messagesCollection = collection;
-        if (_messagesCollection != null)
+        _activityRootsCollection = collection;
+        if (_activityRootsCollection != null)
         {
-            _messagesCollection.CollectionChanged += OnMessagesCollectionChanged;
+            _activityRootsCollection.CollectionChanged += OnActivityRootsCollectionChanged;
         }
     }
 
-    private void OnMessagesCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+    private void OnActivityRootsCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.Action != NotifyCollectionChangedAction.Add && e.Action != NotifyCollectionChangedAction.Reset)
         {
@@ -201,12 +201,12 @@ public partial class VSCodexToolWindowControl : UserControl
 
     private void ScrollConversationToLatest()
     {
-        if (ViewModel == null || ViewModel.Messages.Count == 0)
+        if (ViewModel == null || ViewModel.RunActivityRoots.Count == 0)
         {
             return;
         }
 
-        ConversationListBox.ScrollIntoView(ViewModel.Messages[ViewModel.Messages.Count - 1]);
+        ConversationScrollViewer.ScrollToEnd();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

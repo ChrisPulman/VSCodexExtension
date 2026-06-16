@@ -374,7 +374,7 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "_settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore)", "An open VSCodex tool window must react to Tools > Options changes without restarting Visual Studio.");
         RequireContains(viewModel, "ApplySettingsFromStore", "Tools > Options changes must update the live tool-window run settings.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.4.1\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.4.2\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
     }
 
@@ -704,6 +704,8 @@ public sealed class VsixSurfaceTests
         var codeBehind = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml.cs");
         var voiceInput = ReadText("src/VSCodex/Services/VoiceInputService.cs");
         var models = ReadText("src/VSCodex/Models/CodexModels.cs");
+        var reactiveMemory = ReadText("src/VSCodex/Services/ReactiveMemoryService.cs");
+        var memoryStore = ReadText("src/VSCodex/Services/MemoryStore.cs");
 
         RequireContains(view, "MinWidth=\"240\"", "The tool window must allow narrow docking while the inner controls wrap and scroll.");
         RequireContains(view, "MaxWidth=\"{Binding ActualWidth, ElementName=Root}\"", "The settings panel must be constrained to the actual tool-window width.");
@@ -729,9 +731,13 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "Content=\"Plan work\"", "The unified action panel must include planning.");
         RequireContains(view, "Content=\"+ Reference\"", "The unified action panel must include reference refresh.");
         RequireContains(view, "Content=\"Docs\"", "The unified action panel must include documentation generation.");
-        RequireContains(view, "Content=\"Use as prompt\"", "Chat messages must let users move prior user input back into the prompt editor.");
-        RequireContains(view, "CopyMessageCommand", "Chat messages must expose a copy command for prior prompts and responses.");
+        RequireContains(view, "ItemsSource=\"{Binding RunActivityRoots}\"", "Conversation feedback must render the collapsible activity tree instead of the flat message list.");
+        RequireContains(view, "HierarchicalDataTemplate DataType=\"{x:Type models:RunActivityNode}\"", "Activity history must use a tree template so each user request owns its child actions.");
+        RequireContains(view, "Command=\"{Binding DataContext.OpenActivityFileCommand, RelativeSource={RelativeSource AncestorType=TreeView}}\"", "Changed files in the activity tree must be openable from Visual Studio.");
+        RequireContains(view, "Binding=\"{Binding IsDeleted}\"", "Deleted changed files must have a distinct visual state.");
+        RequireContains(view, "Foreground\" Value=\"#E81123\"", "Deleted changed files must be shown in red text.");
         RequireContains(viewModel, "UseMessageAsPromptCommand", "The view model must support reusing a prior user prompt as editable input.");
+        RequireContains(viewModel, "CopyMessageCommand", "The view model must still expose copy support for messages used by saved history and commands.");
         RequireContains(viewModel, "System.Windows.Clipboard.SetText", "The view model must copy message text to the Windows clipboard.");
         RequireContains(view, "Command=\"{Binding NewThreadCommand}\"", "The tool window must expose a first-class new thread action.");
         RequireContains(view, "AutomationProperties.Name=\"New VSCodex thread\"", "Icon-only header controls must have an accessible automation name.");
@@ -818,19 +824,26 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "TargetType=\"Button\"", "Buttons must receive explicit theme styling.");
         RequireContains(view, "TargetType=\"CheckBox\"", "Check boxes must receive explicit theme styling.");
         RequireContains(view, "TargetType=\"ListBoxItem\"", "List items must receive explicit theme styling.");
+        RequireContains(view, "TargetType=\"TreeViewItem\"", "Activity tree items must receive explicit theme styling.");
         RequireContains(view, "TargetType=\"GroupBox\"", "Grouped panes must receive explicit theme styling.");
         RequireContains(view, "EnvironmentColors.ToolWindowBackgroundBrushKey", "Tool-window backgrounds must use Visual Studio theme brushes.");
         RequireContains(view, "EnvironmentColors.ToolWindowTextBrushKey", "Tool-window foregrounds must use Visual Studio theme brushes.");
         RequireContains(view, "EnvironmentColors.ToolWindowBorderBrushKey", "Tool-window borders must use Visual Studio theme brushes.");
         RequireContains(view, "SystemColors.HighlightTextBrushKey", "Selected list items must use system highlight text for contrast.");
         RequireContains(view, "controls:MarkdownTextBlock", "Chat messages must render Markdown instead of showing raw Markdown source.");
-        RequireContains(view, "Markdown=\"{Binding Content}\"", "The Markdown renderer must bind directly to chat message content.");
+        RequireContains(view, "Markdown=\"{Binding Detail}\"", "The Markdown renderer must bind directly to activity detail content.");
         RequireContains(view, "TargetType=\"{x:Type controls:MarkdownTextBlock}\"", "Rendered Markdown must use Visual Studio themed text resources.");
         RequireContains(ReadText("src/VSCodex/Controls/MarkdownTextBlock.cs"), "Hyperlink", "Rendered Markdown must support clickable Markdown links.");
-        RequireContains(view, "ScrollViewer.CanContentScroll=\"False\"", "The conversation list must use pixel-based scrolling so tall messages are fully readable and not clipped at the viewport boundary.");
+        RequireContains(view, "x:Name=\"ConversationScrollViewer\"", "The activity history must have a named scroll container for auto-scrolling.");
+        RequireContains(view, "ScrollViewer.CanContentScroll=\"False\"", "The conversation tree must use pixel-based scrolling so tall activity nodes are fully readable and not clipped at the viewport boundary.");
         RequireContains(viewModel, "RateLimits", "Rate-limit rows must be backed by view-model state.");
-        RequireContains(viewModel, "StartRunProgress", "Run must add immediate in-chat feedback before long Codex calls complete.");
-        RequireContains(viewModel, "VSCodex is working", "Run progress feedback must be visible in the conversation transcript.");
+        RequireContains(viewModel, "RunActivityRoots", "Run feedback must be backed by a scrollable activity tree.");
+        RequireContains(viewModel, "BeginRunActivity", "Each user prompt must create a root activity node.");
+        RequireContains(viewModel, "AddDefaultActivitySections", "Activity roots must include standard child sections for agent, MCP, skill, file, assistant, and system output.");
+        RequireContains(viewModel, "AddChangedFilesActivity", "Completed runs must show changed files in the activity tree.");
+        RequireContains(viewModel, "CollectChangedFilesForWorkspace", "Completed runs must collect git changed files for user visibility.");
+        RequireContains(viewModel, "StartRunProgress", "Run must add immediate activity feedback before long Codex calls complete.");
+        RequireContains(viewModel, "VSCodex is working", "Run progress feedback must be visible in the activity history.");
         RequireContains(viewModel, "Observable.Interval(TimeSpan.FromSeconds(15)", "Long-running requests must refresh visible progress periodically.");
         RequireContains(viewModel, "RefreshRateLimitsAsync", "The tool window must refresh real Codex rate-limit telemetry on startup and workspace refresh.");
         RequireContains(viewModel, "RefreshWorkspaceIdentityForStartup", "Tool-window creation must avoid rebuilding the workspace file index during Visual Studio startup.");
@@ -875,10 +888,20 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "public void ToggleVoiceInput()", "The view must be able to invoke voice input directly from the click handler.");
         RequireContains(view, "AutomationProperties.Name=\"Toggle VSCodex voice input\"", "The voice input button must be accessible.");
         RequireContains(view, "AutomationProperties.Name=\"Send or stop VSCodex request\"", "The visual run control must be accessible in send and stop states.");
-        RequireContains(view, "AutomationProperties.Name=\"Stop VSCodex request\"", "A persistent stop control must remain visible while Codex is running.");
+        RequireContains(view, "AutomationProperties.Name=\"Stop VSCodex request\"", "A persistent stop control must remain available while typed prompts are queued during a running request.");
+        RequireContains(view, "Visibility=\"{Binding IsPersistentStopControlVisible, Converter={StaticResource BooleanToVisibilityConverter}}\"", "The secondary stop control must be hidden when the primary run button is already in stop mode.");
+        RequireContains(viewModel, "IsPersistentStopControlVisible => IsRunning && HasPromptText", "The persistent stop control must only appear when typed input makes the primary run control send another prompt.");
         RequireContains(view, "QueueStatusDisplay", "The composer must show queued prompt count beside the run control.");
         RequireContains(viewModel, "AppendVoiceTranscript", "Recognized speech must append to the current prompt.");
         RequireContains(viewModel, "Task.Run(async () => await _mcpTools.DiscoverToolsAsync", "MCP discovery must avoid blocking the Visual Studio UI thread.");
+        RequireContains(viewModel, "Task.Run(() => _workspace.ResolveMentions", "Prompt reference resolution must avoid blocking the Visual Studio UI thread.");
+        RequireContains(viewModel, "Task.Run(() => _memoryStore.Search", "Memory search during a run must avoid blocking the Visual Studio UI thread.");
+        RequireContains(viewModel, "Task.Run(() => _modelAnalytics.Estimate", "Model analytics for a run must avoid blocking the Visual Studio UI thread.");
+        RequireContains(viewModel, "Task.Run(() => CollectChangedFilesForWorkspace", "Changed-file collection must avoid blocking the Visual Studio UI thread.");
+        RequireContains(memoryStore, "private readonly object _gate", "The in-window memory cache must serialize snapshot access used by background run preparation.");
+        RequireContains(memoryStore, "_currentSnapshot", "The in-window memory cache must expose immutable snapshots instead of reading BehaviorSubject state across threads.");
+        RequireContains(reactiveMemory, "catch (OperationCanceledException)", "ReactiveMemory host cancellations must be handled as unavailable context rather than crashing VSCodex.");
+        RequireContains(reactiveMemory, "ReactiveMemory MCP call was cancelled by the host; continuing without blocking VSCodex.", "ReactiveMemory cancellation feedback must explain that VSCodex continues without blocking the run.");
         RequireContains(viewModel, "VSCodex settings are locked while a task is running", "Blocked setting changes must produce visible user feedback.");
         RequireContains(viewModel, "ShowHistoryCommand", "The header command must open the history tab on demand.");
         RequireContains(viewModel, "IsToolPanelOpen = true", "The tool panel must still open on demand.");
@@ -910,7 +933,7 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "NewThreadCommand", "The tool-window view model must support starting a new VSCodex thread.");
         RequireContains(codeBehind, "InsertPromptNewLine", "Ctrl+Enter must insert a newline in the prompt input.");
         RequireContains(codeBehind, "e.Key == Key.Enter", "Enter must run the active VSCodex prompt.");
-        RequireContains(codeBehind, "ConversationListBox.ScrollIntoView", "Conversation history must auto-scroll to newly added messages.");
+        RequireContains(codeBehind, "ConversationScrollViewer.ScrollToEnd", "Conversation history must auto-scroll to newly added activity roots.");
         RequireContains(codeBehind, "Key.Tab", "Tab must insert the selected inline prompt suggestion.");
         RequireContains(codeBehind, "Key.Down", "Arrow keys must navigate inline prompt suggestions.");
         RequireContains(codeBehind, "InsertSelectedPromptSuggestion", "The prompt UI must insert the selected suggestion from keyboard or mouse.");
