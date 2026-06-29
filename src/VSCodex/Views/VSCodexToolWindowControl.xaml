@@ -28,6 +28,20 @@
             <Setter Property="Margin" Value="0,6,0,0" />
         </Style>
 
+        <Style x:Key="SelectableMessageViewerStyle" TargetType="{x:Type controls:SelectableMarkdownViewer}">
+            <Setter Property="Margin" Value="0,5,0,0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+            <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="VerticalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="IsReadOnlyCaretVisible" Value="False" />
+            <Setter Property="IsDocumentEnabled" Value="True" />
+        </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="AcceptsReturn" Value="True" />
             <Setter Property="TextWrapping" Value="Wrap" />
@@ -219,6 +233,40 @@
         </Style>
 
         <Style
+            x:Key="ActionChipButtonStyle"
+            BasedOn="{StaticResource CompactButtonStyle}"
+            TargetType="Button">
+            <Setter Property="MinHeight" Value="25" />
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+            <Setter Property="Background" Value="#303030" />
+            <Setter Property="Foreground" Value="#F2F2F2" />
+            <Setter Property="BorderBrush" Value="#484848" />
+        </Style>
+
+        <Style
+            x:Key="ComposerPromptTextBoxStyle"
+            BasedOn="{StaticResource {x:Type TextBox}}"
+            TargetType="TextBox">
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="Background" Value="#2B2B2B" />
+            <Setter Property="Foreground" Value="#F4F4F4" />
+            <Setter Property="BorderBrush" Value="#2B2B2B" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CaretBrush" Value="#F4F4F4" />
+        </Style>
+
+        <Style
+            x:Key="ComposerChipTextStyle"
+            BasedOn="{StaticResource {x:Type TextBlock}}"
+            TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,5,6" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="#CFCFCF" />
+            <Setter Property="Opacity" Value="0.88" />
+        </Style>
+
+        <Style
             x:Key="IconButtonStyle"
             BasedOn="{StaticResource CompactButtonStyle}"
             TargetType="Button">
@@ -330,6 +378,32 @@
                 Background="Transparent">
                 <StackPanel>
                     <DockPanel LastChildFill="True">
+                        <Button
+                            Margin="5,0,0,0"
+                            AutomationProperties.Name="Copy VSCodex response text"
+                            Command="{Binding DataContext.CopyActivityDetailCommand, RelativeSource={RelativeSource AncestorType=TreeView}}"
+                            CommandParameter="{Binding}"
+                            DockPanel.Dock="Right"
+                            Style="{StaticResource IconButtonStyle}"
+                            ToolTip="Copy this VSCodex response text.">
+                            <Button.Visibility>
+                                <Binding Converter="{StaticResource BooleanToVisibilityConverter}" Path="HasDetail" />
+                            </Button.Visibility>
+                            <Viewbox
+                                Width="13"
+                                Height="13"
+                                Stretch="Uniform">
+                                <Grid Width="16" Height="16">
+                                    <Path
+                                        Data="M6,5 L13,5 L13,14 L6,14 Z M3,2 L10,2 L10,4 M3,2 L3,11 L5,11"
+                                        Fill="Transparent"
+                                        Stroke="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}"
+                                        StrokeEndLineCap="Square"
+                                        StrokeLineJoin="Miter"
+                                        StrokeThickness="1.4" />
+                                </Grid>
+                            </Viewbox>
+                        </Button>
                         <TextBlock
                             Margin="8,0,0,0"
                             DockPanel.Dock="Right"
@@ -374,13 +448,11 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </DockPanel>
-                    <controls:MarkdownTextBlock Markdown="{Binding Detail}">
-                        <controls:MarkdownTextBlock.Style>
-                            <Style TargetType="{x:Type controls:MarkdownTextBlock}">
-                                <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
-                                <Setter Property="TextWrapping" Value="Wrap" />
-                                <Setter Property="LineHeight" Value="18" />
-                                <Setter Property="Margin" Value="0,5,0,0" />
+                    <controls:SelectableMarkdownViewer Markdown="{Binding Detail}">
+                        <controls:SelectableMarkdownViewer.Style>
+                            <Style
+                                BasedOn="{StaticResource SelectableMessageViewerStyle}"
+                                TargetType="{x:Type controls:SelectableMarkdownViewer}">
                                 <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasDetail}" Value="False">
@@ -391,8 +463,8 @@
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </controls:MarkdownTextBlock.Style>
-                    </controls:MarkdownTextBlock>
+                        </controls:SelectableMarkdownViewer.Style>
+                    </controls:SelectableMarkdownViewer>
                 </StackPanel>
             </Border>
         </HierarchicalDataTemplate>
@@ -490,6 +562,27 @@
             <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
             <Setter Property="Opacity" Value="0.78" />
             <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+
+        <Style x:Key="SettingsSectionBorderStyle" TargetType="Border">
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="Background" Value="#252525" />
+            <Setter Property="BorderBrush" Value="#3A3A3A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+
+        <Style x:Key="SettingsSectionHeadingStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+
+        <Style x:Key="SettingsMutedTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Opacity" Value="0.68" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
 
         <DataTemplate x:Key="RateLimitTemplate">
@@ -605,7 +698,7 @@
                         AutomationProperties.Name="Open VSCodex controls"
                         Click="OnOpenToolPanelClick"
                         Style="{StaticResource IconButtonStyle}"
-                        ToolTip="Open VSCodex controls for setup, history, context, skills, MCP, analytics, memory, agents, and attachments.">
+                        ToolTip="Open VSCodex controls for setup, history, context, skills, MCP, memory, agents, and attachments.">
                         <Viewbox
                             Width="15"
                             Height="15"
@@ -674,12 +767,6 @@
                 </WrapPanel>
 
                 <TextBlock
-                    Grid.Row="1"
-                    Margin="0,3,0,4"
-                    Opacity="0.72"
-                    Text="{Binding Status}"
-                    TextTrimming="CharacterEllipsis" />
-                <TextBlock
                     Grid.Row="2"
                     Margin="0,0,0,2"
                     FontSize="11"
@@ -693,6 +780,7 @@
             <ScrollViewer
                 x:Name="ConversationScrollViewer"
                 HorizontalScrollBarVisibility="Disabled"
+                PreviewMouseWheel="OnConversationMouseWheel"
                 VerticalScrollBarVisibility="Auto">
                 <TreeView
                     x:Name="ConversationTree"
@@ -945,78 +1033,100 @@
                 </TabItem>
 
                 <TabItem Header="Skills">
-                    <DockPanel Margin="8">
-                        <StackPanel DockPanel.Dock="Top">
-                            <WrapPanel>
+                    <Grid Margin="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource SettingsMutedTextStyle}"
+                                Text="{Binding UserSkillsRoot}" />
+                            <WrapPanel Grid.Column="1">
                                 <Button
                                     Command="{Binding SaveSkillsCommand}"
-                                    Content="Save enabled skills"
+                                    Content="Save"
                                     Style="{StaticResource CompactButtonStyle}" />
                                 <Button
                                     Command="{Binding OpenSkillsFolderCommand}"
-                                    Content="Open skills folder"
+                                    Content="Open folder"
                                     Style="{StaticResource CompactButtonStyle}" />
                             </WrapPanel>
-                            <TextBlock
-                                Margin="0,2,0,6"
-                                Opacity="0.72"
-                                Text="{Binding UserSkillsRoot}"
-                                TextTrimming="CharacterEllipsis" />
-                            <Border
-                                Margin="0,0,0,8"
-                                Padding="8"
-                                BorderBrush="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}"
-                                BorderThickness="1"
-                                CornerRadius="3">
-                                <StackPanel>
-                                    <TextBlock FontWeight="SemiBold" Text="Create skill" />
-                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Name" />
-                                    <TextBox AcceptsReturn="False" Text="{Binding NewSkillName, UpdateSourceTrigger=PropertyChanged}" />
-                                    <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Description" />
-                                    <TextBox MinHeight="58" Text="{Binding NewSkillDescription, UpdateSourceTrigger=PropertyChanged}" />
-                                    <Button
-                                        HorizontalAlignment="Left"
-                                        Command="{Binding CreateSkillCommand}"
-                                        Content="Create skill"
-                                        Style="{StaticResource CompactButtonStyle}" />
-                                </StackPanel>
+                        </Grid>
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.25*" MinWidth="250" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="0.85*" MinWidth="230" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Style="{StaticResource SettingsSectionBorderStyle}">
+                                <DockPanel>
+                                    <TextBlock
+                                        DockPanel.Dock="Top"
+                                        Style="{StaticResource SettingsSectionHeadingStyle}"
+                                        Text="Enabled skills" />
+                                    <ListBox BorderThickness="0" ItemsSource="{Binding Skills}">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Margin="4,4,4,8">
+                                                    <CheckBox
+                                                        Content="{Binding Name}"
+                                                        FontWeight="SemiBold"
+                                                        IsChecked="{Binding IsEnabled}" />
+                                                    <TextBlock Opacity="0.74" Text="{Binding Description}" />
+                                                    <TextBlock
+                                                        Style="{StaticResource SettingsMutedTextStyle}"
+                                                        Text="{Binding MarkdownPath}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </DockPanel>
                             </Border>
-                            <Border
-                                Margin="0,0,0,8"
-                                Padding="8"
-                                BorderBrush="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}"
-                                BorderThickness="1"
-                                CornerRadius="3">
-                                <StackPanel>
-                                    <TextBlock FontWeight="SemiBold" Text="Additional skill root" />
-                                    <TextBox AcceptsReturn="False" Text="{Binding SkillRootPathInput, UpdateSourceTrigger=PropertyChanged}" />
-                                    <Button
-                                        HorizontalAlignment="Left"
-                                        Command="{Binding AddSkillRootCommand}"
-                                        Content="Add folder"
-                                        Style="{StaticResource CompactButtonStyle}" />
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                        <ListBox ItemsSource="{Binding Skills}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Margin="6">
-                                        <CheckBox
-                                            Content="{Binding Name}"
-                                            FontWeight="SemiBold"
-                                            IsChecked="{Binding IsEnabled}" />
-                                        <TextBlock Opacity="0.72" Text="{Binding Description}" />
-                                        <TextBlock
-                                            FontSize="11"
-                                            Opacity="0.58"
-                                            Text="{Binding MarkdownPath}"
-                                            TextTrimming="CharacterEllipsis" />
+
+                            <GridSplitter
+                                Grid.Column="1"
+                                Width="10"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch" />
+
+                            <StackPanel Grid.Column="2">
+                                <Border
+                                    Margin="0,0,0,8"
+                                    Style="{StaticResource SettingsSectionBorderStyle}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource SettingsSectionHeadingStyle}" Text="Create skill" />
+                                        <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Name" />
+                                        <TextBox AcceptsReturn="False" Text="{Binding NewSkillName, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Description" />
+                                        <TextBox MinHeight="72" Text="{Binding NewSkillDescription, UpdateSourceTrigger=PropertyChanged}" />
+                                        <Button
+                                            HorizontalAlignment="Left"
+                                            Command="{Binding CreateSkillCommand}"
+                                            Content="Create"
+                                            Style="{StaticResource CompactButtonStyle}" />
                                     </StackPanel>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </DockPanel>
+                                </Border>
+                                <Border Style="{StaticResource SettingsSectionBorderStyle}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource SettingsSectionHeadingStyle}" Text="Additional root" />
+                                        <TextBox AcceptsReturn="False" Text="{Binding SkillRootPathInput, UpdateSourceTrigger=PropertyChanged}" />
+                                        <Button
+                                            HorizontalAlignment="Left"
+                                            Command="{Binding AddSkillRootCommand}"
+                                            Content="Add folder"
+                                            Style="{StaticResource CompactButtonStyle}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="MCP">
@@ -1027,7 +1137,7 @@
                             <RowDefinition Height="1.35*" />
                         </Grid.RowDefinitions>
 
-                        <WrapPanel Grid.Row="0" Margin="0,0,0,6">
+                        <WrapPanel Grid.Row="0" Margin="0,0,0,8">
                             <Button
                                 Command="{Binding AddMcpStdioServerCommand}"
                                 Content="Add stdio"
@@ -1049,12 +1159,20 @@
                         <Grid Grid.Row="1" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="1.05*" MinWidth="210" />
-                                <ColumnDefinition Width="6" />
+                                <ColumnDefinition Width="10" />
                                 <ColumnDefinition Width="1.35*" MinWidth="260" />
                             </Grid.ColumnDefinitions>
 
-                            <GroupBox Header="Servers">
-                                <ListBox ItemsSource="{Binding McpServers}" SelectedItem="{Binding SelectedMcpServer}">
+                            <Border Style="{StaticResource SettingsSectionBorderStyle}">
+                                <DockPanel>
+                                    <TextBlock
+                                        DockPanel.Dock="Top"
+                                        Style="{StaticResource SettingsSectionHeadingStyle}"
+                                        Text="Servers" />
+                                    <ListBox
+                                        BorderThickness="0"
+                                        ItemsSource="{Binding McpServers}"
+                                        SelectedItem="{Binding SelectedMcpServer}">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <Grid Margin="4">
@@ -1068,10 +1186,8 @@
                                                         FontWeight="SemiBold"
                                                         IsChecked="{Binding IsEnabled}" />
                                                     <TextBlock
-                                                        FontSize="11"
-                                                        Opacity="0.72"
-                                                        Text="{Binding EndpointSummary}"
-                                                        TextTrimming="CharacterEllipsis" />
+                                                        Style="{StaticResource SettingsMutedTextStyle}"
+                                                        Text="{Binding EndpointSummary}" />
                                                 </StackPanel>
                                                 <Button
                                                     Grid.Column="1"
@@ -1082,18 +1198,20 @@
                                             </Grid>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
-                                </ListBox>
-                            </GroupBox>
+                                    </ListBox>
+                                </DockPanel>
+                            </Border>
 
                             <GridSplitter
                                 Grid.Column="1"
-                                Width="6"
+                                Width="10"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch" />
 
-                            <GroupBox Grid.Column="2" Header="Selected server">
+                            <Border Grid.Column="2" Style="{StaticResource SettingsSectionBorderStyle}">
                                 <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                                    <StackPanel Margin="8">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource SettingsSectionHeadingStyle}" Text="Server config" />
                                         <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Name" />
                                         <TextBox AcceptsReturn="False" Text="{Binding SelectedMcpServer.Name, UpdateSourceTrigger=PropertyChanged}" />
                                         <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Transport" />
@@ -1121,18 +1239,26 @@
                                         </WrapPanel>
                                     </StackPanel>
                                 </ScrollViewer>
-                            </GroupBox>
+                            </Border>
                         </Grid>
 
                         <Grid Grid.Row="2">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="1.05*" MinWidth="230" />
-                                <ColumnDefinition Width="6" />
+                                <ColumnDefinition Width="10" />
                                 <ColumnDefinition Width="1.35*" MinWidth="260" />
                             </Grid.ColumnDefinitions>
 
-                            <GroupBox Header="Tools">
-                                <ListBox ItemsSource="{Binding McpToolSuggestions}" SelectedItem="{Binding SelectedMcpTool}">
+                            <Border Style="{StaticResource SettingsSectionBorderStyle}">
+                                <DockPanel>
+                                    <TextBlock
+                                        DockPanel.Dock="Top"
+                                        Style="{StaticResource SettingsSectionHeadingStyle}"
+                                        Text="Tools" />
+                                    <ListBox
+                                        BorderThickness="0"
+                                        ItemsSource="{Binding McpToolSuggestions}"
+                                        SelectedItem="{Binding SelectedMcpTool}">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <Grid Margin="4">
@@ -1157,17 +1283,22 @@
                                             </Grid>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
-                                </ListBox>
-                            </GroupBox>
+                                    </ListBox>
+                                </DockPanel>
+                            </Border>
 
                             <GridSplitter
                                 Grid.Column="1"
-                                Width="6"
+                                Width="10"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch" />
 
-                            <GroupBox Grid.Column="2" Header="Tool input">
-                                <DockPanel Margin="8">
+                            <Border Grid.Column="2" Style="{StaticResource SettingsSectionBorderStyle}">
+                                <DockPanel>
+                                    <TextBlock
+                                        DockPanel.Dock="Top"
+                                        Style="{StaticResource SettingsSectionHeadingStyle}"
+                                        Text="Tool input" />
                                     <Button
                                         HorizontalAlignment="Left"
                                         Command="{Binding InsertMcpToolCommand}"
@@ -1193,117 +1324,9 @@
                                         </ItemsControl>
                                     </ScrollViewer>
                                 </DockPanel>
-                            </GroupBox>
+                            </Border>
                         </Grid>
                     </Grid>
-                </TabItem>
-
-                <TabItem Header="Analytics">
-                    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Margin="12">
-                            <TextBlock FontWeight="SemiBold" Text="{Binding AnalyticsSummary}" />
-                            <TextBlock
-                                Margin="0,6,0,10"
-                                Opacity="0.76"
-                                Text="{Binding AnalyticsRecommendation}" />
-                            <WrapPanel>
-                                <Button
-                                    Command="{Binding RefreshAnalyticsCommand}"
-                                    Content="Refresh analytics"
-                                    Style="{StaticResource CompactButtonStyle}" />
-                                <Button
-                                    Command="{Binding ApplyRecommendedModelCommand}"
-                                    Content="Apply recommendation"
-                                    Style="{StaticResource CompactButtonStyle}" />
-                            </WrapPanel>
-
-                            <Grid Margin="0,8,0,0">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock
-                                    Grid.Row="0"
-                                    Grid.Column="0"
-                                    Margin="0,0,12,4"
-                                    FontWeight="SemiBold"
-                                    Text="Input tokens" />
-                                <TextBlock
-                                    Grid.Row="0"
-                                    Grid.Column="1"
-                                    Text="{Binding ModelEstimate.EstimatedInputTokens}" />
-                                <TextBlock
-                                    Grid.Row="1"
-                                    Grid.Column="0"
-                                    Margin="0,0,12,4"
-                                    FontWeight="SemiBold"
-                                    Text="Output tokens" />
-                                <TextBlock
-                                    Grid.Row="1"
-                                    Grid.Column="1"
-                                    Text="{Binding ModelEstimate.EstimatedOutputTokens}" />
-                                <TextBlock
-                                    Grid.Row="2"
-                                    Grid.Column="0"
-                                    Margin="0,0,12,4"
-                                    FontWeight="SemiBold"
-                                    Text="Primary cost" />
-                                <TextBlock
-                                    Grid.Row="2"
-                                    Grid.Column="1"
-                                    Text="{Binding ModelEstimate.PrimaryEstimatedCost, StringFormat={}{0:C4}}" />
-                                <TextBlock
-                                    Grid.Row="3"
-                                    Grid.Column="0"
-                                    Margin="0,0,12,4"
-                                    FontWeight="SemiBold"
-                                    Text="Budget cost" />
-                                <TextBlock
-                                    Grid.Row="3"
-                                    Grid.Column="1"
-                                    Text="{Binding ModelEstimate.BudgetEstimatedCost, StringFormat={}{0:C4}}" />
-                                <TextBlock
-                                    Grid.Row="4"
-                                    Grid.Column="0"
-                                    Margin="0,0,12,4"
-                                    FontWeight="SemiBold"
-                                    Text="Savings" />
-                                <TextBlock
-                                    Grid.Row="4"
-                                    Grid.Column="1"
-                                    Text="{Binding ModelEstimate.EstimatedSavingsPercent, StringFormat={}{0:F0}%}" />
-                                <TextBlock
-                                    Grid.Row="5"
-                                    Grid.Column="0"
-                                    Margin="0,0,12,4"
-                                    FontWeight="SemiBold"
-                                    Text="Complexity" />
-                                <TextBlock
-                                    Grid.Row="5"
-                                    Grid.Column="1"
-                                    Text="{Binding ModelEstimate.Complexity}" />
-                                <TextBlock
-                                    Grid.Row="6"
-                                    Grid.Column="0"
-                                    Margin="0,0,12,4"
-                                    FontWeight="SemiBold"
-                                    Text="Recommended" />
-                                <TextBlock
-                                    Grid.Row="6"
-                                    Grid.Column="1"
-                                    Text="{Binding ModelEstimate.RecommendedModel}" />
-                            </Grid>
-                        </StackPanel>
-                    </ScrollViewer>
                 </TabItem>
 
                 <TabItem Header="Memory">
@@ -1342,44 +1365,91 @@
                             <RowDefinition Height="*" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <GroupBox
+                        <Border
                             Grid.Row="0"
                             Margin="0,0,0,8"
-                            Header="Roles">
-                            <ListBox ItemsSource="{Binding AgentRoles}">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Margin="6">
-                                            <CheckBox
-                                                Content="{Binding Name}"
-                                                FontWeight="SemiBold"
-                                                IsChecked="{Binding IsEnabled}" />
-                                            <TextBlock Text="{Binding Role}" />
-                                            <TextBlock Opacity="0.72" Text="{Binding Instructions}" />
-                                            <TextBlock Style="{StaticResource FieldLabelTextBlock}" Text="Model" />
-                                            <ComboBox
-                                                IsEditable="True"
-                                                ItemsSource="{Binding DataContext.ModelOptions, ElementName=Root}"
-                                                Text="{Binding Model, UpdateSourceTrigger=PropertyChanged, Delay=250}" />
-                                            <ComboBox ItemsSource="{Binding DataContext.AgentModelSelectionModeOptions, ElementName=Root}" SelectedItem="{Binding ModelSelectionMode}" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </GroupBox>
-                        <GroupBox Grid.Row="1" Header="Plan">
-                            <ListBox ItemsSource="{Binding OrchestrationSections}">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Margin="6">
-                                            <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
-                                            <TextBlock Text="{Binding AssignedAgent}" />
-                                            <TextBlock Opacity="0.72" Text="{Binding Status}" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </GroupBox>
+                            Style="{StaticResource SettingsSectionBorderStyle}">
+                            <DockPanel>
+                                <TextBlock
+                                    DockPanel.Dock="Top"
+                                    Style="{StaticResource SettingsSectionHeadingStyle}"
+                                    Text="Roles" />
+                                <ListBox BorderThickness="0" ItemsSource="{Binding AgentRoles}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="4,4,4,10">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <CheckBox
+                                                    Content="{Binding Name}"
+                                                    FontWeight="SemiBold"
+                                                    IsChecked="{Binding IsEnabled}" />
+                                                <TextBlock
+                                                    Grid.Row="1"
+                                                    Opacity="0.82"
+                                                    Text="{Binding Role}" />
+                                                <TextBlock
+                                                    Grid.Row="2"
+                                                    MaxHeight="42"
+                                                    Opacity="0.7"
+                                                    Text="{Binding Instructions}"
+                                                    ToolTip="{Binding Instructions}" />
+                                                <Grid Grid.Row="3" Margin="0,6,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="140" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock
+                                                        Margin="0,0,6,0"
+                                                        Style="{StaticResource FieldLabelTextBlock}"
+                                                        Text="Model" />
+                                                    <ComboBox
+                                                        Grid.Column="1"
+                                                        MinWidth="140"
+                                                        IsEditable="True"
+                                                        ItemsSource="{Binding DataContext.ModelOptions, ElementName=Root}"
+                                                        Text="{Binding Model, UpdateSourceTrigger=PropertyChanged, Delay=250}" />
+                                                    <TextBlock
+                                                        Grid.Column="2"
+                                                        Margin="8,0,6,0"
+                                                        Style="{StaticResource FieldLabelTextBlock}"
+                                                        Text="Mode" />
+                                                    <ComboBox
+                                                        Grid.Column="3"
+                                                        ItemsSource="{Binding DataContext.AgentModelSelectionModeOptions, ElementName=Root}"
+                                                        SelectedItem="{Binding ModelSelectionMode}" />
+                                                </Grid>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </Border>
+                        <Border Grid.Row="1" Style="{StaticResource SettingsSectionBorderStyle}">
+                            <DockPanel>
+                                <TextBlock
+                                    DockPanel.Dock="Top"
+                                    Style="{StaticResource SettingsSectionHeadingStyle}"
+                                    Text="Plan" />
+                                <ListBox BorderThickness="0" ItemsSource="{Binding OrchestrationSections}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="4,4,4,8">
+                                                <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                                                <TextBlock Text="{Binding AssignedAgent}" />
+                                                <TextBlock Opacity="0.72" Text="{Binding Status}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </Border>
                     </Grid>
                 </TabItem>
 
@@ -1412,10 +1482,12 @@
 
         <Border
             Grid.Row="2"
-            Margin="8"
-            Padding="8"
+            Margin="12,10,12,8"
+            Padding="12,10"
+            Background="#2B2B2B"
+            BorderBrush="#3B3B3B"
             BorderThickness="1"
-            CornerRadius="3">
+            CornerRadius="18">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -1426,55 +1498,64 @@
 
                 <StackPanel Grid.Row="0" Margin="0,0,0,4">
                     <TextBlock
-                        Margin="0,3,0,8"
-                        Opacity="0.72"
-                        Text="Use # for selected code and references, / for focused commands, @ for files, and MCP tools from the controls pane." />
+                        Margin="0,0,0,6"
+                        HorizontalAlignment="Center"
+                        FontSize="20"
+                        FontWeight="SemiBold"
+                        Foreground="#F4F4F4"
+                        Text="What should we build?" />
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        HorizontalAlignment="Center"
+                        FontSize="11"
+                        Foreground="#C7C7C7"
+                        Text="Use # for selected code, / for focused commands, @ for files, and MCP tools from controls." />
                     <WrapPanel x:Name="ConversationActionPanel">
                         <Button
                             Command="{Binding ReviewSelectionCommand}"
                             Content="Review selection"
-                            Style="{StaticResource CompactButtonStyle}"
+                            Style="{StaticResource ActionChipButtonStyle}"
                             ToolTip="Prepare a focused code review prompt from the current selection." />
                         <Button
                             Command="{Binding DebugSelectionCommand}"
                             Content="Fix active errors"
-                            Style="{StaticResource CompactButtonStyle}"
+                            Style="{StaticResource ActionChipButtonStyle}"
                             ToolTip="Prepare a VSCodex debugging prompt using the active exception or error context." />
                         <Button
                             Command="{Binding CreateTestForSelectionCommand}"
                             Content="Write tests"
-                            Style="{StaticResource CompactButtonStyle}"
+                            Style="{StaticResource ActionChipButtonStyle}"
                             ToolTip="Prepare a test generation prompt from the current selection." />
                         <Button
                             Command="{Binding CreatePlanCommand}"
                             Content="Plan work"
-                            Style="{StaticResource CompactButtonStyle}"
+                            Style="{StaticResource ActionChipButtonStyle}"
                             ToolTip="Create a multi-agent implementation plan." />
                         <Button
                             Command="{Binding RefreshCommand}"
                             Content="+ Reference"
-                            Style="{StaticResource CompactButtonStyle}"
+                            Style="{StaticResource ActionChipButtonStyle}"
                             ToolTip="Refresh workspace references, then use @ files or # references." />
                         <Button
                             Command="{Binding ExplainSelectionCommand}"
                             Content="Explain"
-                            Style="{StaticResource CompactButtonStyle}" />
+                            Style="{StaticResource ActionChipButtonStyle}" />
                         <Button
                             Command="{Binding FixSelectionCommand}"
                             Content="Fix"
-                            Style="{StaticResource CompactButtonStyle}" />
+                            Style="{StaticResource ActionChipButtonStyle}" />
                         <Button
                             Command="{Binding ReviewSelectionCommand}"
                             Content="Review"
-                            Style="{StaticResource CompactButtonStyle}" />
+                            Style="{StaticResource ActionChipButtonStyle}" />
                         <Button
                             Command="{Binding OptimizeSelectionCommand}"
                             Content="Optimize"
-                            Style="{StaticResource CompactButtonStyle}" />
+                            Style="{StaticResource ActionChipButtonStyle}" />
                         <Button
                             Command="{Binding GenerateDocsCommand}"
                             Content="Docs"
-                            Style="{StaticResource CompactButtonStyle}" />
+                            Style="{StaticResource ActionChipButtonStyle}" />
                     </WrapPanel>
                 </StackPanel>
 
@@ -1500,6 +1581,7 @@
                     Drop="OnPromptDrop"
                     PreviewDragOver="OnPromptPreviewDragOver"
                     PreviewKeyDown="OnPromptPreviewKeyDown"
+                    Style="{StaticResource ComposerPromptTextBoxStyle}"
                     Text="{Binding Prompt, UpdateSourceTrigger=PropertyChanged}"
                     ToolTip="Ask VSCodex. Enter sends, Ctrl+Enter inserts a newline, Esc cancels. Use /MCP, /debug, /test, /plan, @filename, or #selection." />
 
@@ -1559,12 +1641,22 @@
                     Margin="0,8,0,0"
                     VerticalAlignment="Center">
                     <TextBlock
-                        Margin="0,0,4,6"
-                        VerticalAlignment="Center"
-                        Opacity="0.76"
-                        Text="Agent" />
+                        Style="{StaticResource ComposerChipTextStyle}"
+                        Text="Access" />
                     <ComboBox
-                        Width="140"
+                        Width="132"
+                        MinWidth="118"
+                        AutomationProperties.Name="VSCodex access level"
+                        IsHitTestVisible="{Binding CanEditSettings}"
+                        ItemsSource="{Binding AccessLevelOptions}"
+                        SelectedItem="{Binding AccessLevel}"
+                        ToolTip="Filesystem access for this VSCodex request." />
+                    <TextBlock
+                        Margin="4,0,5,6"
+                        Style="{StaticResource ComposerChipTextStyle}"
+                        Text="Mode" />
+                    <ComboBox
+                        Width="118"
                         MinWidth="118"
                         AutomationProperties.Name="VSCodex request mode"
                         IsHitTestVisible="{Binding CanEditSettings}"
@@ -1572,12 +1664,11 @@
                         SelectedItem="{Binding Mode}"
                         ToolTip="VSCodex mode for this request." />
                     <TextBlock
-                        Margin="4,0,4,6"
-                        VerticalAlignment="Center"
-                        Opacity="0.76"
+                        Margin="4,0,5,6"
+                        Style="{StaticResource ComposerChipTextStyle}"
                         Text="Model" />
                     <ComboBox
-                        Width="180"
+                        Width="150"
                         MinWidth="118"
                         AutomationProperties.Name="VSCodex model"
                         IsEditable="True"
@@ -1585,6 +1676,19 @@
                         ItemsSource="{Binding ModelOptions}"
                         Text="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged, Delay=250}"
                         ToolTip="Primary model for this request." />
+                    <TextBlock
+                        Margin="4,0,5,6"
+                        Style="{StaticResource ComposerChipTextStyle}"
+                        Text="Reasoning" />
+                    <ComboBox
+                        Width="112"
+                        MinWidth="96"
+                        AutomationProperties.Name="VSCodex reasoning effort"
+                        IsEditable="True"
+                        IsHitTestVisible="{Binding CanEditSettings}"
+                        ItemsSource="{Binding ReasoningOptions}"
+                        Text="{Binding SelectedReasoning, UpdateSourceTrigger=PropertyChanged, Delay=250}"
+                        ToolTip="Reasoning effort for this request." />
                     <Button
                         VerticalAlignment="Center"
                         AutomationProperties.Name="Toggle VSCodex voice input"

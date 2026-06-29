@@ -166,7 +166,7 @@ async function getRateLimits() {
   child.stderr.on('data', data => { stderr += data.toString(); });
   const rpc = createJsonRpcClient(child, 15000);
   try {
-    await rpc.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'VSCodex', version: '0.4.2' }, capabilities: { experimentalApi: true } } });
+    await rpc.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'VSCodex', version: '0.4.3' }, capabilities: { experimentalApi: true } } });
     const response = await rpc.send({ jsonrpc: '2.0', id: 2, method: 'account/rateLimits/read' });
     if (response.error) throw new Error(JSON.stringify(response.error));
     if (!response.result && stderr) throw new Error(stderr.trim());

@@ -62,10 +62,9 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     private const int ContextToolTabIndex = 2;
     private const int SkillsToolTabIndex = 3;
     private const int McpToolTabIndex = 4;
-    private const int AnalyticsToolTabIndex = 5;
-    private const int MemoryToolTabIndex = 6;
-    private const int AgentsToolTabIndex = 7;
-    private const int AttachmentsToolTabIndex = 8;
+    private const int MemoryToolTabIndex = 5;
+    private const int AgentsToolTabIndex = 6;
+    private const int AttachmentsToolTabIndex = 7;
     private static readonly string[] VoiceSubmitOnlyCommands = { "send", "send it", "submit", "submit it", "run", "run it", "send request", "submit request" };
     private static readonly string[] VoiceSubmitSuffixes = { " and send", " then send", " and submit", " then submit", " and run", " then run" };
 
@@ -184,8 +183,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         Prerequisites = new ObservableCollection<PrerequisiteStatus>();
 
         ModelOptions = new ObservableCollection<string>(settings.CustomModels.Distinct(StringComparer.OrdinalIgnoreCase));
-        ReasoningOptions = new ObservableCollection<string>(settings.CustomReasoningEfforts);
-        VerbosityOptions = new ObservableCollection<string>(settings.CustomVerbosityOptions);
+        ReasoningOptions = new ObservableCollection<string>(DistinctOptions(settings.CustomReasoningEfforts));
+        VerbosityOptions = new ObservableCollection<string>(DistinctOptions(settings.CustomVerbosityOptions));
         ModeOptions = new ObservableCollection<CodexRunMode>((CodexRunMode[])Enum.GetValues(typeof(CodexRunMode)));
         ApprovalOptions = new ObservableCollection<ApprovalPolicy>((ApprovalPolicy[])Enum.GetValues(typeof(ApprovalPolicy)));
         SandboxOptions = new ObservableCollection<SandboxMode>((SandboxMode[])Enum.GetValues(typeof(SandboxMode)));
@@ -240,6 +239,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         OptimizeSelectionCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildOptimizePrompt(); }, outputScheduler: _uiScheduler);
         GenerateDocsCommand = ReactiveCommand.Create(() => { Prompt = _assistantContext.BuildDocumentationPrompt(); }, outputScheduler: _uiScheduler);
         CopyMessageCommand = ReactiveCommand.Create<ChatMessage>(CopyMessageToClipboard, outputScheduler: _uiScheduler);
+        CopyActivityDetailCommand = ReactiveCommand.Create<RunActivityNode>(CopyActivityDetailToClipboard, outputScheduler: _uiScheduler);
         UseMessageAsPromptCommand = ReactiveCommand.Create<ChatMessage>(UseMessageAsPrompt, outputScheduler: _uiScheduler);
         OpenActivityFileCommand = ReactiveCommand.Create<RunActivityNode>(OpenActivityFile, outputScheduler: _uiScheduler);
 
@@ -330,6 +330,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> OptimizeSelectionCommand { get; }
     public ReactiveCommand<Unit, Unit> GenerateDocsCommand { get; }
     public ReactiveCommand<ChatMessage, Unit> CopyMessageCommand { get; }
+    public ReactiveCommand<RunActivityNode, Unit> CopyActivityDetailCommand { get; }
     public ReactiveCommand<ChatMessage, Unit> UseMessageAsPromptCommand { get; }
     public ReactiveCommand<RunActivityNode, Unit> OpenActivityFileCommand { get; }
 
@@ -555,8 +556,8 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         changed |= SetPropertyFromSettings(ref _inputAreaHeight, ClampInputHeight(settings.DefaultInputAreaHeight), nameof(InputAreaHeight));
 
         changed |= ReplaceCollection(ModelOptions, settings.CustomModels.Distinct(StringComparer.OrdinalIgnoreCase));
-        changed |= ReplaceCollection(ReasoningOptions, settings.CustomReasoningEfforts);
-        changed |= ReplaceCollection(VerbosityOptions, settings.CustomVerbosityOptions);
+        changed |= ReplaceCollection(ReasoningOptions, DistinctOptions(settings.CustomReasoningEfforts));
+        changed |= ReplaceCollection(VerbosityOptions, DistinctOptions(settings.CustomVerbosityOptions));
         changed |= ReplaceCollection(AgentRoles, settings.AgentRoles ?? new List<AgentRoleDefinition>());
         if (changed)
         {
@@ -588,6 +589,12 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         foreach (var value in snapshot) collection.Add(value);
         return true;
     }
+
+    private static IEnumerable<string> DistinctOptions(IEnumerable<string>? values)
+        => (values ?? Enumerable.Empty<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
 
     private async Task SubmitPromptAsync()
     {
@@ -698,7 +705,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
     {
         await _joinableTaskFactory.SwitchToMainThreadAsync();
         _workspace.RefreshWorkspaceIdentity();
-        this.RaisePropertyChanged(nameof(CurrentWorkspaceDisplay));
+        RaiseWorkspaceDisplayProperties();
         if (!EnsureWorkspaceReadyForRun())
         {
             AddMessage(CodexMessageRole.Error, "VSCodex cannot run because Visual Studio has not provided a solution or repository folder project root yet.");
@@ -852,7 +859,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             Status = "Refreshing VSCodex workspace context...";
             var previousIdentity = _lastWorkspaceIdentityId;
             _workspace.Refresh();
-            this.RaisePropertyChanged(nameof(CurrentWorkspaceDisplay));
+            RaiseWorkspaceDisplayProperties();
             var currentIdentity = _workspace.CurrentWorkspaceIdentity.Id;
             if (!string.IsNullOrWhiteSpace(currentIdentity) && !string.Equals(_lastWorkspaceSettingsId, currentIdentity, StringComparison.OrdinalIgnoreCase))
             {
@@ -881,7 +888,7 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         try
         {
             _workspace.RefreshWorkspaceIdentity();
-            this.RaisePropertyChanged(nameof(CurrentWorkspaceDisplay));
+            RaiseWorkspaceDisplayProperties();
             var currentIdentity = _workspace.CurrentWorkspaceIdentity.Id;
             if (!string.IsNullOrWhiteSpace(currentIdentity) && !string.Equals(_lastWorkspaceSettingsId, currentIdentity, StringComparison.OrdinalIgnoreCase))
             {
@@ -903,6 +910,11 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         {
             Status = "VSCodex startup context deferred: " + ex.Message;
         }
+    }
+
+    private void RaiseWorkspaceDisplayProperties()
+    {
+        this.RaisePropertyChanged(nameof(CurrentWorkspaceDisplay));
     }
 
     private async Task ScanProjectMemoryAsync()
@@ -1180,10 +1192,6 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
             case "/tools":
                 ShowMcpServerList();
                 ShowToolPanel(McpToolTabIndex, "VSCodex MCP tools");
-                Prompt = string.Empty;
-                return true;
-            case "/analytics":
-                ShowToolPanel(AnalyticsToolTabIndex, "VSCodex analytics");
                 Prompt = string.Empty;
                 return true;
             case "/memory":
@@ -2082,6 +2090,25 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private void CopyActivityDetailToClipboard(RunActivityNode? node)
+    {
+        if (node == null || string.IsNullOrWhiteSpace(node.Detail))
+        {
+            Status = "No activity text to copy";
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(node.Detail);
+            Status = "Copied VSCodex response text";
+        }
+        catch (Exception ex)
+        {
+            Status = "Could not copy response text: " + ex.Message;
+        }
+    }
+
     private void UseMessageAsPrompt(ChatMessage? message)
     {
         if (message == null || string.IsNullOrWhiteSpace(message.Content))
@@ -2638,7 +2665,6 @@ public sealed class VSCodexToolWindowViewModel : ReactiveObject, IDisposable
         yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/mcp", Detail = "Open VSCodex MCP server and tool selection", InsertText = "/mcp " };
         yield return new PromptSuggestionItem { Kind = "Options", DisplayText = "/settings", Detail = "Use Tools > Options > VSCodex for model, sandbox, and runtime settings", InsertText = "/settings " };
         yield return new PromptSuggestionItem { Kind = "Context", DisplayText = "/context", Detail = "Open selected-code and repository file context", InsertText = "/context " };
-        yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/analytics", Detail = "Open model cost and complexity analytics", InsertText = "/analytics " };
         yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/memory", Detail = "Open ReactiveMemory controls and saved context", InsertText = "/memory " };
         yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/agents", Detail = "Open multi-agent roles and orchestration controls", InsertText = "/agents " };
         yield return new PromptSuggestionItem { Kind = "Tools", DisplayText = "/skills", Detail = "Open Codex skills controls", InsertText = "/skills " };

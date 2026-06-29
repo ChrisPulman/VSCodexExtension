@@ -209,6 +209,12 @@ public partial class VSCodexToolWindowControl : UserControl
         ConversationScrollViewer.ScrollToEnd();
     }
 
+    private void OnConversationMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        ConversationScrollViewer.ScrollToVerticalOffset(ConversationScrollViewer.VerticalOffset - e.Delta);
+        e.Handled = true;
+    }
+
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(VSCodexToolWindowViewModel.VoiceTranscriptRevision))
