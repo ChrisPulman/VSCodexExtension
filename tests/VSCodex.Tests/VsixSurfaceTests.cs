@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Xml.Linq;
+using TUnit.Assertions;
 using TUnit.Core;
 
 namespace VSCodex.Tests;
@@ -274,7 +275,7 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "SaveSkillsCommand", "Tool window must persist enabled skill selections.");
         RequireContains(viewModel, "AccessLevelFromSandbox", "Tool window must map friendly access levels to Codex sandbox modes.");
         RequireContains(viewModel, "ContextRemainingSummary", "Tool window must expose context-size and remaining-context summary text.");
-        RequireContains(view, "Header=\"Analytics\"", "Tool window must expose model/cost analytics.");
+        RequireDoesNotContain(view, "Header=\"Analytics\"", "Model/cost analytics must not occupy a visible settings tab.");
         RequireContains(view, "Header=\"History\"", "The obsolete in-window settings tab must be replaced by conversation history.");
         RequireContains(view, "Add stdio", "Tool window must expose add-MCP server controls.");
         RequireContains(view, "Create skill", "Tool window must expose skill creation controls.");
@@ -374,8 +375,63 @@ public sealed class VsixSurfaceTests
         RequireContains(viewModel, "_settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(ApplySettingsFromStore)", "An open VSCodex tool window must react to Tools > Options changes without restarting Visual Studio.");
         RequireContains(viewModel, "ApplySettingsFromStore", "Tools > Options changes must update the live tool-window run settings.");
         RequireContains(manifest, "<DisplayName>VSCodex</DisplayName>", "The VSIX display name must be VSCodex.");
-        RequireContains(manifest, "Version=\"0.4.2\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
+        RequireContains(manifest, "Version=\"0.4.3\"", "The VSIX version must change so Visual Studio updates the installed experimental extension.");
         RequireContains(manifest, "Version=\"[4.8,)\"", "Classic in-process VSCodex VSIX packages must target the .NET Framework runtime Visual Studio 2022 runs on.");
+    }
+
+    [Test]
+    public async Task Settings_access_defaults_are_not_shadowed_by_stale_workspace_settings()
+    {
+        var settingsStore = ReadText("src/VSCodex/Services/SettingsStore.cs");
+
+        await Assert.That(settingsStore.Contains("SynchronizeWorkspaceExecutionDefaults(settings);")).IsTrue();
+        await Assert.That(settingsStore.Contains("MergeGlobalExecutionDefaults(settings, globalSettings);")).IsTrue();
+        await Assert.That(settingsStore.Contains("SaveGlobalExecutionDefaults(settings);")).IsTrue();
+        await Assert.That(settingsStore.Contains("target.DefaultApprovalPolicy = source.DefaultApprovalPolicy;")).IsTrue();
+        await Assert.That(settingsStore.Contains("target.DefaultSandboxMode = source.DefaultSandboxMode;")).IsTrue();
+        await Assert.That(settingsStore.Contains("NormalizeStringOptions(settings.CustomReasoningEfforts")).IsTrue();
+    }
+
+    [Test]
+    public async Task Conversation_responses_are_selectable_copyable_and_mouse_wheel_scrollable()
+    {
+        var view = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml");
+        var codeBehind = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml.cs");
+        var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
+        var selectableViewer = ReadText("src/VSCodex/Controls/SelectableMarkdownViewer.cs");
+
+        await Assert.That(view.Contains("controls:SelectableMarkdownViewer")).IsTrue();
+        await Assert.That(view.Contains("SelectableMessageViewerStyle")).IsTrue();
+        await Assert.That(view.Contains("AutomationProperties.Name=\"Copy VSCodex response text\"")).IsTrue();
+        await Assert.That(view.Contains("CopyActivityDetailCommand")).IsTrue();
+        await Assert.That(view.Contains("PreviewMouseWheel=\"OnConversationMouseWheel\"")).IsTrue();
+        await Assert.That(codeBehind.Contains("ConversationScrollViewer.ScrollToVerticalOffset")).IsTrue();
+        await Assert.That(viewModel.Contains("CopyActivityDetailToClipboard")).IsTrue();
+        await Assert.That(selectableViewer.Contains("ApplicationCommands.Copy")).IsTrue();
+        await Assert.That(selectableViewer.Contains("ApplicationCommands.SelectAll")).IsTrue();
+    }
+
+    [Test]
+    public async Task Composer_uses_Codex_Desktop_prompt_surface_and_access_controls()
+    {
+        var view = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml");
+        var viewModel = ReadText("src/VSCodex/ViewModels/VSCodexToolWindowViewModel.cs");
+
+        await Assert.That(view.Contains("What should we build?")).IsTrue();
+        await Assert.That(view.Contains("CornerRadius=\"18\"")).IsTrue();
+        await Assert.That(view.Contains("Background=\"#2B2B2B\"")).IsTrue();
+        await Assert.That(view.Contains("ActionChipButtonStyle")).IsTrue();
+        await Assert.That(view.Contains("ComposerPromptTextBoxStyle")).IsTrue();
+        await Assert.That(view.Contains("AutomationProperties.Name=\"VSCodex access level\"")).IsTrue();
+        await Assert.That(view.Contains("ItemsSource=\"{Binding AccessLevelOptions}\"")).IsTrue();
+        await Assert.That(view.Contains("AutomationProperties.Name=\"VSCodex reasoning effort\"")).IsTrue();
+        await Assert.That(!view.Contains("CurrentWorkspaceChipDisplay")).IsTrue();
+        await Assert.That(!view.Contains("WorkspaceModeDisplay")).IsTrue();
+        await Assert.That(!view.Contains("TargetNullValue='New thread'")).IsTrue();
+        await Assert.That(!viewModel.Contains("public string CurrentWorkspaceChipDisplay")).IsTrue();
+        await Assert.That(!viewModel.Contains("public string WorkspaceModeDisplay")).IsTrue();
+        await Assert.That(view.Contains("StatusBarItem Content=\"{Binding Status}\"")).IsTrue();
+        await Assert.That(!view.Contains("Margin=\"0,3,0,4\"")).IsTrue();
     }
 
     [Test]
@@ -709,7 +765,7 @@ public sealed class VsixSurfaceTests
 
         RequireContains(view, "MinWidth=\"240\"", "The tool window must allow narrow docking while the inner controls wrap and scroll.");
         RequireContains(view, "MaxWidth=\"{Binding ActualWidth, ElementName=Root}\"", "The settings panel must be constrained to the actual tool-window width.");
-        RequireContains(view, "Width=\"620\"", "The controls panel must provide enough width for MCP, memory, analytics, and agent settings.");
+        RequireContains(view, "Width=\"620\"", "The controls panel must provide enough width for MCP, memory, and agent settings.");
         RequireContains(view, "Grid.RowSpan=\"2\"", "The controls panel must span the conversation and prompt rows so dense MCP controls are usable.");
         RequireContains(view, "PromptResizeThumbStyle", "The prompt input must expose a theme-aware mouse resize grip.");
         RequireContains(view, "DragStarted=\"OnPromptResizeDragStarted\"", "Prompt resizing must have a guarded drag lifecycle before height changes.");
@@ -782,8 +838,10 @@ public sealed class VsixSurfaceTests
         RequireContains(view, "Header=\"Context\"", "Context-sensitive file and selection references must be grouped in the tool pane.");
         RequireContains(view, "Header=\"MCP\"", "MCP servers must remain a first-class tool panel surface.");
         RequireContains(view, "SelectedMcpServer.Name", "The MCP tab must edit the selected server in a dedicated detail pane.");
+        RequireContains(view, "SettingsSectionBorderStyle", "Skills, MCP, and Agents panes must use consistent section styling instead of cramped group boxes.");
+        RequireContains(view, "Text=\"Server config\"", "The MCP server editor must have a clear detail section heading.");
         RequireContains(view, "GridSplitter", "Dense tool panels must provide resizable regions instead of fixed tiny rows.");
-        RequireContains(view, "Header=\"Tool input\"", "MCP tool argument editing must have a dedicated input pane.");
+        RequireContains(view, "Text=\"Tool input\"", "MCP tool argument editing must have a dedicated input pane.");
         RequireContains(view, "Click=\"OnToggleVoiceInputClick\"", "The prompt footer voice button must route clicks directly to voice capture.");
         RequireContains(codeBehind, "private void OnToggleVoiceInputClick", "The voice input button must have an explicit click handler.");
         RequireContains(codeBehind, "ViewModel.ToggleVoiceInput();", "Clicking the voice input button must invoke the view-model toggle without WPF command parameter conversion.");
