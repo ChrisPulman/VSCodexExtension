@@ -178,7 +178,7 @@ The repository includes Marketplace packaging assets and separate validation and
 - `CERTUM_OTP_URI`: the protected `otpauth://` TOTP URI.
 - `CERTUM_CERT_THUMBPRINT`: the 40-character SHA-1 thumbprint of the Certum code-signing certificate.
 
-The workflow pins the Windows SimplySign setup action and Microsoft Sign CLI version. It does not create a GitHub release, push a NuGet package, or publish to the Visual Studio Marketplace. After a successful manual run, download the `VSCodex-<SemVer>` artifact and upload its signed `VSCodex.vsix` to the Marketplace manually.
+The workflow pins the Windows SimplySign setup action and Microsoft Sign CLI version. It validates the OPC signature and signer, checks that signing preserved the VSIX payload and metadata, and smoke-tests the signed package with Visual Studio's VSIX Installer in an isolated root suffix. It does not create a GitHub release, push a NuGet package, or publish to the Visual Studio Marketplace. After a successful manual run, download and extract the `VSCodex-<SemVer>` GitHub artifact, then upload the inner signed `VSCodex.vsix` to the Marketplace. GitHub's downloaded artifact is a transport ZIP and must not itself be renamed to `.vsix`.
 
 ## License
 
