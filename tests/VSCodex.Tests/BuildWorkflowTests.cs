@@ -53,6 +53,13 @@ public sealed class BuildWorkflowTests
         await Assert.That(workflow).Contains("dismine/windows-app-signing-setup-action@89ae3b032d4bc7a5b98d1a42a34e61ecb6faad64");
         await Assert.That(workflow).Contains("code certificate-store");
         await Assert.That(workflow).Contains("verify-vsix-signature.ps1");
+        await Assert.That(workflow).Contains("Smoke-test signed VSIX with Visual Studio installer");
+        await Assert.That(workflow).Contains("install-vsix-experimental.ps1");
+        await Assert.That(workflow).Contains("vswhere.exe");
+        await Assert.That(workflow).Contains("-VsixInstallerPath $vsixInstaller");
+        await Assert.That(workflow).Contains("-InstanceId $instance.instanceId");
+        await Assert.That(workflow).Contains("-RootSuffix VSCodexSignedValidation");
+        await Assert.That(workflow).Contains("Upload VSIX installer diagnostics");
         await Assert.That(workflow).Contains("Upload signed VSIX");
         await Assert.That(workflow).DoesNotContain("ReactiveList.slnx");
         await Assert.That(workflow).DoesNotContain("dotnet nuget push");
@@ -60,6 +67,10 @@ public sealed class BuildWorkflowTests
         await Assert.That(workflow).DoesNotContain("VS_MARKETPLACE_PAT");
         await Assert.That(verifier).Contains("VerifySignatures");
         await Assert.That(verifier).Contains("VerifyCertificate");
+        await Assert.That(verifier).Contains("[Content_Types].xml");
+        await Assert.That(verifier).Contains("extension.vsixmanifest");
+        await Assert.That(verifier).Contains("Unexpected entries were added to the signed VSIX payload");
+        await Assert.That(verifier).Contains("VSIX metadata entry");
         await Assert.That(File.Exists(PathFor(".github/workflows/publish-vsix.yml"))).IsFalse();
     }
 

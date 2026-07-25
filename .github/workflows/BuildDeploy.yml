@@ -291,6 +291,56 @@ jobs:
             -UnsignedVsixPath '${{ github.workspace }}/output/unsigned/VSCodex.vsix' `
             -CertificateFingerprint '${{ steps.sign.outputs.certificate_fingerprint }}'
 
+      - name: Smoke-test signed VSIX with Visual Studio installer
+        shell: powershell
+        env:
+          SIGNED_VSIX_PATH: ${{ steps.sign.outputs.signed_path }}
+        run: |
+          $diagnosticsDirectory = Join-Path $env:GITHUB_WORKSPACE 'output\signed-validation'
+          New-Item -ItemType Directory -Path $diagnosticsDirectory -Force | Out-Null
+
+          $vswhere = Join-Path (
+            [Environment]::GetFolderPath('ProgramFilesX86')
+          ) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe was not found: $vswhere"
+          }
+
+          $instances = @(
+            & $vswhere -products * -format json -utf8 |
+              ConvertFrom-Json |
+              Where-Object {
+                Test-Path -LiteralPath (
+                  Join-Path $_.installationPath 'Common7\IDE\VSIXInstaller.exe'
+                )
+              } |
+              Sort-Object installationVersion -Descending
+          )
+          if ($instances.Count -eq 0) {
+            throw 'No Visual Studio instance with VSIXInstaller.exe was found.'
+          }
+
+          $instance = $instances[0]
+          $vsixInstaller = Join-Path (
+            $instance.installationPath
+          ) 'Common7\IDE\VSIXInstaller.exe'
+          .\scripts\install-vsix-experimental.ps1 `
+            -VsixPath $env:SIGNED_VSIX_PATH `
+            -VsixInstallerPath $vsixInstaller `
+            -InstanceId $instance.instanceId `
+            -RootSuffix VSCodexSignedValidation `
+            -LogFile (Join-Path $diagnosticsDirectory 'VSIXInstaller.log') `
+            -TimeoutSeconds 300
+
+      - name: Upload VSIX installer diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: VSCodex-${{ needs.build.outputs.semver }}-installer-diagnostics
+          path: output/signed-validation/**
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload signed VSIX
         uses: actions/upload-artifact@v7
         with:
