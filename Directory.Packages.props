@@ -1,0 +1,26 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CPReactiveMemoryMcpServerVersion>1.1.2</CPReactiveMemoryMcpServerVersion>
+    <StyleSharpAnalyzersVersion>3.38.1</StyleSharpAnalyzersVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Testing.Platform" Version="2.3.2" />
+    <PackageVersion Include="Microsoft.Bcl.TimeProvider" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" />
+    <PackageVersion Include="Microsoft.VSSDK.BuildTools" Version="18.5.40034" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageVersion Include="NuGet.Versioning" Version="7.6.0" />
+    <PackageVersion Include="ReactiveUI" Version="23.2.28" />
+    <PackageVersion Include="ReactiveUI.Extensions" Version="4.0.0" />
+    <PackageVersion Include="ReactiveUI.WPF" Version="23.2.28" />
+    <PackageVersion Include="Roslynator.Analyzers" Version="4.15.0" />
+    <PackageVersion Include="StyleSharp.Analyzers" Version="$(StyleSharpAnalyzersVersion)" />
+    <PackageVersion Include="System.Reactive" Version="6.1.0" />
+    <PackageVersion Include="TUnit" Version="1.61.38" />
+    <PackageVersion Include="CP.Nuke.BuildTools" Version="3.0.2" />
+    <PackageVersion Include="Nuke.Common" Version="10.1.0" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.10" />
+  </ItemGroup>
+</Project>

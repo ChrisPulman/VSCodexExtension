@@ -1,3 +1,6 @@
+// Copyright (c) 2019-2026 Chris Pulman and contributors. All rights reserved.
+// Chris Pulman and contributors licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -11,10 +14,12 @@ using Microsoft.VisualStudio.Shell.Settings;
 using VSCodex.Commands;
 using VSCodex.Infrastructure;
 using VSCodex.Options;
+using VSCodex.Services;
 using VSCodex.ToolWindows;
 
 namespace VSCodex;
 
+/// <summary>Provides the vS Codex Package implementation.</summary>
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
 [InstalledProductRegistration("VSCodex", "VSCodex tool window with ReactiveUI, skills, MCP, and memory", "0.4.1")]
 [ProvideMenuResource("Menus.ctmenu", 5)]
@@ -26,9 +31,25 @@ namespace VSCodex;
 [Guid(PackageGuidString)]
 public sealed class VSCodexPackage : AsyncPackage
 {
-    public const string PackageGuidString = "cc277233-b28f-43d6-a597-1cc515cb0110";
+    /// <summary>Defines the package Guid String.</summary>
+    internal const string PackageGuidString = "cc277233-b28f-43d6-a597-1cc515cb0110";
+
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric1500 = 1500;
+
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric250 = 250;
+
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric40 = 40;
+
+    /// <summary>Defines the settings Collection.</summary>
     private const string SettingsCollection = "VSCodex";
+
+    /// <summary>Defines the first Launch Tool Window Opened.</summary>
     private const string FirstLaunchToolWindowOpened = "FirstLaunchToolWindowOpenedV8";
+
+    /// <summary>Stores the first Launch Tool Window Opened Keys.</summary>
     private static readonly string[] FirstLaunchToolWindowOpenedKeys =
     {
         FirstLaunchToolWindowOpened,
@@ -40,8 +61,14 @@ public sealed class VSCodexPackage : AsyncPackage
         "FirstLaunchToolWindowOpenedV2",
         "FirstLaunchToolWindowOpened"
     };
-    private Services.SolutionLoadMonitorService? _solutionLoadMonitor;
 
+    /// <summary>Stores the solution Load Monitor.</summary>
+    private SolutionLoadMonitorService? _solutionLoadMonitor;
+
+    /// <summary>Initializes the operation.</summary>
+    /// <param name="cancellationToken">The cancellation Token.</param>
+    /// <param name="progress">The progress.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await OpenVSCodexToolWindowCommand.InitializeAsync(this).ConfigureAwait(true);
@@ -50,9 +77,33 @@ public sealed class VSCodexPackage : AsyncPackage
         ScheduleShowToolWindowOnFirstLaunch();
     }
 
+    /// <summary>Determines whether has Opened Tool Window On First Launch.</summary>
+    /// <param name="settingsStore">The settings Store.</param>
+    /// <returns><see langword="true"/> when has Opened Tool Window On First Launch succeeds; otherwise, <see langword="false"/>.</returns>
+    private bool HasOpenedToolWindowOnFirstLaunch(WritableSettingsStore settingsStore)
+    {
+        return settingsStore.CollectionExists(SettingsCollection)
+            && FirstLaunchToolWindowOpenedKeys.Any(key =>
+                settingsStore.PropertyExists(SettingsCollection, key)
+                && settingsStore.GetBoolean(SettingsCollection, key));
+    }
+
+    /// <summary>Performs the mark Tool Window Opened On First Launch operation.</summary>
+    /// <param name="settingsStore">The settings Store.</param>
+    private void MarkToolWindowOpenedOnFirstLaunch(WritableSettingsStore settingsStore)
+    {
+        if (!settingsStore.CollectionExists(SettingsCollection))
+        {
+            settingsStore.CreateCollection(SettingsCollection);
+        }
+
+        settingsStore.SetBoolean(SettingsCollection, FirstLaunchToolWindowOpened, true);
+    }
+
+    /// <summary>Performs the schedule Reactive Memory Project Miner Initialization operation.</summary>
     private void ScheduleReactiveMemoryProjectMinerInitialization()
     {
-        JoinableTaskFactory.RunAsync(async () =>
+        TaskObserver.FireAndForget(JoinableTaskFactory.RunAsync(async () =>
         {
             try
             {
@@ -64,25 +115,29 @@ public sealed class VSCodexPackage : AsyncPackage
             }
             catch (Exception ex)
             {
-                ActivityLog.TryLogError(nameof(VSCodexPackage), ex.ToString());
+                _ = ActivityLog.TryLogError(nameof(VSCodexPackage), ex.ToString());
             }
-        }).Task.FireAndForget();
+        }).Task);
     }
 
+    /// <summary>Initializes reactive Memory Project Miner.</summary>
+    /// <param name="cancellationToken">The cancellation Token.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
     private async Task InitializeReactiveMemoryProjectMinerAsync(CancellationToken cancellationToken)
     {
         var app = RxAppBuilder.CreateVisualStudioDefault(this, JoinableTaskFactory).Build();
-        _solutionLoadMonitor = new Services.SolutionLoadMonitorService(
+        _solutionLoadMonitor = new(
             this,
             JoinableTaskFactory,
-            app.Get<Services.IMcpConfigService>(),
-            app.Get<Services.IReactiveMemoryService>());
+            app.Get<IMcpConfigService>(),
+            app.Get<IReactiveMemoryService>());
         await _solutionLoadMonitor.InitializeAsync(cancellationToken).ConfigureAwait(true);
     }
 
+    /// <summary>Performs the schedule Menu Initialization operation.</summary>
     private void ScheduleMenuInitialization()
     {
-        JoinableTaskFactory.RunAsync(async () =>
+        TaskObserver.FireAndForget(JoinableTaskFactory.RunAsync(async () =>
         {
             try
             {
@@ -94,9 +149,9 @@ public sealed class VSCodexPackage : AsyncPackage
             }
             catch (Exception ex)
             {
-                ActivityLog.TryLogError(nameof(VSCodexPackage), ex.ToString());
+                _ = ActivityLog.TryLogError(nameof(VSCodexPackage), ex.ToString());
             }
-        }).Task.FireAndForget();
+        }).Task);
     }
 
     /// <summary>
@@ -105,6 +160,8 @@ public sealed class VSCodexPackage : AsyncPackage
     /// (including "MenuBar") are populated.  Falls back to the zombie-poll once the context
     /// is active so both conditions are satisfied before we touch the DTE command bars.
     /// </summary>
+    /// <param name="cancellationToken">The cancellation Token.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
     private async Task WaitForShellInitializedAsync(CancellationToken cancellationToken)
     {
         // Switch to the UI thread so we can read UIContext state.
@@ -133,9 +190,10 @@ public sealed class VSCodexPackage : AsyncPackage
         await WaitForShellReadyAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Performs the schedule Show Tool Window On First Launch operation.</summary>
     private void ScheduleShowToolWindowOnFirstLaunch()
     {
-        JoinableTaskFactory.RunAsync(async () =>
+        TaskObserver.FireAndForget(JoinableTaskFactory.RunAsync(async () =>
         {
             try
             {
@@ -146,11 +204,14 @@ public sealed class VSCodexPackage : AsyncPackage
             }
             catch (Exception ex)
             {
-                ActivityLog.TryLogError(nameof(VSCodexPackage), ex.ToString());
+                _ = ActivityLog.TryLogError(nameof(VSCodexPackage), ex.ToString());
             }
-        }).Task.FireAndForget();
+        }).Task);
     }
 
+    /// <summary>Performs the show Tool Window On First Launch operation.</summary>
+    /// <param name="cancellationToken">The cancellation Token.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
     private async Task ShowToolWindowOnFirstLaunchAsync(CancellationToken cancellationToken)
     {
         await WaitForShellReadyAsync(cancellationToken).ConfigureAwait(false);
@@ -163,7 +224,7 @@ public sealed class VSCodexPackage : AsyncPackage
         }
 
         var window = await ShowToolWindowAsync(typeof(VSCodexToolWindowPane), 0, true, DisposalToken).ConfigureAwait(true);
-        if (window == null || window.Frame == null)
+        if (window is null || window.Frame is null)
         {
             throw new NotSupportedException("Cannot create VSCodex tool window on first launch.");
         }
@@ -171,11 +232,14 @@ public sealed class VSCodexPackage : AsyncPackage
         MarkToolWindowOpenedOnFirstLaunch(settingsStore);
     }
 
+    /// <summary>Performs the wait For Shell Ready operation.</summary>
+    /// <param name="cancellationToken">The cancellation Token.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
     private async Task WaitForShellReadyAsync(CancellationToken cancellationToken)
     {
-        await Task.Delay(TimeSpan.FromMilliseconds(1500), cancellationToken).ConfigureAwait(false);
+        await Task.Delay(TimeSpan.FromMilliseconds(Numeric1500), cancellationToken).ConfigureAwait(false);
 
-        for (var attempt = 0; attempt < 40; attempt++)
+        for (var attempt = 0; attempt < Numeric40; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!await IsShellZombieAsync(cancellationToken).ConfigureAwait(true))
@@ -183,48 +247,28 @@ public sealed class VSCodexPackage : AsyncPackage
                 return;
             }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(Numeric250), cancellationToken).ConfigureAwait(false);
         }
     }
 
+    /// <summary>Determines whether is Shell Zombie.</summary>
+    /// <param name="cancellationToken">The cancellation Token.</param>
+    /// <returns>A task whose result contains the operation result.</returns>
     private async Task<bool> IsShellZombieAsync(CancellationToken cancellationToken)
     {
         await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
-        var shell = await GetServiceAsync(typeof(SVsShell)).ConfigureAwait(true) as IVsShell;
-        if (shell == null || ErrorHandler.Failed(shell.GetProperty((int)__VSSPROPID.VSSPROPID_Zombie, out var value)))
-        {
-            return false;
-        }
-
-        return value is bool isZombie && isZombie || value is int zombieValue && zombieValue != 0;
+        object? service = await GetServiceAsync(typeof(SVsShell)).ConfigureAwait(true);
+        return service is IVsShell shell
+            && !ErrorHandler.Failed(shell.GetProperty((int)__VSSPROPID.VSSPROPID_Zombie, out var value))
+            && ((value is bool isZombie && isZombie) || (value is int zombieValue && zombieValue != 0));
     }
 
+    /// <summary>Gets writable User Settings Store.</summary>
+    /// <returns>The get Writable User Settings Store result.</returns>
     private WritableSettingsStore GetWritableUserSettingsStore()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         var settingsManager = new ShellSettingsManager(this);
         return settingsManager.GetWritableSettingsStore(SettingsScope.UserSettings);
-    }
-
-    private static bool HasOpenedToolWindowOnFirstLaunch(WritableSettingsStore settingsStore)
-    {
-        if (!settingsStore.CollectionExists(SettingsCollection))
-        {
-            return false;
-        }
-
-        return FirstLaunchToolWindowOpenedKeys.Any(key =>
-            settingsStore.PropertyExists(SettingsCollection, key)
-            && settingsStore.GetBoolean(SettingsCollection, key));
-    }
-
-    private static void MarkToolWindowOpenedOnFirstLaunch(WritableSettingsStore settingsStore)
-    {
-        if (!settingsStore.CollectionExists(SettingsCollection))
-        {
-            settingsStore.CreateCollection(SettingsCollection);
-        }
-
-        settingsStore.SetBoolean(SettingsCollection, FirstLaunchToolWindowOpened, true);
     }
 }

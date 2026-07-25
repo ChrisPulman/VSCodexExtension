@@ -1,0 +1,61 @@
+name: BuildOnly
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: buildonly-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate pull request
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5.4.0
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+        with:
+          vs-prerelease: true
+
+      - name: Cache NUKE and NuGet
+        uses: actions/cache@v6
+        with:
+          path: |
+            .nuke/temp
+            ~\.nuget\packages
+            ~\AppData\Local\NuGet\v3-cache
+          key: ${{ runner.os }}-nuke-nuget-${{ hashFiles('global.json', '.config/dotnet-tools.json', 'Directory.Build.props', 'Directory.Packages.props', '**/*.csproj', 'build/**') }}
+          restore-keys: |
+            ${{ runner.os }}-nuke-nuget-
+
+      - name: Validate with NUKE
+        shell: pwsh
+        run: .\build.cmd --target Validate --configuration Release
+
+      - name: Upload test and coverage diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-validation-${{ github.event.pull_request.number }}
+          path: output/test-results/**
+          if-no-files-found: warn
+          retention-days: 7

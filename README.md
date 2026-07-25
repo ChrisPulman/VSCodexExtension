@@ -6,7 +6,7 @@ The extension is built as a classic in-process Visual Studio VSIX using Reactive
 
 ## Requirements
 
-- Visual Studio 2022 17.x or newer on Windows.
+- Visual Studio 2022 17.x or Visual Studio 2026 18.x on Windows. The VSIX manifest supports Visual Studio major versions 17 and 18.
 - Visual Studio SDK workload for building or debugging the extension.
 - .NET Framework 4.8 runtime. The VSIX targets `net48` because in-process Visual Studio packages run on the Visual Studio .NET Framework host.
 - Node.js LTS and npm on the same PATH seen by Visual Studio.
@@ -34,17 +34,25 @@ VSCodex reads local Codex configuration from `%USERPROFILE%\.codex\config.toml`.
 5. Install VSCodex from the Marketplace or build the VSIX locally.
 6. Open Visual Studio. VSCodex opens on first run and can be reopened from the VSCodex, View, Tools, editor context, project, solution, error, and debug menus.
 7. Open a solution or repository folder. VSCodex treats that opened project as the Codex project boundary and runs Codex from the resolved repository root.
-8. Open the VSCodex tool window, select Settings, and run setup validation if prompted.
+8. Open the VSCodex tool window. Global configuration is available under **Tools > Options > VSCodex > General**.
 
 ## Build and Test
 
 ```powershell
-msbuild src\VSCodex.slnx /restore /p:Configuration=Release /m
-dotnet test src\VSCodex.slnx --configuration Release --no-build
-python scripts\validate_structure.py
+.\build.cmd --target Validate --configuration Release
 ```
 
-The Release build writes `VSCodex.vsix`, `Install-VSCodex.cmd`, and `Install-VSCodex.ps1` to `src/VSCodex/bin/Release/net48`. If double-clicking `VSCodex.vsix` does not open Visual Studio's installer because the Windows `.vsix` file association is broken, run `Install-VSCodex.cmd`; it resolves `VSIXInstaller.exe` from the installed Visual Studio instance and launches the installer directly. To launch the visible installer as part of a command-line Release build, add `/p:VSCodexLaunchVsixInstaller=true`.
+Package versions are managed centrally in `Directory.Packages.props`. NUKE is the build entry point and runs the repository-pinned MinVer CLI once before restore or compilation. The resulting SemVer is then passed to every solution build as `Version`, `PackageVersion`, `AssemblyVersion`, `FileVersion`, `InformationalVersion`, `MinVerVersionOverride`, and `VSCodexVersion`, preventing individual projects from recalculating different versions.
+
+MinVer derives local and pull-request versions from `v`-prefixed Git tags and commit height. A release build supplies an explicit SemVer:
+
+```powershell
+.\build.cmd --target PackageVsix --configuration Release --sem-ver 0.5.0
+```
+
+VSIX identity versions must be numeric, so NUKE maps supported prerelease channels into ordered fourth-part ranges: `preview` uses `0-9999`, `alpha` uses `10000-19999`, `beta` uses `20000-29999`, `rc` uses `30000-39999`, and stable versions use `65535`. The full SemVer, including prerelease and build metadata, remains in the assembly informational version.
+
+The Release build writes `VSCodex.vsix`, `Install-VSCodex.cmd`, and `Install-VSCodex.ps1` to `src/VSCodex/bin/Release/net48`; NUKE stages the verified unsigned package under `output/unsigned`. The VSIX includes the required `CP.ReactiveMemory.Mcp.Server` runtime. If double-clicking `VSCodex.vsix` does not open Visual Studio's installer because the Windows `.vsix` file association is broken, run `Install-VSCodex.cmd`; it resolves `VSIXInstaller.exe` from the installed Visual Studio instance and launches the installer directly. To launch the visible installer as part of a command-line Release build, add `/p:VSCodexLaunchVsixInstaller=true`.
 
 Debugging from Visual Studio installs the VSIX into the Experimental instance through `scripts/install-vsix-experimental.ps1`. The project intentionally disables the older raw VSSDK deployment path and uses VSIXInstaller so command tables, runtime assemblies, and VSIX assets are installed consistently.
 
@@ -52,12 +60,14 @@ Debugging from Visual Studio installs the VSIX into the Experimental instance th
 
 The VSCodex tool window is the primary workflow surface. It includes:
 
-- Conversation history with user, system, assistant, and error messages.
-- A prompt composer with Enter to send, Ctrl+Enter for a newline, and Esc to cancel.
+- Project-scoped conversation history with creation and switching between multiple chats.
+- A prompt composer with Enter using the configured follow-up behavior, Ctrl+Enter using the opposite Queue/Steer behavior while a turn is active, and Shift+Enter inserting a newline.
+- Explicit Queue, Steer, Pause, Resume, and Stop controls. Stop interrupts only the active turn and preserves queued follow-ups.
 - Voice-to-text prompt input on Windows installations with speech recognition and a microphone available.
 - Quick actions for review, active errors, tests, planning, explain, fix, optimize, and documentation.
 - Inline context suggestions for `/`, `#`, and `@`.
-- A collapsible controls panel for settings, context, skills, MCP, analytics, memory, agents, and attachments.
+- A collapsible workspace panel for history, context, memory activity, agents, and attachments.
+- Approval feedback for Codex command execution and file-change requests.
 - Current thread status and Codex rate-limit telemetry for five-hour and weekly windows when emitted by the SDK.
 
 The tool window uses Visual Studio environment colors and includes the VSCodex icon in the header. It is laid out for docked use and constrains narrow views so the core prompt and run controls remain available.
@@ -85,7 +95,7 @@ Commands use query-status routing so they appear in context-sensitive locations 
 
 ## Models and Execution
 
-The Settings panel controls how Codex is called:
+**Tools > Options > VSCodex > General** controls how Codex is called:
 
 - Mode: chat, plan, or build workflows.
 - Primary model, failover model, and budget model.
@@ -93,7 +103,9 @@ The Settings panel controls how Codex is called:
 - Reasoning effort, verbosity, approval policy, sandbox mode, profile, and service tier.
 - Transport selection for SDK bridge and optional CLI fallback.
 
-Settings are locked while a task is running so delayed binding updates cannot change model, MCP, or sandbox behavior mid-request.
+The options page is separate from the main tool window, matching the Codex application’s dedicated settings surface. It also controls whether Enter queues or steers an active turn; Ctrl+Enter always performs the opposite action.
+
+The shipped Codex catalog follows the current application: GPT-5.6 Sol is the Power default, GPT-5.6 Terra is the failover, and GPT-5.6 Luna is the budget default. GPT-5.5, GPT-5.4, GPT-5.4 Mini, and GPT-5.3 Codex Spark remain selectable. Reasoning choices are model-aware: Sol and Terra support `low` through `ultra`, Luna supports `low` through `max`, and the other current models support `low` through `xhigh`. VSCodex validates the pair again in every SDK, app-server, orchestration, failover, and CLI path.
 
 Tool-window setting changes are retained per Visual Studio solution under the VSCodex app-data workspace state. Global Visual Studio options remain the default profile for newly opened solutions.
 
@@ -107,13 +119,15 @@ VSCodex prefers the `@openai/codex-sdk` bridge shipped in the VSIX under `Resour
 - the bundled bridge file exists.
 - the optional `@openai/codex` CLI fallback can be found when configured.
 
-If setup is incomplete, VSCodex shows Windows-specific instructions in the conversation and Settings panel rather than failing silently.
+If setup is incomplete, VSCodex shows Windows-specific instructions in the conversation and Visual Studio options page rather than failing silently.
 
 ## MCP Servers
 
 The MCP tab reads and writes server configuration from `%USERPROFILE%\.codex\config.toml`. It can list configured servers, discover tools, prompt for required inputs, and insert MCP tool calls into the current prompt.
 
-ReactiveMemory is configured as the default durable memory server. VSCodex prefers the Codex-shared `[mcp_servers.cp-reactivememory-mcp-server]` entry and migrates the older VSCodex fallback `[mcp_servers.reactivememory]` entry instead of keeping both active. If the ReactiveMemory source repo is present locally it can launch that project; otherwise it falls back to the versioned `CP.ReactiveMemory.Mcp.Server` package identity through `dnx`. When Visual Studio opens a solution or repository folder, VSCodex waits until startup has settled before running a small, throttled ProjectMiner-compatible scan. Full repository mining is available from the Memory tab with the Scan project button, so Visual Studio load is not dominated by memory writes.
+ReactiveMemory is a required VSCodex service. The versioned `CP.ReactiveMemory.Mcp.Server` runtime is bundled in the VSIX, its Codex-shared `[mcp_servers.cp-reactivememory-mcp-server]` entry is recreated or re-enabled when necessary, and it cannot be disabled or removed through VSCodex. A local source build is preferred during development; the bundled runtime is preferred after installation, with `dnx` retained as a compatibility fallback. VSCodex migrates the older `[mcp_servers.reactivememory]` entry instead of keeping two memory servers active.
+
+When Visual Studio opens a solution or repository folder, VSCodex waits until startup has settled before running a small, throttled ProjectMiner-compatible scan. Full repository mining is available from the Memory workspace panel with the Scan project button, so Visual Studio load is not dominated by memory writes.
 
 ReactiveMemory source: https://github.com/ChrisPulman/ReactiveMemory.MCP.Server
 
@@ -124,6 +138,7 @@ Memory support is designed to reduce lost context across sessions:
 - User memories capture durable preferences and recurring instructions.
 - Workspace memories capture repository-specific facts.
 - VSCodex calls ReactiveMemory before each request, injects recovered project memory into the Codex prompt, and writes a diary entry after meaningful responses complete.
+- Pausing first interrupts the exact active Codex turn, then stores the correlated workspace, chat, thread, turn, operation, prompt, partial response, conversation context, and queued follow-ups. VSCodex reports the run as paused only after ReactiveMemory confirms durable storage.
 - The tool window keeps an in-memory session cache for display and search, but durable memory is stored through ReactiveMemory instead of repository-local JSON files.
 
 The Memory tab exposes explicit save actions, while the prompt builder also injects memory context automatically with minimal user input.
@@ -146,17 +161,24 @@ The prompt editor accepts file drops and pasted files where supported. Attachmen
 
 For larger tasks, VSCodex can split work across logical planner, architect, builder, reviewer, and verifier roles. The Agents tab controls role enablement, per-role model selection, orchestration model, budget-driven model mode, and maximum agent concurrency.
 
-## Marketplace Publishing
+## Marketplace Delivery
 
-The repository includes Marketplace packaging assets and a publish workflow:
+The repository includes Marketplace packaging assets and separate validation and delivery workflows:
 
 - `src/VSCodex/Resources/VSCodexIcon.svg` is the source icon artwork.
 - `src/VSCodex/Resources/VSCodexIcon-128.png` is used as the Visual Studio Marketplace icon.
 - `src/VSCodex/Resources/VSCodexIcon-256.png` is used as the Marketplace preview image.
 - `marketplace/vs-publish.json` is the VSIX publish manifest and uses this README as the Marketplace overview.
-- `.github/workflows/publish-vsix.yml` builds the Release VSIX, uploads the VSIX plus `Install-VSCodex.cmd` and `Install-VSCodex.ps1` as an installer artifact, and can publish the VSIX to the Visual Studio Marketplace.
+- `.github/workflows/BuildOnly.yml` runs the complete NUKE validation graph for pull requests targeting `main`.
+- `.github/workflows/BuildDeploy.yml` is manually triggered from `main`, requires an explicit SemVer, builds and tests through NUKE, signs `VSCodex.vsix` with Certum SimplySign, verifies the OPC package signature and certificate, and uploads only the signed VSIX.
 
-Publishing requires a Visual Studio Marketplace personal access token stored as the `VS_MARKETPLACE_PAT` GitHub secret. The workflow publishes when a `v*` tag is pushed or when it is run manually with the `publish` input enabled.
+`BuildDeploy` uses the protected `release` GitHub Environment and requires these repository or environment secrets:
+
+- `CERTUM_USER_ID`: the Certum SimplySign account identifier.
+- `CERTUM_OTP_URI`: the protected `otpauth://` TOTP URI.
+- `CERTUM_CERT_THUMBPRINT`: the 40-character SHA-1 thumbprint of the Certum code-signing certificate.
+
+The workflow pins the Windows SimplySign setup action and Microsoft Sign CLI version. It does not create a GitHub release, push a NuGet package, or publish to the Visual Studio Marketplace. After a successful manual run, download the `VSCodex-<SemVer>` artifact and upload its signed `VSCodex.vsix` to the Marketplace manually.
 
 ## License
 

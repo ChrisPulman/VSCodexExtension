@@ -2,6 +2,7 @@
   <Folder Name="/Docs/">
     <File Path="../.gitignore" />
     <File Path="../Directory.Build.props" />
+    <File Path="../Directory.Packages.props" />
     <File Path="../global.json" />
     <File Path="../LICENSE" />
     <File Path="../README.md" />
@@ -9,6 +10,8 @@
   <Folder Name="/Scripts/">
     <File Path="../scripts/validate_structure.py" />
   </Folder>
+  <Project Path="../build/_build.csproj" />
   <Project Path="../tests/VSCodex.Tests/VSCodex.Tests.csproj" Id="84b9bd5f-3555-4945-89db-4bb0bdb4b7c8" />
+  <Project Path="VSCodex.Core/VSCodex.Core.csproj" Id="8fcbef9a-6be2-44cc-bfa5-126a8d1d6528" />
   <Project Path="VSCodex/VSCodex.csproj" Id="6a8fe7a8-6245-4f29-bc95-89f6d61bba30" />
 </Solution>

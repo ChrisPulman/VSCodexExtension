@@ -1,3 +1,6 @@
+// Copyright (c) 2019-2026 Chris Pulman and contributors. All rights reserved.
+// Chris Pulman and contributors licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System;
 using System.IO;
 using System.Linq;
@@ -7,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Events;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Threading;
 using VSCodex.Infrastructure;
@@ -14,173 +18,251 @@ using VSCodex.Models;
 
 namespace VSCodex.Services;
 
-public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
+/// <summary>Provides the solution Load Monitor Service implementation.</summary>
+/// <param name="package">The package.</param>
+/// <param name="joinableTaskFactory">The joinable task factory.</param>
+/// <param name="mcpConfig">The MCP configuration service.</param>
+/// <param name="reactiveMemory">The Reactive Memory service.</param>
+public sealed class SolutionLoadMonitorService(
+    AsyncPackage package,
+    JoinableTaskFactory joinableTaskFactory,
+    IMcpConfigService mcpConfig,
+    IReactiveMemoryService reactiveMemory) : IDisposable
 {
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric12 = 12;
+
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric2 = 2;
+
+    /// <summary>Stores the automatic Scan Delay.</summary>
     private static readonly TimeSpan AutomaticScanDelay = TimeSpan.FromMinutes(10);
+
+    /// <summary>Stores the retry Delay.</summary>
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMinutes(1);
-    private readonly AsyncPackage _package;
-    private readonly JoinableTaskFactory _joinableTaskFactory;
-    private readonly IMcpConfigService _mcpConfig;
-    private readonly IReactiveMemoryService _reactiveMemory;
+
+    /// <summary>Stores the package.</summary>
+    private readonly AsyncPackage _package = package;
+
+    /// <summary>Stores the joinable Task Factory.</summary>
+    private readonly JoinableTaskFactory _joinableTaskFactory = joinableTaskFactory;
+
+    /// <summary>Stores the mcp Config.</summary>
+    private readonly IMcpConfigService _mcpConfig = mcpConfig;
+
+    /// <summary>Stores the reactive Memory.</summary>
+    private readonly IReactiveMemoryService _reactiveMemory = reactiveMemory;
+
+    /// <summary>Stores the solution.</summary>
     private IVsSolution? _solution;
-    private uint _solutionEventsCookie;
+
+    /// <summary>Indicates whether managed solution events are subscribed.</summary>
+    private bool _isSubscribed;
+
+    /// <summary>Stores the last Queued Workspace Id.</summary>
     private string _lastQueuedWorkspaceId = string.Empty;
+
+    /// <summary>Stores the scan Retry Count.</summary>
     private int _scanRetryCount;
+
+    /// <summary>Stores the scan In Progress.</summary>
     private int _scanInProgress;
 
-    public SolutionLoadMonitorService(
-        AsyncPackage package,
-        JoinableTaskFactory joinableTaskFactory,
-        IMcpConfigService mcpConfig,
-        IReactiveMemoryService reactiveMemory)
-    {
-        _package = package;
-        _joinableTaskFactory = joinableTaskFactory;
-        _mcpConfig = mcpConfig;
-        _reactiveMemory = reactiveMemory;
-    }
-
+    /// <summary>Initializes the operation.</summary>
+    /// <param name="cancellationToken">The cancellation Token.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
         await _joinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
         _solution = await _package.GetServiceAsync(typeof(SVsSolution)).ConfigureAwait(true) as IVsSolution;
-        if (_solution == null)
+        if (_solution is null)
         {
-            ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner monitor could not get SVsSolution.");
+            _ = ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner monitor could not get SVsSolution.");
             return;
         }
 
-        if (ErrorHandler.Succeeded(_solution.AdviseSolutionEvents(this, out _solutionEventsCookie)))
+        SubscribeToSolutionEvents();
+        _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner monitor registered for Visual Studio solution events.");
+        var solutionPath = TryGetSolutionPath();
+        if (string.IsNullOrWhiteSpace(solutionPath))
         {
-            ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner monitor registered for Visual Studio solution events.");
-            var solutionPath = TryGetSolutionPath();
-            if (!string.IsNullOrWhiteSpace(solutionPath))
-            {
-                QueueProjectMinerScan("package startup idle check", solutionPath, AutomaticScanDelay);
-            }
+            return;
         }
-        else
-        {
-            ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner monitor could not register Visual Studio solution events.");
-        }
+
+        QueueProjectMinerScan("package startup idle check", solutionPath, AutomaticScanDelay);
     }
 
-    public int OnAfterOpenSolution(object pUnkReserved, int fNewSolution)
+    /// <summary>Performs the dispose operation.</summary>
+    public void Dispose()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (!_isSubscribed)
+        {
+            return;
+        }
+
+        SolutionEvents.OnAfterOpenSolution -= OnAfterOpenSolution;
+        SolutionEvents.OnBeforeCloseSolution -= OnSolutionClosed;
+        SolutionEvents.OnAfterCloseSolution -= OnSolutionClosed;
+        _isSubscribed = false;
+    }
+
+    /// <summary>Handles the after Open Solution event.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="eventArgs">The event arguments.</param>
+    private void OnAfterOpenSolution(object? sender, EventArgs eventArgs)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         _scanRetryCount = 0;
         QueueProjectMinerScan("solution opened", TryGetSolutionPath(), AutomaticScanDelay);
-        return VSConstants.S_OK;
     }
 
-    public int OnAfterOpenProject(IVsHierarchy pHierarchy, int fAdded)
+    /// <summary>Handles a solution closing or closed event.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="eventArgs">The event arguments.</param>
+    private void OnSolutionClosed(object? sender, EventArgs eventArgs)
     {
-        return VSConstants.S_OK;
-    }
-
-    public int OnBeforeCloseSolution(object pUnkReserved)
-    {
+        ThreadHelper.ThrowIfNotOnUIThread();
         _lastQueuedWorkspaceId = string.Empty;
         _scanRetryCount = 0;
-        return VSConstants.S_OK;
     }
 
-    public int OnAfterCloseSolution(object pUnkReserved)
+    /// <summary>Subscribes to the managed Visual Studio solution event source.</summary>
+    private void SubscribeToSolutionEvents()
     {
-        _lastQueuedWorkspaceId = string.Empty;
-        _scanRetryCount = 0;
-        return VSConstants.S_OK;
+        if (_isSubscribed)
+        {
+            return;
+        }
+
+        SolutionEvents.OnAfterOpenSolution += OnAfterOpenSolution;
+        SolutionEvents.OnBeforeCloseSolution += OnSolutionClosed;
+        SolutionEvents.OnAfterCloseSolution += OnSolutionClosed;
+        _isSubscribed = true;
     }
 
-    public int OnAfterLoadProject(IVsHierarchy pStubHierarchy, IVsHierarchy pRealHierarchy) => VSConstants.S_OK;
-    public int OnQueryUnloadProject(IVsHierarchy pRealHierarchy, ref int pfCancel) => VSConstants.S_OK;
-    public int OnBeforeUnloadProject(IVsHierarchy pRealHierarchy, IVsHierarchy pStubHierarchy) => VSConstants.S_OK;
-    public int OnQueryCloseProject(IVsHierarchy pHierarchy, int fRemoving, ref int pfCancel) => VSConstants.S_OK;
-    public int OnBeforeCloseProject(IVsHierarchy pHierarchy, int fRemoved) => VSConstants.S_OK;
-    public int OnQueryCloseSolution(object pUnkReserved, ref int pfCancel) => VSConstants.S_OK;
-
+    /// <summary>Performs the queue Project Miner Scan operation.</summary>
+    /// <param name="reason">The reason.</param>
+    /// <param name="solutionPath">The solution Path.</param>
+    /// <param name="delay">The delay.</param>
     private void QueueProjectMinerScan(string reason, string solutionPath, TimeSpan? delay = null)
     {
         if (string.IsNullOrWhiteSpace(solutionPath))
         {
-            ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan skipped because no solution path was available (" + reason + ").");
+            _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), $"ReactiveMemory ProjectMiner scan skipped because no solution path was available ({reason}).");
             return;
         }
 
-        ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan queued (" + reason + ").");
-        Task.Run(async () =>
-        {
-            var acquiredScanSlot = false;
-            try
-            {
-                await Task.Delay(delay ?? AutomaticScanDelay, _package.DisposalToken).ConfigureAwait(false);
-                if (Interlocked.Exchange(ref _scanInProgress, 1) == 1)
-                {
-                    ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan skipped because another scan is already running (" + reason + ").");
-                    return;
-                }
-
-                acquiredScanSlot = true;
-                var identity = BuildWorkspaceIdentityFromSolutionPath(solutionPath);
-                if (identity == null || string.IsNullOrWhiteSpace(identity.Id) || string.IsNullOrWhiteSpace(identity.RootPath))
-                {
-                    if (_scanRetryCount < 1)
-                    {
-                        _scanRetryCount++;
-                        ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan is waiting for the Visual Studio workspace identity (" + reason + ").");
-                        QueueProjectMinerScan("retry " + _scanRetryCount + " after workspace identity was unavailable for " + reason, solutionPath, RetryDelay);
-                    }
-
-                    return;
-                }
-
-                if (string.Equals(_lastQueuedWorkspaceId, identity.Id, StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-
-                _mcpConfig.Refresh();
-                var scanIdentity = identity;
-                var result = await _reactiveMemory.ScanWorkspaceAsync(scanIdentity, automatic: true).ConfigureAwait(false);
-                if (result.Success)
-                {
-                    _lastQueuedWorkspaceId = identity.Id;
-                    _scanRetryCount = 0;
-                    ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), result.Message + " (" + reason + ")");
-                }
-                else
-                {
-                    ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), result.Message + " (" + reason + ")");
-                    if (_scanRetryCount < 1)
-                    {
-                        _scanRetryCount++;
-                        QueueProjectMinerScan("retry " + _scanRetryCount + " after " + reason, solutionPath, RetryDelay);
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (_package.DisposalToken.IsCancellationRequested)
-            {
-            }
-            catch (Exception ex)
-            {
-                ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan failed: " + ex);
-            }
-            finally
-            {
-                if (acquiredScanSlot)
-                {
-                    Interlocked.Exchange(ref _scanInProgress, 0);
-                }
-            }
-        }).FireAndForget();
+        _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), $"ReactiveMemory ProjectMiner scan queued ({reason}).");
+        TaskObserver.FireAndForget(Task.Run(() => RunProjectMinerScanAsync(reason, solutionPath, delay ?? AutomaticScanDelay)));
     }
 
+    /// <summary>Runs the queued Project Miner scan.</summary>
+    /// <param name="reason">The reason.</param>
+    /// <param name="solutionPath">The solution path.</param>
+    /// <param name="delay">The delay before scanning.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    private async Task RunProjectMinerScanAsync(string reason, string solutionPath, TimeSpan delay)
+    {
+        var acquiredScanSlot = false;
+        try
+        {
+            await Task.Delay(delay, _package.DisposalToken).ConfigureAwait(false);
+            if (Interlocked.Exchange(ref _scanInProgress, 1) == 1)
+            {
+                _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), $"ReactiveMemory ProjectMiner scan skipped because another scan is already running ({reason}).");
+                return;
+            }
+
+            acquiredScanSlot = true;
+            await ScanWorkspaceAsync(reason, solutionPath).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_package.DisposalToken.IsCancellationRequested)
+        {
+            _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), "ReactiveMemory ProjectMiner scan cancelled during package disposal.");
+        }
+        catch (Exception ex)
+        {
+            _ = ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), $"ReactiveMemory ProjectMiner scan failed: {ex}");
+        }
+        finally
+        {
+            if (acquiredScanSlot)
+            {
+                _ = Interlocked.Exchange(ref _scanInProgress, 0);
+            }
+        }
+    }
+
+    /// <summary>Scans the workspace identified by the solution path.</summary>
+    /// <param name="reason">The reason.</param>
+    /// <param name="solutionPath">The solution path.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    private async Task ScanWorkspaceAsync(string reason, string solutionPath)
+    {
+        var identity = BuildWorkspaceIdentityFromSolutionPath(solutionPath);
+        if (identity is null || string.IsNullOrWhiteSpace(identity.Id) || string.IsNullOrWhiteSpace(identity.RootPath))
+        {
+            QueueRetryForUnavailableWorkspaceIdentity(reason, solutionPath);
+            return;
+        }
+
+        if (string.Equals(_lastQueuedWorkspaceId, identity.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _mcpConfig.Refresh();
+        var result = await _reactiveMemory.ScanWorkspaceAsync(identity, automatic: true).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _lastQueuedWorkspaceId = identity.Id;
+            _scanRetryCount = 0;
+            _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), $"{result.Message} ({reason})");
+            return;
+        }
+
+        _ = ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), $"{result.Message} ({reason})");
+        QueueRetryAfterFailedScan(reason, solutionPath);
+    }
+
+    /// <summary>Queues a retry after a workspace identity could not be established.</summary>
+    /// <param name="reason">The reason.</param>
+    /// <param name="solutionPath">The solution path.</param>
+    private void QueueRetryForUnavailableWorkspaceIdentity(string reason, string solutionPath)
+    {
+        if (_scanRetryCount >= 1)
+        {
+            return;
+        }
+
+        _scanRetryCount++;
+        _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), $"ReactiveMemory ProjectMiner scan is waiting for the Visual Studio workspace identity ({reason}).");
+        QueueProjectMinerScan($"retry {_scanRetryCount} after workspace identity was unavailable for {reason}", solutionPath, RetryDelay);
+    }
+
+    /// <summary>Queues a retry after an unsuccessful scan.</summary>
+    /// <param name="reason">The reason.</param>
+    /// <param name="solutionPath">The solution path.</param>
+    private void QueueRetryAfterFailedScan(string reason, string solutionPath)
+    {
+        if (_scanRetryCount >= 1)
+        {
+            return;
+        }
+
+        _scanRetryCount++;
+        QueueProjectMinerScan($"retry {_scanRetryCount} after {reason}", solutionPath, RetryDelay);
+    }
+
+    /// <summary>Attempts to get Solution Path.</summary>
+    /// <returns>The try Get Solution Path result.</returns>
     private string TryGetSolutionPath()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         try
         {
-            if (_solution != null && ErrorHandler.Succeeded(_solution.GetSolutionInfo(out var directory, out var file, out _)))
+            if (_solution is not null && ErrorHandler.Succeeded(_solution.GetSolutionInfo(out var directory, out var file, out _)))
             {
                 if (!string.IsNullOrWhiteSpace(file) && Path.IsPathRooted(file))
                 {
@@ -195,13 +277,16 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
         }
         catch (Exception ex)
         {
-            ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), "Could not capture solution path for ReactiveMemory scan: " + ex.Message);
+            _ = ActivityLog.TryLogWarning(nameof(SolutionLoadMonitorService), $"Could not capture solution path for ReactiveMemory scan: {ex.Message}");
         }
 
         return string.Empty;
     }
 
-    private static WorkspaceIdentity? BuildWorkspaceIdentityFromSolutionPath(string solutionPath)
+    /// <summary>Builds workspace Identity From Solution Path.</summary>
+    /// <param name="solutionPath">The solution Path.</param>
+    /// <returns>The build Workspace Identity From Solution Path result.</returns>
+    private WorkspaceIdentity? BuildWorkspaceIdentityFromSolutionPath(string solutionPath)
     {
         if (string.IsNullOrWhiteSpace(solutionPath))
         {
@@ -234,10 +319,13 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
         };
     }
 
-    private static string? FindRepositoryRoot(string startDirectory)
+    /// <summary>Finds repository Root.</summary>
+    /// <param name="startDirectory">The start Directory.</param>
+    /// <returns>The find Repository Root result.</returns>
+    private string? FindRepositoryRoot(string startDirectory)
     {
         var current = new DirectoryInfo(startDirectory);
-        while (current != null)
+        while (current is not null)
         {
             var gitPath = Path.Combine(current.FullName, ".git");
             if (Directory.Exists(gitPath) || File.Exists(gitPath))
@@ -251,7 +339,11 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
         return null;
     }
 
-    private static string MakeRelativeIfContained(string root, string path)
+    /// <summary>Performs the make Relative If Contained operation.</summary>
+    /// <param name="root">The root.</param>
+    /// <param name="path">The path.</param>
+    /// <returns>The make Relative If Contained result.</returns>
+    private string MakeRelativeIfContained(string root, string path)
     {
         if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(path))
         {
@@ -267,17 +359,24 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
                 return Uri.UnescapeDataString(rootUri.MakeRelativeUri(pathUri).ToString()).Replace('/', Path.DirectorySeparatorChar);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), $"Could not make the solution path relative to the repository root: {ex.Message}");
         }
 
         return Path.GetFileName(path);
     }
 
-    private static string AppendSlash(string path)
+    /// <summary>Performs the append Slash operation.</summary>
+    /// <param name="path">The path.</param>
+    /// <returns>The append Slash result.</returns>
+    private string AppendSlash(string path)
         => path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ? path : path + Path.DirectorySeparatorChar;
 
-    private static string ReadRepositoryRemote(string root)
+    /// <summary>Reads repository Remote.</summary>
+    /// <param name="root">The root.</param>
+    /// <returns>The read Repository Remote result.</returns>
+    private string ReadRepositoryRemote(string root)
     {
         if (string.IsNullOrWhiteSpace(root))
         {
@@ -305,22 +404,26 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
 
                 if (inOrigin && line.StartsWith("url", StringComparison.OrdinalIgnoreCase))
                 {
-                    var parts = line.Split(new[] { '=' }, 2);
-                    if (parts.Length == 2)
+                    var parts = line.Split(['='], Numeric2);
+                    if (parts.Length == Numeric2)
                     {
                         return parts[1].Trim();
                     }
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
+            _ = ActivityLog.TryLogInformation(nameof(SolutionLoadMonitorService), $"Could not read the Git remote configuration: {ex.Message}");
         }
 
         return string.Empty;
     }
 
-    private static string ComputeWorkspaceIdentityId(params string[] parts)
+    /// <summary>Computes workspace Identity Id.</summary>
+    /// <param name="parts">The parts.</param>
+    /// <returns>The compute Workspace Identity Id result.</returns>
+    private string ComputeWorkspaceIdentityId(params string[] parts)
     {
         var key = string.Join("|", parts.Where(part => !string.IsNullOrWhiteSpace(part)).Select(NormalizeIdentityPart));
         if (string.IsNullOrWhiteSpace(key))
@@ -329,33 +432,33 @@ public sealed class SolutionLoadMonitorService : IVsSolutionEvents, IDisposable
         }
 
         using var sha = SHA256.Create();
-        return ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes(key)), 12);
+        return ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes(key)), Numeric12);
     }
 
-    private static string BuildWorkspaceMemoryRoot(string workspaceIdentityId)
-        => string.IsNullOrWhiteSpace(workspaceIdentityId) ? string.Empty : "reactivememory://workspace/" + workspaceIdentityId;
+    /// <summary>Builds workspace Memory Root.</summary>
+    /// <param name="workspaceIdentityId">The workspace Identity Id.</param>
+    /// <returns>The build Workspace Memory Root result.</returns>
+    private string BuildWorkspaceMemoryRoot(string workspaceIdentityId)
+        => string.IsNullOrWhiteSpace(workspaceIdentityId) ? string.Empty : $"reactivememory://workspace/{workspaceIdentityId}";
 
-    private static string NormalizeIdentityPart(string value)
+    /// <summary>Performs the normalize Identity Part operation.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns>The normalize Identity Part result.</returns>
+    private string NormalizeIdentityPart(string value)
         => value.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).Trim().ToLowerInvariant();
 
-    private static string ToHex(byte[] bytes, int byteCount)
+    /// <summary>Performs the to Hex operation.</summary>
+    /// <param name="bytes">The bytes.</param>
+    /// <param name="byteCount">The byte Count.</param>
+    /// <returns>The to Hex result.</returns>
+    private string ToHex(byte[] bytes, int byteCount)
     {
-        var builder = new StringBuilder(byteCount * 2);
+        var builder = new StringBuilder(byteCount * Numeric2);
         for (var i = 0; i < Math.Min(bytes.Length, byteCount); i++)
         {
-            builder.Append(bytes[i].ToString("x2"));
+            _ = builder.Append(bytes[i].ToString("x2"));
         }
 
         return builder.ToString();
-    }
-
-    public void Dispose()
-    {
-        ThreadHelper.ThrowIfNotOnUIThread();
-        if (_solution != null && _solutionEventsCookie != 0)
-        {
-            _solution.UnadviseSolutionEvents(_solutionEventsCookie);
-            _solutionEventsCookie = 0;
-        }
     }
 }

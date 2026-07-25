@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>VSCodex.Core</AssemblyName>
+    <RootNamespace>VSCodex.Core</RootNamespace>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Bcl.TimeProvider" />
+  </ItemGroup>
+</Project>

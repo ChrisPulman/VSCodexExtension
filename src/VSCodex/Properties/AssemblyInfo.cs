@@ -1,13 +1,6 @@
-using System.Reflection;
+// Copyright (c) 2019-2026 Chris Pulman and contributors. All rights reserved.
+// Chris Pulman and contributors licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Runtime.InteropServices;
-[assembly: AssemblyTitle("VSCodex")]
-[assembly: AssemblyDescription("Reactive VSCodex tool window for Visual Studio")]
-[assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("Chris Pulman")]
-[assembly: AssemblyProduct("VSCodex")]
-[assembly: AssemblyCopyright("Copyright © Chris Pulman")]
-[assembly: AssemblyTrademark("")]
-[assembly: AssemblyCulture("")]
+
 [assembly: ComVisible(false)]
-[assembly: AssemblyVersion("0.4.3.0")]
-[assembly: AssemblyFileVersion("0.4.3.0")]
