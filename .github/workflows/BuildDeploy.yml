@@ -21,12 +21,13 @@ env:
   SIGN_CLI_VERSION: 0.9.1-beta.26330.1
 
 jobs:
-  build-sign:
-    name: Build and sign VSIX
+  build:
+    name: Build unsigned VSIX
     runs-on: windows-latest
-    timeout-minutes: 45
-    environment:
-      name: release
+    timeout-minutes: 30
+    outputs:
+      semver: ${{ steps.package.outputs.semver }}
+      vsix_sha256: ${{ steps.unsigned.outputs.sha256 }}
 
     steps:
       - name: Require the protected main branch
@@ -69,11 +70,92 @@ jobs:
         shell: pwsh
         run: .\build.cmd --target PackageVsix --configuration $env:CONFIGURATION --sem-ver "${{ inputs.version }}"
 
+      - name: Record unsigned VSIX identity
+        id: unsigned
+        shell: pwsh
+        env:
+          UNSIGNED_VSIX_PATH: ${{ steps.package.outputs.vsix_path }}
+        run: |
+          $unsignedVsix = [IO.Path]::GetFullPath($env:UNSIGNED_VSIX_PATH)
+          if (-not (Test-Path -LiteralPath $unsignedVsix -PathType Leaf)) {
+            throw "NUKE did not produce the expected VSIX: $unsignedVsix"
+          }
+
+          "sha256=$((Get-FileHash -LiteralPath $unsignedVsix -Algorithm SHA256).Hash)" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload unsigned VSIX for isolated signing
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-vsix
+          path: ${{ steps.package.outputs.vsix_path }}
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    name: Sign and verify VSIX
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment:
+      name: release
+
+    steps:
+      - name: Checkout signature verifier
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download unsigned VSIX
+        uses: actions/download-artifact@v8
+        with:
+          name: unsigned-vsix
+          path: output/unsigned
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: 8.0.x
+
       - name: Cache SimplySign installer
         uses: actions/cache@v6
         with:
           path: SimplySignDesktop.msi
           key: simplysign-msi-${{ hashFiles('.github/workflows/BuildDeploy.yml') }}
+
+      - name: Validate Certum configuration
+        id: certum
+        shell: pwsh
+        env:
+          CERTUM_USER_ID: ${{ secrets.CERTUM_USER_ID }}
+          CERTUM_OTP_URI: ${{ secrets.CERTUM_OTP_URI }}
+          CERTUM_CERT_THUMBPRINT: ${{ secrets.CERTUM_CERT_THUMBPRINT }}
+          CERTUM_CERT_FINGERPRINT: ${{ secrets.CERTUM_CERT_FINGERPRINT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CERTUM_USER_ID)) {
+            throw 'CERTUM_USER_ID is not configured.'
+          }
+          if ($env:CERTUM_OTP_URI -notmatch '^otpauth://') {
+            throw 'CERTUM_OTP_URI must contain the SimplySign otpauth URI.'
+          }
+
+          $thumbprint = (
+            $env:CERTUM_CERT_THUMBPRINT -replace '[^0-9A-Fa-f]', ''
+          ).ToUpperInvariant()
+          if ($thumbprint -notmatch '^[0-9A-F]{40}$') {
+            throw 'CERTUM_CERT_THUMBPRINT must contain the signing certificate SHA-1 thumbprint.'
+          }
+
+          $fingerprint = (
+            $env:CERTUM_CERT_FINGERPRINT -replace '[^0-9A-Fa-f]', ''
+          ).ToUpperInvariant()
+          if ($fingerprint -notmatch '^[0-9A-F]{64}$') {
+            throw 'CERTUM_CERT_FINGERPRINT must contain the signing certificate SHA-256 fingerprint.'
+          }
+
+          Write-Output "::add-mask::$thumbprint"
+          "thumbprint=$thumbprint" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       # This action is pinned because it receives the protected Certum TOTP credential.
       - name: Connect Certum SimplySign
@@ -81,7 +163,7 @@ jobs:
         with:
           certum-username: ${{ secrets.CERTUM_USER_ID }}
           certum-otp-uri: ${{ secrets.CERTUM_OTP_URI }}
-          certum-key-id: ${{ secrets.CERTUM_CERT_THUMBPRINT }}
+          certum-key-id: ${{ steps.certum.outputs.thumbprint }}
           simplysign-url: ${{ env.SIMPLYSIGN_URL }}
           capture-diagnostics: false
 
@@ -103,18 +185,30 @@ jobs:
         shell: pwsh
         env:
           CERTUM_CERT_THUMBPRINT: ${{ secrets.CERTUM_CERT_THUMBPRINT }}
+          CERTUM_CERT_FINGERPRINT: ${{ secrets.CERTUM_CERT_FINGERPRINT }}
+          EXPECTED_UNSIGNED_VSIX_SHA256: ${{ needs.build.outputs.vsix_sha256 }}
           SIGN_CLI_PATH: ${{ steps.sign-cli.outputs.path }}
-          UNSIGNED_VSIX_PATH: ${{ steps.package.outputs.vsix_path }}
+          UNSIGNED_VSIX_PATH: ${{ github.workspace }}/output/unsigned/VSCodex.vsix
         run: |
-          $expectedThumbprint = $env:CERTUM_CERT_THUMBPRINT -replace '[^0-9A-Fa-f]', ''
-          if ($expectedThumbprint.Length -ne 40) {
+          $expectedThumbprint = (
+            $env:CERTUM_CERT_THUMBPRINT -replace '[^0-9A-Fa-f]', ''
+          ).ToUpperInvariant()
+          if ($expectedThumbprint -notmatch '^[0-9A-F]{40}$') {
             throw 'CERTUM_CERT_THUMBPRINT must contain the signing certificate SHA-1 thumbprint.'
+          }
+
+          $expectedFingerprint = (
+            $env:CERTUM_CERT_FINGERPRINT -replace '[^0-9A-Fa-f]', ''
+          ).ToUpperInvariant()
+          if ($expectedFingerprint -notmatch '^[0-9A-F]{64}$') {
+            throw 'CERTUM_CERT_FINGERPRINT must contain the signing certificate SHA-256 fingerprint.'
           }
 
           $certificates = @(
             Get-ChildItem Cert:\CurrentUser\My |
               Where-Object {
-                ($_.Thumbprint -replace '[^0-9A-Fa-f]', '') -eq $expectedThumbprint
+                ($_.Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() -eq
+                  $expectedThumbprint
               }
           )
           if ($certificates.Count -ne 1) {
@@ -124,6 +218,18 @@ jobs:
           $certificate = $certificates[0]
           if (-not $certificate.HasPrivateKey) {
             throw 'The configured Certum certificate is visible but its cloud private key is unavailable.'
+          }
+
+          $sha256 = [Security.Cryptography.SHA256]::Create()
+          try {
+            $actualFingerprint = [BitConverter]::ToString(
+              $sha256.ComputeHash($certificate.RawData)).Replace('-', '')
+          }
+          finally {
+            $sha256.Dispose()
+          }
+          if ($actualFingerprint -ne $expectedFingerprint) {
+            throw 'The Certum certificate SHA-256 fingerprint does not match CERTUM_CERT_FINGERPRINT.'
           }
 
           $hasCodeSigningEku = @(
@@ -142,13 +248,15 @@ jobs:
           }
           $rsa.Dispose()
 
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'certum-code-signing.cer'
-          Export-Certificate -Cert $certificate -FilePath $certificatePath -Force | Out-Null
-          $certificateFingerprint = (Get-FileHash -LiteralPath $certificatePath -Algorithm SHA256).Hash
-
           $unsignedVsix = [IO.Path]::GetFullPath($env:UNSIGNED_VSIX_PATH)
           if (-not (Test-Path -LiteralPath $unsignedVsix -PathType Leaf)) {
             throw "NUKE did not produce the expected VSIX: $unsignedVsix"
+          }
+          $unsignedVsixHash = (
+            Get-FileHash -LiteralPath $unsignedVsix -Algorithm SHA256
+          ).Hash
+          if ($unsignedVsixHash -ne $env:EXPECTED_UNSIGNED_VSIX_SHA256) {
+            throw 'The downloaded unsigned VSIX does not match the artifact produced by the build job.'
           }
 
           $signedDirectory = Join-Path $env:GITHUB_WORKSPACE 'output\signed'
@@ -156,20 +264,23 @@ jobs:
           $signedVsix = Join-Path $signedDirectory 'VSCodex.vsix'
 
           & $env:SIGN_CLI_PATH code certificate-store $unsignedVsix `
-            -cfp $certificateFingerprint `
+            -cfp $actualFingerprint `
             -d 'VSCodex VSIX' `
             -u 'https://github.com/ChrisPulman/VSCodexExtension' `
             -fd sha256 `
-            -tr 'http://time.certum.pl/' `
+            -t 'http://time.certum.pl/' `
             -td sha256 `
             -o $signedVsix
           if ($LASTEXITCODE -ne 0) {
             throw 'Microsoft Sign CLI failed to sign the VSIX.'
           }
+          if (-not (Test-Path -LiteralPath $signedVsix -PathType Leaf)) {
+            throw "Microsoft Sign CLI did not produce the expected VSIX: $signedVsix"
+          }
 
           "signed_path=$signedVsix" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "certificate_fingerprint=$certificateFingerprint" |
+          "certificate_fingerprint=$actualFingerprint" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Verify signed VSIX
@@ -177,13 +288,13 @@ jobs:
         run: |
           .\scripts\verify-vsix-signature.ps1 `
             -VsixPath '${{ steps.sign.outputs.signed_path }}' `
-            -UnsignedVsixPath '${{ steps.package.outputs.vsix_path }}' `
+            -UnsignedVsixPath '${{ github.workspace }}/output/unsigned/VSCodex.vsix' `
             -CertificateFingerprint '${{ steps.sign.outputs.certificate_fingerprint }}'
 
       - name: Upload signed VSIX
         uses: actions/upload-artifact@v7
         with:
-          name: VSCodex-${{ steps.package.outputs.semver }}
+          name: VSCodex-${{ needs.build.outputs.semver }}
           path: ${{ steps.sign.outputs.signed_path }}
           if-no-files-found: error
           retention-days: 30
