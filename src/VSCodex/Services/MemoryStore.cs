@@ -1,3 +1,6 @@
+// Copyright (c) 2019-2026 Chris Pulman and contributors. All rights reserved.
+// Chris Pulman and contributors licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,25 +10,31 @@ using VSCodex.Models;
 
 namespace VSCodex.Services;
 
-public interface IMemoryStore
-{
-    IObservable<IReadOnlyList<MemoryEntry>> Memories { get; }
-    IReadOnlyList<MemoryEntry> Snapshot { get; }
-    void Add(string text, string scope);
-    void Remove(string id);
-    IReadOnlyList<MemoryEntry> Search(string query, int limit);
-    void LoadWorkspace(string workspaceRoot);
-}
+/// <summary>Provides the memory Store implementation.</summary>
 public sealed class MemoryStore : IMemoryStore
 {
-    private readonly object _gate = new object();
+    /// <summary>Stores the gate.</summary>
+    private readonly object _gate = new();
+
+    /// <summary>Stores the memories.</summary>
     private readonly BehaviorSubject<IReadOnlyList<MemoryEntry>> _memories;
-    private readonly Dictionary<string, List<MemoryEntry>> _workspaceMemories = new Dictionary<string, List<MemoryEntry>>(StringComparer.OrdinalIgnoreCase);
-    private IReadOnlyList<MemoryEntry> _currentSnapshot = Array.Empty<MemoryEntry>();
+
+    /// <summary>Stores the workspace Memories.</summary>
+    private readonly Dictionary<string, List<MemoryEntry>> _workspaceMemories = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Stores the current Snapshot.</summary>
+    private IReadOnlyList<MemoryEntry> _currentSnapshot = [];
+
+    /// <summary>Stores the workspace Key.</summary>
     private string _workspaceKey = string.Empty;
 
-    public MemoryStore() => _memories = new BehaviorSubject<IReadOnlyList<MemoryEntry>>(Array.Empty<MemoryEntry>());
+    /// <summary>Initializes a new instance of the <see cref="MemoryStore"/> class.</summary>
+    public MemoryStore() => _memories = new([]);
+
+    /// <summary>Gets the memories.</summary>
     public IObservable<IReadOnlyList<MemoryEntry>> Memories => _memories.AsObservable();
+
+    /// <summary>Gets the snapshot.</summary>
     public IReadOnlyList<MemoryEntry> Snapshot
     {
         get
@@ -37,6 +46,8 @@ public sealed class MemoryStore : IMemoryStore
         }
     }
 
+    /// <summary>Loads workspace.</summary>
+    /// <param name="workspaceRoot">The workspace Root.</param>
     public void LoadWorkspace(string workspaceRoot)
     {
         IReadOnlyList<MemoryEntry> snapshot;
@@ -45,7 +56,7 @@ public sealed class MemoryStore : IMemoryStore
             _workspaceKey = workspaceRoot ?? string.Empty;
             if (!_workspaceMemories.TryGetValue(_workspaceKey, out var entries))
             {
-                entries = new List<MemoryEntry>();
+                entries = new();
                 _workspaceMemories[_workspaceKey] = entries;
             }
 
@@ -56,16 +67,23 @@ public sealed class MemoryStore : IMemoryStore
         _memories.OnNext(snapshot);
     }
 
+    /// <summary>Adds the operation.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="scope">The scope.</param>
     public void Add(string text, string scope)
     {
-        if (string.IsNullOrWhiteSpace(text)) return;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
         IReadOnlyList<MemoryEntry> snapshot;
         lock (_gate)
         {
             var entry = new MemoryEntry { Text = text.Trim(), Scope = scope };
             if (!_workspaceMemories.TryGetValue(_workspaceKey, out var list))
             {
-                list = new List<MemoryEntry>();
+                list = new();
                 _workspaceMemories[_workspaceKey] = list;
             }
 
@@ -77,6 +95,8 @@ public sealed class MemoryStore : IMemoryStore
         _memories.OnNext(snapshot);
     }
 
+    /// <summary>Removes the operation.</summary>
+    /// <param name="id">The id.</param>
     public void Remove(string id)
     {
         IReadOnlyList<MemoryEntry> snapshot;
@@ -84,7 +104,7 @@ public sealed class MemoryStore : IMemoryStore
         {
             if (_workspaceMemories.TryGetValue(_workspaceKey, out var list))
             {
-                list.RemoveAll(x => x.Id == id);
+                _ = list.RemoveAll(x => x.Id == id);
                 snapshot = list.ToList();
             }
             else
@@ -98,12 +118,15 @@ public sealed class MemoryStore : IMemoryStore
         _memories.OnNext(snapshot);
     }
 
+    /// <summary>Performs the search operation.</summary>
+    /// <param name="query">The query.</param>
+    /// <param name="limit">The limit.</param>
+    /// <returns>The search result.</returns>
     public IReadOnlyList<MemoryEntry> Search(string query, int limit)
     {
         var snapshot = Snapshot;
-        var terms = (query ?? string.Empty).Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-        if (terms.Length == 0) return snapshot.Take(limit).ToList();
-        return snapshot.Select(m => new { Memory = m, Score = terms.Count(t => m.Text.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0) })
+        var terms = (query ?? string.Empty).Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        return terms.Length == 0 ? snapshot.Take(limit).ToList() : snapshot.Select(m => (Memory: m, Score: terms.Count(t => m.Text.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0)))
             .Where(x => x.Score > 0).OrderByDescending(x => x.Score).ThenByDescending(x => x.Memory.Updated).Take(limit).Select(x => x.Memory).ToList();
     }
 }

@@ -1,0 +1,189 @@
+name: BuildDeploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer 2.0 version to stamp into the assemblies and VSIX
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscodex-build-deploy
+  cancel-in-progress: false
+
+env:
+  CONFIGURATION: Release
+  SIMPLYSIGN_URL: https://files.certum.eu/software/SimplySignDesktop/Windows/9.4.3.90/SimplySignDesktop-9.4.3.90-64-bit-en.msi
+  SIGN_CLI_VERSION: 0.9.1-beta.26330.1
+
+jobs:
+  build-sign:
+    name: Build and sign VSIX
+    runs-on: windows-latest
+    timeout-minutes: 45
+    environment:
+      name: release
+
+    steps:
+      - name: Require the protected main branch
+        shell: pwsh
+        run: |
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'BuildDeploy must be manually dispatched from the protected main branch.'
+          }
+
+      - name: Checkout protected source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5.4.0
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+        with:
+          vs-prerelease: true
+
+      - name: Cache NUKE and NuGet
+        uses: actions/cache@v6
+        with:
+          path: |
+            .nuke/temp
+            ~\.nuget\packages
+            ~\AppData\Local\NuGet\v3-cache
+          key: ${{ runner.os }}-nuke-nuget-${{ hashFiles('global.json', '.config/dotnet-tools.json', 'Directory.Build.props', 'Directory.Packages.props', '**/*.csproj', 'build/**') }}
+          restore-keys: |
+            ${{ runner.os }}-nuke-nuget-
+
+      - name: Build, test, and stage unsigned VSIX with NUKE
+        id: package
+        shell: pwsh
+        run: .\build.cmd --target PackageVsix --configuration $env:CONFIGURATION --sem-ver "${{ inputs.version }}"
+
+      - name: Cache SimplySign installer
+        uses: actions/cache@v6
+        with:
+          path: SimplySignDesktop.msi
+          key: simplysign-msi-${{ hashFiles('.github/workflows/BuildDeploy.yml') }}
+
+      # This action is pinned because it receives the protected Certum TOTP credential.
+      - name: Connect Certum SimplySign
+        uses: dismine/windows-app-signing-setup-action@89ae3b032d4bc7a5b98d1a42a34e61ecb6faad64
+        with:
+          certum-username: ${{ secrets.CERTUM_USER_ID }}
+          certum-otp-uri: ${{ secrets.CERTUM_OTP_URI }}
+          certum-key-id: ${{ secrets.CERTUM_CERT_THUMBPRINT }}
+          simplysign-url: ${{ env.SIMPLYSIGN_URL }}
+          capture-diagnostics: false
+
+      - name: Install Microsoft Sign CLI
+        id: sign-cli
+        shell: pwsh
+        run: |
+          $toolDirectory = Join-Path $env:RUNNER_TEMP 'sign-cli'
+          dotnet tool install --tool-path $toolDirectory sign --version $env:SIGN_CLI_VERSION
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Microsoft Sign CLI installation failed.'
+          }
+
+          "path=$(Join-Path $toolDirectory 'sign.exe')" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Sign VSIX with the Certum cloud certificate
+        id: sign
+        shell: pwsh
+        env:
+          CERTUM_CERT_THUMBPRINT: ${{ secrets.CERTUM_CERT_THUMBPRINT }}
+          SIGN_CLI_PATH: ${{ steps.sign-cli.outputs.path }}
+          UNSIGNED_VSIX_PATH: ${{ steps.package.outputs.vsix_path }}
+        run: |
+          $expectedThumbprint = $env:CERTUM_CERT_THUMBPRINT -replace '[^0-9A-Fa-f]', ''
+          if ($expectedThumbprint.Length -ne 40) {
+            throw 'CERTUM_CERT_THUMBPRINT must contain the signing certificate SHA-1 thumbprint.'
+          }
+
+          $certificates = @(
+            Get-ChildItem Cert:\CurrentUser\My |
+              Where-Object {
+                ($_.Thumbprint -replace '[^0-9A-Fa-f]', '') -eq $expectedThumbprint
+              }
+          )
+          if ($certificates.Count -ne 1) {
+            throw "Expected one Certum certificate with the configured thumbprint; found $($certificates.Count)."
+          }
+
+          $certificate = $certificates[0]
+          if (-not $certificate.HasPrivateKey) {
+            throw 'The configured Certum certificate is visible but its cloud private key is unavailable.'
+          }
+
+          $hasCodeSigningEku = @(
+            $certificate.Extensions |
+              Where-Object { $_.Oid.Value -eq '2.5.29.37' } |
+              ForEach-Object { $_.EnhancedKeyUsages } |
+              Where-Object { $_.Value -eq '1.3.6.1.5.5.7.3.3' }
+          ).Count -gt 0
+          if (-not $hasCodeSigningEku) {
+            throw 'The configured certificate does not have the Code Signing enhanced key usage.'
+          }
+
+          $rsa = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($certificate)
+          if ($null -eq $rsa) {
+            throw 'Microsoft Sign CLI requires an RSA code-signing certificate.'
+          }
+          $rsa.Dispose()
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'certum-code-signing.cer'
+          Export-Certificate -Cert $certificate -FilePath $certificatePath -Force | Out-Null
+          $certificateFingerprint = (Get-FileHash -LiteralPath $certificatePath -Algorithm SHA256).Hash
+
+          $unsignedVsix = [IO.Path]::GetFullPath($env:UNSIGNED_VSIX_PATH)
+          if (-not (Test-Path -LiteralPath $unsignedVsix -PathType Leaf)) {
+            throw "NUKE did not produce the expected VSIX: $unsignedVsix"
+          }
+
+          $signedDirectory = Join-Path $env:GITHUB_WORKSPACE 'output\signed'
+          New-Item -ItemType Directory -Path $signedDirectory -Force | Out-Null
+          $signedVsix = Join-Path $signedDirectory 'VSCodex.vsix'
+
+          & $env:SIGN_CLI_PATH code certificate-store $unsignedVsix `
+            -cfp $certificateFingerprint `
+            -d 'VSCodex VSIX' `
+            -u 'https://github.com/ChrisPulman/VSCodexExtension' `
+            -fd sha256 `
+            -tr 'http://time.certum.pl/' `
+            -td sha256 `
+            -o $signedVsix
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Microsoft Sign CLI failed to sign the VSIX.'
+          }
+
+          "signed_path=$signedVsix" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "certificate_fingerprint=$certificateFingerprint" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Verify signed VSIX
+        shell: powershell
+        run: |
+          .\scripts\verify-vsix-signature.ps1 `
+            -VsixPath '${{ steps.sign.outputs.signed_path }}' `
+            -UnsignedVsixPath '${{ steps.package.outputs.vsix_path }}' `
+            -CertificateFingerprint '${{ steps.sign.outputs.certificate_fingerprint }}'
+
+      - name: Upload signed VSIX
+        uses: actions/upload-artifact@v7
+        with:
+          name: VSCodex-${{ steps.package.outputs.semver }}
+          path: ${{ steps.sign.outputs.signed_path }}
+          if-no-files-found: error
+          retention-days: 30

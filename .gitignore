@@ -10,3 +10,5 @@ merged.source.extension.vsixmanifest
 *.vsix
 TestResults/
 coverage/
+output/
+.nuke/temp/

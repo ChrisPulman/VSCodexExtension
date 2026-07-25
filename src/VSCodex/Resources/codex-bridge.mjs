@@ -80,6 +80,10 @@ if (process.argv.includes('--check')) {
 const threads = new Map();
 let codex;
 let activeAbort;
+let appServer;
+let appServerSequence = 0;
+const activeAppServerTurns = new Map();
+const earlyTurnCompletions = new Map();
 function emit(value) { process.stdout.write(JSON.stringify(value) + '\n'); }
 async function ensureCodex() { if (codex) return codex; const Codex = await loadCodex(); codex = new Codex(); return codex; }
 async function getThread(request) {
@@ -95,9 +99,10 @@ async function getThread(request) {
   return c.startThread ? c.startThread(options) : await c.thread_start?.(options);
 }
 function buildThreadOptions(request) {
+  const { model, effort } = normalizeModelAndReasoningEffort(request);
   const options = {};
-  if (request.model) options.model = request.model;
-  if (request.reasoningEffort) options.modelReasoningEffort = normalizeLower(request.reasoningEffort);
+  if (model) options.model = model;
+  options.modelReasoningEffort = effort;
   if (request.approvalPolicy) options.approvalPolicy = normalizeApprovalPolicy(request.approvalPolicy);
   if (request.sandboxMode) options.sandboxMode = normalizeSandboxMode(request.sandboxMode);
   if (request.workspaceRoot) options.workingDirectory = request.workspaceRoot;
@@ -122,20 +127,414 @@ function normalizeSandboxMode(value) {
   return text === 'readonly' ? 'read-only' : text === 'workspacewrite' ? 'workspace-write' : text === 'dangerfullaccess' ? 'danger-full-access' : text;
 }
 async function handle(request) {
-  if (request.command === 'cancel') { activeAbort?.abort?.(); return { cancelled: true }; }
+  if (request.command === 'cancel') return await interruptAppServerTurn(request.threadId);
+  if (request.command === 'interrupt') return await interruptAppServerTurn(request.threadId);
+  if (request.command === 'steer') return await steerAppServerTurn(request);
+  if (request.command === 'respondServerRequest') return respondToAppServerRequest(request);
   if (request.command === 'getRateLimits') return await getRateLimits();
   if (!request.workspaceRoot) throw new Error('VSCodex workspaceRoot is required. Wait for Visual Studio to finish loading a solution or project before running Codex.');
-  const thread = await getThread(request);
-  activeAbort = new AbortController();
   try {
-    const result = await runSdkThread(thread, request);
-    const threadId = result?.threadId ?? thread.id ?? request.threadId;
-    if (threadId) threads.set(threadId, { thread, workspaceRoot: request.workspaceRoot });
-    return result;
+    return await runAppServerTurn(request);
   } catch (error) {
-    if (!isSdkJsonNoiseError(error)) throw error;
-    return await runResilientCodexExec(request);
+    emit({ type: 'transport-fallback', message: 'Codex app-server transport failed; trying the SDK bridge.', detail: error?.message ?? String(error) });
+    const thread = await getThread(request);
+    activeAbort = new AbortController();
+    try {
+      const result = await runSdkThread(thread, request);
+      const threadId = result?.threadId ?? thread.id ?? request.threadId;
+      if (threadId) threads.set(threadId, { thread, workspaceRoot: request.workspaceRoot });
+      return result;
+    } catch (sdkError) {
+      if (!isSdkJsonNoiseError(sdkError)) throw sdkError;
+      return await runResilientCodexExec(request);
+    }
   }
+}
+
+async function ensureAppServer() {
+  if (appServer?.child && !appServer.child.killed && appServer.child.exitCode == null) return appServer;
+  const child = spawn(resolveCodexExecutable(), ['app-server', '--listen', 'stdio://'], {
+    env: process.env,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  let stderr = '';
+  child.stderr.on('data', data => {
+    const message = data.toString().trim();
+    if (!message) return;
+    stderr += message + '\n';
+  });
+  const rpc = createJsonRpcClient(child, 30000, processAppServerMessage);
+  const initialize = await rpc.send({
+    jsonrpc: '2.0',
+    id: nextAppServerId(),
+    method: 'initialize',
+    params: {
+      clientInfo: { name: 'VSCodex', title: 'VSCodex for Visual Studio', version: '0.5.0' },
+      capabilities: { experimentalApi: true }
+    }
+  });
+  if (initialize.error) {
+    rpc.close();
+    try { child.kill(); } catch {}
+    throw new Error('Codex app-server initialization failed: ' + JSON.stringify(initialize.error) + (stderr ? '\n' + stderr.trim() : ''));
+  }
+  appServer = { child, rpc };
+  return appServer;
+}
+
+function nextAppServerId() {
+  appServerSequence += 1;
+  return 'vscodex-' + appServerSequence;
+}
+
+async function runAppServerTurn(request) {
+  const server = await ensureAppServer();
+  const threadResponse = request.threadId
+    ? await server.rpc.send({
+        jsonrpc: '2.0',
+        id: nextAppServerId(),
+        method: 'thread/resume',
+        params: buildThreadResumeParams(request)
+      })
+    : await server.rpc.send({
+        jsonrpc: '2.0',
+        id: nextAppServerId(),
+        method: 'thread/start',
+        params: buildThreadStartParams(request)
+      });
+  throwOnRpcError(threadResponse, request.threadId ? 'resume thread' : 'start thread');
+  const threadId = threadResponse.result?.thread?.id ?? request.threadId;
+  if (!threadId) throw new Error('Codex app-server returned no thread identifier.');
+
+  const turnResponse = await server.rpc.send({
+    jsonrpc: '2.0',
+    id: nextAppServerId(),
+    method: 'turn/start',
+    params: buildTurnStartParams(request, threadId)
+  });
+  throwOnRpcError(turnResponse, 'start turn');
+  const turnId = turnResponse.result?.turn?.id;
+  if (!turnId) throw new Error('Codex app-server returned no turn identifier.');
+
+  const completion = createDeferred();
+  const state = {
+    threadId,
+    turnId,
+    operationId: request.operationId ?? turnId,
+    finalResponse: '',
+    pendingDelta: '',
+    deltaTimer: null,
+    items: [],
+    completion
+  };
+  activeAppServerTurns.set(threadId, state);
+  emit({ type: 'turn-started', message: 'Codex is working...', threadId, turnId, operationId: state.operationId });
+
+  const earlyCompletion = earlyTurnCompletions.get(turnId);
+  if (earlyCompletion) {
+    earlyTurnCompletions.delete(turnId);
+    completeAppServerTurn(earlyCompletion);
+  }
+
+  return await completion.promise;
+}
+
+function buildThreadStartParams(request) {
+  const { model } = normalizeModelAndReasoningEffort(request);
+  const params = {
+    cwd: request.workspaceRoot,
+    runtimeWorkspaceRoots: [request.workspaceRoot],
+    approvalPolicy: normalizeApprovalPolicy(request.approvalPolicy),
+    sandbox: normalizeSandboxMode(request.sandboxMode),
+    serviceName: 'VSCodex',
+    ephemeral: false
+  };
+  if (model) params.model = model;
+  const serviceTier = normalizeServiceTier(request.serviceTier);
+  if (serviceTier) params.serviceTier = serviceTier;
+  return params;
+}
+
+function buildThreadResumeParams(request) {
+  const { model } = normalizeModelAndReasoningEffort(request);
+  const params = {
+    threadId: request.threadId,
+    cwd: request.workspaceRoot,
+    runtimeWorkspaceRoots: [request.workspaceRoot],
+    approvalPolicy: normalizeApprovalPolicy(request.approvalPolicy),
+    sandbox: normalizeSandboxMode(request.sandboxMode)
+  };
+  if (model) params.model = model;
+  const serviceTier = normalizeServiceTier(request.serviceTier);
+  if (serviceTier) params.serviceTier = serviceTier;
+  return params;
+}
+
+function buildTurnStartParams(request, threadId) {
+  const { model, effort } = normalizeModelAndReasoningEffort(request);
+  const input = [{ type: 'text', text: request.prompt ?? '', text_elements: [] }];
+  if (Array.isArray(request.images)) {
+    for (const image of request.images) {
+      if (image?.kind === 'image' && image.path) input.push({ type: 'localImage', path: image.path });
+    }
+  }
+  const params = {
+    threadId,
+    input,
+    cwd: request.workspaceRoot,
+    runtimeWorkspaceRoots: [request.workspaceRoot],
+    approvalPolicy: normalizeApprovalPolicy(request.approvalPolicy),
+    model,
+    serviceTier: normalizeServiceTier(request.serviceTier),
+    effort
+  };
+  return Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined && value !== ''));
+}
+
+const reasoningEffortOrder = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+const solTerraModels = new Set(['gpt-5.6-sol', 'gpt-5.6-terra']);
+const lunaModels = new Set(['gpt-5.6-luna']);
+const standardReasoningModels = new Set(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark']);
+
+function normalizeModel(value) {
+  const normalized = normalizeLower(value).trim();
+  return normalized || undefined;
+}
+
+function getSupportedReasoningEfforts(model) {
+  if (solTerraModels.has(model)) return reasoningEffortOrder;
+  if (lunaModels.has(model)) return reasoningEffortOrder.slice(0, -1);
+  if (standardReasoningModels.has(model)) return reasoningEffortOrder.slice(0, 4);
+  return ['medium'];
+}
+
+function normalizeReasoningEffort(model, value) {
+  const supported = getSupportedReasoningEfforts(model);
+  const normalized = normalizeLower(value).trim();
+  if (supported.includes(normalized)) return normalized;
+  const requestedRank = reasoningEffortOrder.indexOf(normalized);
+  return requestedRank > reasoningEffortOrder.indexOf(supported.at(-1)) ? supported.at(-1) : 'medium';
+}
+
+function normalizeModelAndReasoningEffort(request) {
+  const model = normalizeModel(request.model);
+  return { model, effort: normalizeReasoningEffort(model, request.reasoningEffort) };
+}
+
+function normalizeServiceTier(value) {
+  const normalized = normalizeLower(value);
+  return normalized && normalized !== 'auto' ? normalized : undefined;
+}
+
+if (process.argv.includes('--self-test-model-catalog')) {
+  try {
+    const cases = [
+      ['gpt-5.6-sol', 'ultra', 'ultra'],
+      ['gpt-5.6-terra', 'max', 'max'],
+      ['gpt-5.6-luna', 'ultra', 'max'],
+      ['gpt-5.5', 'max', 'xhigh'],
+      ['gpt-5.4-mini', 'ultra', 'xhigh'],
+      ['gpt-5.3-codex-spark', 'max', 'xhigh'],
+      ['gpt-5.6-sol', 'minimal', 'medium'],
+      ['custom-provider-model', 'ultra', 'medium']
+    ];
+    const resolved = cases.map(([model, requested, expected]) => {
+      const actual = normalizeReasoningEffort(model, requested);
+      if (actual !== expected) throw new Error(`${model}/${requested} resolved to ${actual}; expected ${expected}.`);
+      return { model, requested, actual };
+    });
+    const request = { model: 'gpt-5.6-luna', reasoningEffort: 'ultra', workspaceRoot: process.cwd(), prompt: 'test' };
+    const thread = buildThreadOptions(request);
+    const turn = buildTurnStartParams(request, 'thread-test');
+    const execArgs = buildCodexExecArgs(request);
+    if (thread.modelReasoningEffort !== 'max' || turn.effort !== 'max' || !execArgs.includes('model_reasoning_effort="max"')) {
+      throw new Error('Model/effort normalization diverged between the SDK, app-server, and CLI transports.');
+    }
+    console.log(JSON.stringify({ resolved, transportEffort: turn.effort }));
+    process.exit(0);
+  } catch (error) {
+    console.error(error?.stack ?? String(error));
+    process.exit(1);
+  }
+}
+
+async function steerAppServerTurn(request) {
+  if (!request.threadId) throw new Error('A thread identifier is required to steer a Codex turn.');
+  if (!request.prompt?.trim()) throw new Error('A steering prompt is required.');
+  const active = activeAppServerTurns.get(request.threadId);
+  if (!active) throw new Error('The selected chat has no active Codex turn to steer.');
+  const server = await ensureAppServer();
+  const response = await server.rpc.send({
+    jsonrpc: '2.0',
+    id: nextAppServerId(),
+    method: 'turn/steer',
+    params: {
+      threadId: active.threadId,
+      expectedTurnId: active.turnId,
+      input: [{ type: 'text', text: request.prompt, text_elements: [] }]
+    }
+  });
+  throwOnRpcError(response, 'steer turn');
+  emit({ type: 'turn-steered', message: 'Guidance added to the active Codex turn.', threadId: active.threadId, turnId: active.turnId });
+  return { threadId: active.threadId, turnId: response.result?.turnId ?? active.turnId, steered: true };
+}
+
+async function interruptAppServerTurn(threadId) {
+  if (!threadId) {
+    activeAbort?.abort?.();
+    const activeTurns = Array.from(activeAppServerTurns.values());
+    await Promise.all(activeTurns.map(active => interruptAppServerTurn(active.threadId)));
+    return { interrupted: activeTurns.length > 0 };
+  }
+  const active = activeAppServerTurns.get(threadId);
+  if (!active) return { threadId, interrupted: false };
+  const server = await ensureAppServer();
+  const response = await server.rpc.send({
+    jsonrpc: '2.0',
+    id: nextAppServerId(),
+    method: 'turn/interrupt',
+    params: { threadId: active.threadId, turnId: active.turnId }
+  });
+  throwOnRpcError(response, 'interrupt turn');
+  emit({ type: 'turn-interrupted', message: 'Codex turn interrupted.', threadId: active.threadId, turnId: active.turnId });
+  return { threadId: active.threadId, turnId: active.turnId, interrupted: true };
+}
+
+function respondToAppServerRequest(request) {
+  if (!request.requestId) throw new Error('A server request identifier is required.');
+  if (!appServer?.rpc) throw new Error('Codex app-server is not running.');
+  return appServer.rpc.respond(request.requestId, request.result ?? { decision: 'decline' });
+}
+
+function processAppServerMessage(item) {
+  if (!item?.method) return;
+  if (item.id !== undefined && item.id !== null) {
+    emit({
+      type: 'approval-request',
+      message: describeServerRequest(item),
+      requestId: item.id,
+      method: item.method,
+      threadId: item.params?.threadId,
+      turnId: item.params?.turnId,
+      params: item.params
+    });
+    return;
+  }
+
+  const params = item.params ?? {};
+  const turnId = params.turnId ?? params.turn?.id;
+  const threadId = params.threadId;
+  const active = threadId ? activeAppServerTurns.get(threadId) : findActiveTurn(turnId);
+  if (item.method === 'item/agentMessage/delta' && active) {
+    const delta = params.delta ?? '';
+    active.finalResponse += delta;
+    queueAssistantDelta(active, delta);
+    return;
+  } else if (item.method === 'item/completed' && active) {
+    active.items.push(params.item);
+    if (params.item?.type === 'agentMessage' && params.item.text) active.finalResponse = params.item.text;
+  } else if (item.method === 'turn/completed') {
+    if (active) completeAppServerTurn({ item, active });
+    else if (turnId) earlyTurnCompletions.set(turnId, { item });
+  }
+
+  const message = describeAppServerNotification(item);
+  if (item.method.endsWith('/outputDelta')
+      || item.method.endsWith('/textDelta')
+      || item.method.endsWith('/summaryTextDelta')) return;
+  if (!message) return;
+  emit({
+    type: item.method === 'account/rateLimits/updated' ? 'rate-limits' : 'progress',
+    message,
+    threadId,
+    turnId,
+    event: item,
+    rateLimits: item.method === 'account/rateLimits/updated' ? params.rateLimits : undefined
+  });
+}
+
+function findActiveTurn(turnId) {
+  if (!turnId) return undefined;
+  return Array.from(activeAppServerTurns.values()).find(active => active.turnId === turnId);
+}
+
+function completeAppServerTurn(completion) {
+  const item = completion.item;
+  const params = item.params ?? {};
+  const active = completion.active ?? findActiveTurn(params.turnId ?? params.turn?.id);
+  if (!active) return;
+  flushAssistantDelta(active);
+  activeAppServerTurns.delete(active.threadId);
+  const status = params.turn?.status ?? 'completed';
+  const error = params.turn?.error;
+  if (status === 'failed') {
+    active.completion.reject(new Error(error?.message ?? JSON.stringify(error ?? params.turn)));
+    return;
+  }
+  active.completion.resolve({
+    threadId: active.threadId,
+    turnId: active.turnId,
+    operationId: active.operationId,
+    finalResponse: active.finalResponse,
+    result: { turn: params.turn, items: active.items, finalResponse: active.finalResponse }
+  });
+}
+
+function queueAssistantDelta(active, delta) {
+  if (!delta) return;
+  active.pendingDelta += delta;
+  if (active.deltaTimer) return;
+  active.deltaTimer = setTimeout(() => flushAssistantDelta(active), 75);
+}
+
+function flushAssistantDelta(active) {
+  if (active.deltaTimer) {
+    clearTimeout(active.deltaTimer);
+    active.deltaTimer = null;
+  }
+  if (!active.pendingDelta) return;
+  emit({
+    type: 'assistant-delta',
+    message: active.pendingDelta,
+    threadId: active.threadId,
+    turnId: active.turnId,
+    operationId: active.operationId
+  });
+  active.pendingDelta = '';
+}
+
+function describeServerRequest(item) {
+  if (item.method === 'item/commandExecution/requestApproval') return 'Codex is waiting for command approval.';
+  if (item.method === 'item/fileChange/requestApproval') return 'Codex is waiting for file-change approval.';
+  if (item.method === 'item/permissions/requestApproval') return 'Codex is waiting for permission approval.';
+  if (item.method === 'item/tool/requestUserInput') return 'Codex needs input before it can continue.';
+  return 'Codex is waiting for a response: ' + item.method;
+}
+
+function describeAppServerNotification(item) {
+  const params = item.params ?? {};
+  if (item.method === 'thread/started') return 'Started Codex thread';
+  if (item.method === 'turn/started') return 'Codex is working...';
+  if (item.method === 'turn/completed') return params.turn?.status === 'interrupted' ? 'Codex turn stopped' : 'Codex turn completed';
+  if (item.method === 'item/started') return 'Codex started ' + (params.item?.type ?? 'an item');
+  if (item.method === 'item/completed') return 'Codex completed ' + (params.item?.type ?? 'an item');
+  if (item.method === 'account/rateLimits/updated') return 'Codex rate limits updated';
+  if (item.method === 'error') return params.error?.message ?? params.message ?? 'Codex app-server error';
+  return '';
+}
+
+function throwOnRpcError(response, action) {
+  if (response?.error) throw new Error('Codex app-server could not ' + action + ': ' + JSON.stringify(response.error));
+}
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolveValue, rejectValue) => {
+    resolve = resolveValue;
+    reject = rejectValue;
+  });
+  return { promise, resolve, reject };
 }
 
 async function runSdkThread(thread, request) {
@@ -177,7 +576,7 @@ async function getRateLimits() {
   }
 }
 
-function createJsonRpcClient(child, timeoutMs) {
+function createJsonRpcClient(child, timeoutMs, onMessage) {
   const stdout = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   const pending = new Map();
   let closed = false;
@@ -199,7 +598,7 @@ function createJsonRpcClient(child, timeoutMs) {
     if (!line.trim().startsWith('{')) return;
     let item;
     try { item = JSON.parse(line); } catch { return; }
-    if (item.method === 'account/rateLimits/updated') emit({ type: 'rate-limits', message: 'Codex rate limits updated', rateLimits: item.params?.rateLimits ?? item.params });
+    if (item.method) onMessage?.(item);
     const entry = pending.get(item.id);
     if (!entry) return;
     pending.delete(item.id);
@@ -218,6 +617,11 @@ function createJsonRpcClient(child, timeoutMs) {
         pending.set(request.id, { resolve, reject, timer });
         child.stdin.write(JSON.stringify(request) + '\n');
       });
+    },
+    respond(id, result) {
+      if (closed) return Promise.reject(new Error('Codex app-server JSON-RPC client is closed.'));
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+      return Promise.resolve({ responded: true });
     },
     close() {
       closed = true;
@@ -257,6 +661,8 @@ function resolveCodexExecutable() {
   if (process.env.CODEX_CLI_PATH && existsSync(process.env.CODEX_CLI_PATH)) return process.env.CODEX_CLI_PATH;
   const npmRoot = getGlobalNpmRoot();
   const winNativeCandidates = [
+    path.join(npmRoot, '@openai', 'codex', 'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe'),
+    path.join(npmRoot, '@openai', 'codex-sdk', 'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe'),
     path.join(npmRoot, '@openai', 'codex', 'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'codex', 'codex.exe'),
     path.join(npmRoot, '@openai', 'codex-sdk', 'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'codex', 'codex.exe'),
     path.join(npmRoot, '@openai', 'codex-sdk', 'node_modules', '@openai', 'codex', 'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'codex', 'codex.exe')
@@ -273,10 +679,11 @@ function resolveCodexExecutable() {
 }
 
 function buildCodexExecArgs(request) {
+  const { model, effort } = normalizeModelAndReasoningEffort(request);
   const args = ['exec', '--experimental-json'];
-  if (request.model) args.push('--model', request.model);
+  if (model) args.push('--model', model);
   if (request.approvalPolicy) args.push('--config', 'approval_policy=' + JSON.stringify(normalizeApprovalPolicy(request.approvalPolicy)));
-  if (request.reasoningEffort) args.push('--config', 'model_reasoning_effort=' + JSON.stringify(normalizeLower(request.reasoningEffort)));
+  args.push('--config', 'model_reasoning_effort=' + JSON.stringify(effort));
   if (request.sandboxMode) args.push('--sandbox', normalizeSandboxMode(request.sandboxMode));
   if (request.workspaceRoot) args.push('--cd', request.workspaceRoot);
   args.push('--skip-git-repo-check');
@@ -395,4 +802,11 @@ rl.on('line', async line => {
   try { request = JSON.parse(line); const result = await handle(request); emit({ id: request.id, type: 'response', result }); }
   catch (error) { emit({ id: request?.id, type: 'error', message: error?.stack ?? String(error) }); }
 });
+function closeAppServer() {
+  try { appServer?.rpc?.close(); } catch {}
+  try { appServer?.child?.kill(); } catch {}
+}
+process.once('SIGINT', () => { closeAppServer(); process.exit(130); });
+process.once('SIGTERM', () => { closeAppServer(); process.exit(143); });
+process.once('exit', closeAppServer);
 emit({ type: 'ready', message: 'Codex SDK bridge ready' });

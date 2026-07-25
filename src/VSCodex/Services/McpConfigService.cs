@@ -1,5 +1,9 @@
+// Copyright (c) 2019-2026 Chris Pulman and contributors. All rights reserved.
+// Chris Pulman and contributors licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
@@ -10,111 +14,236 @@ using VSCodex.Models;
 
 namespace VSCodex.Services;
 
-public interface IMcpConfigService
-{
-    IObservable<IReadOnlyList<McpServerDefinition>> Servers { get; }
-    IReadOnlyList<McpServerDefinition> Snapshot { get; }
-    void Refresh();
-    void Save(IEnumerable<McpServerDefinition> servers);
-    McpServerDefinition CreateTemplate(string transportType);
-}
+/// <summary>Provides the mcp Config Service implementation.</summary>
 public sealed class McpConfigService : IMcpConfigService
 {
-    private const string PreferredReactiveMemoryServerName = "cp-reactivememory-mcp-server";
-    private const string LegacyReactiveMemoryServerName = "reactivememory";
-    private readonly BehaviorSubject<IReadOnlyList<McpServerDefinition>> _servers = new BehaviorSubject<IReadOnlyList<McpServerDefinition>>(Array.Empty<McpServerDefinition>());
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric2 = 2;
+
+    /// <summary>Named string used by this type.</summary>
+    private const string CPReactiveMemoryMCPServerDllText = "CP.ReactiveMemory.MCP.Server.dll";
+
+    /// <summary>Named string used by this type.</summary>
+    private const string ReactiveMemoryText = "ReactiveMemory";
+
+    /// <summary>Named string used by this type.</summary>
+    private const string CpReactivememoryMcpServerText = "cp-reactivememory-mcp-server";
+
+    /// <summary>Named string used by this type.</summary>
+    private const string ReactivememoryText = "reactivememory";
+
+    /// <summary>Defines the preferred Reactive Memory Server Name.</summary>
+    private const string PreferredReactiveMemoryServerName = CpReactivememoryMcpServerText;
+
+    /// <summary>Defines the legacy Reactive Memory Server Name.</summary>
+    private const string LegacyReactiveMemoryServerName = ReactivememoryText;
+
+    /// <summary>Matches MCP server section headers.</summary>
+    private static readonly Regex McpServerHeaderRegex = new("^\\[mcp_servers\\.([^\\]]+)\\]", RegexOptions.Compiled);
+
+    /// <summary>Matches MCP server sections.</summary>
+    private static readonly Regex McpServerSectionsRegex = new("(?ms)^\\s*\\[mcp_servers\\.[^\\]]+\\].*?(?=^\\s*\\[|\\z)", RegexOptions.Compiled);
+
+    /// <summary>Matches TOML arrays.</summary>
+    private static readonly Regex TomlArrayRegex = new("\\[(.*)\\]", RegexOptions.Compiled);
+
+    /// <summary>Matches TOML string values.</summary>
+    private static readonly Regex TomlStringRegex = new("\"([^\"]*)\"", RegexOptions.Compiled);
+
+    /// <summary>Matches disabled legacy MCP server entries.</summary>
+    private static readonly Regex LegacyEnabledRegex = new("(?im)^\\s*enabled\\s*=\\s*false\\s*$", RegexOptions.Compiled);
+
+    /// <summary>Matches enabled legacy MCP server entries.</summary>
+    private static readonly Regex LegacyEnabledAssignmentRegex = new("(?ims)(^\\s*\\[mcp_servers\\.reactivememory\\].*?^\\s*enabled\\s*=\\s*)true(\\s*$)", RegexOptions.Compiled);
+
+    /// <summary>Stores the servers.</summary>
+    private readonly BehaviorSubject<IReadOnlyList<McpServerDefinition>> _servers = new([]);
+
+    /// <summary>Gets the servers.</summary>
     public IObservable<IReadOnlyList<McpServerDefinition>> Servers => _servers.AsObservable();
+
+    /// <summary>Gets the snapshot.</summary>
     public IReadOnlyList<McpServerDefinition> Snapshot => _servers.Value;
+
+    /// <summary>Refreshes the operation.</summary>
     public void Refresh()
     {
-        var path = LocalPaths.UserCodexConfig; EnsureReactiveMemoryDefault(path);
-        var list = new List<McpServerDefinition>(); McpServerDefinition? current = null;
-        foreach (var raw in File.ReadAllLines(path))
-        {
-            var line = raw.Trim(); var header = Regex.Match(line, "^\\[mcp_servers\\.([^\\]]+)\\]");
-            if (header.Success) { current = new McpServerDefinition { Name = header.Groups[1].Value }; list.Add(current); continue; }
-            if (current == null || line.StartsWith("#") || !line.Contains("=")) continue;
-            var parts = line.Split(new[] { '=' }, 2); var key = parts[0].Trim(); var value = parts[1].Trim().Trim('"');
-            if (key.Equals("command", StringComparison.OrdinalIgnoreCase)) current.Command = value;
-            else if (key.Equals("url", StringComparison.OrdinalIgnoreCase)) { current.Url = value; current.TransportType = "url"; }
-            else if (key.Equals("args", StringComparison.OrdinalIgnoreCase)) current.Args = ParseArray(parts[1]).ToList();
-            else if (key.Equals("enabled", StringComparison.OrdinalIgnoreCase)) current.IsEnabled = !value.Equals("false", StringComparison.OrdinalIgnoreCase);
-        }
-        foreach (var server in list)
-        {
-            server.ArgumentsText = string.Join(Environment.NewLine, server.Args);
-        }
+        string userCodexConfig = LocalPaths.UserCodexConfig;
+        EnsureReactiveMemoryDefault(userCodexConfig);
+        List<McpServerDefinition> list = ParseServers(File.ReadAllLines(userCodexConfig));
+        MarkRequiredServers(list);
         _servers.OnNext(list);
     }
 
-    public void Save(IEnumerable<McpServerDefinition> servers)
+    /// <summary>Saves the operation.</summary>
+    /// <param name="servers">The servers.</param>
+    public void Save(IEnumerable<McpServerDefinition> servers) => SaveCore(servers);
+
+    /// <summary>Creates template.</summary>
+    /// <param name="transportType">The transport Type.</param>
+    /// <returns>The create Template result.</returns>
+    public McpServerDefinition CreateTemplate(string transportType) => CreateTemplateCore(transportType);
+
+    /// <summary>Parses MCP server definitions from configuration lines.</summary>
+    /// <param name="lines">The configuration lines.</param>
+    /// <returns>The parsed server definitions.</returns>
+    private List<McpServerDefinition> ParseServers(IEnumerable<string> lines)
     {
-        var path = LocalPaths.UserCodexConfig;
-        var existing = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-        var preserved = Regex.Replace(existing, @"(?ms)^\s*\[mcp_servers\.[^\]]+\].*?(?=^\s*\[|\z)", string.Empty).TrimEnd();
-        var builder = new List<string>();
+        List<McpServerDefinition> list = [];
+        McpServerDefinition? current = null;
+        foreach (string sourceLine in lines)
+        {
+            string line = sourceLine.Trim();
+            Match header = McpServerHeaderRegex.Match(line);
+            if (header.Success)
+            {
+                current = new McpServerDefinition
+                {
+                    Name = header.Groups[1].Value
+                };
+                list.Add(current);
+            }
+            else
+            {
+                ApplyServerProperty(current, line);
+            }
+        }
+
+        return list;
+    }
+
+    /// <summary>Applies a TOML property to an MCP server definition.</summary>
+    /// <param name="server">The server to update.</param>
+    /// <param name="line">The TOML line.</param>
+    private void ApplyServerProperty(McpServerDefinition? server, string line)
+    {
+        if (server is null || line.StartsWith("#", StringComparison.Ordinal) || !line.Contains('='))
+        {
+            return;
+        }
+
+        string[] parts = line.Split(['='], Numeric2);
+        string key = parts[0].Trim();
+        string value = parts[1].Trim().Trim('"');
+        if (key.Equals("command", StringComparison.OrdinalIgnoreCase))
+        {
+            server.Command = value;
+        }
+        else if (key.Equals("url", StringComparison.OrdinalIgnoreCase))
+        {
+            server.Url = value;
+            server.TransportType = "url";
+        }
+        else if (key.Equals("args", StringComparison.OrdinalIgnoreCase))
+        {
+            server.Args.Clear();
+            server.Args.AddRange(ParseArray(parts[1]));
+        }
+        else if (key.Equals("enabled", StringComparison.OrdinalIgnoreCase))
+        {
+            server.IsEnabled = !value.Equals("false", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Marks required MCP servers.</summary>
+    /// <param name="list">The configured servers.</param>
+    private void MarkRequiredServers(IEnumerable<McpServerDefinition> list)
+    {
+        foreach (McpServerDefinition server in list)
+        {
+            server.ArgumentsText = string.Join(Environment.NewLine, server.Args);
+            if (server.Name.Equals(CpReactivememoryMcpServerText, StringComparison.OrdinalIgnoreCase))
+            {
+                server.IsRequired = true;
+                server.IsEnabled = true;
+                server.Health = "required";
+            }
+        }
+    }
+
+    /// <summary>Saves the operation.</summary>
+    /// <param name="servers">The servers.</param>
+    private void SaveCore(IEnumerable<McpServerDefinition> servers)
+    {
+        string path = LocalPaths.UserCodexConfig;
+        string text = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+        string preserved = McpServerSectionsRegex.Replace(text, string.Empty).TrimEnd();
+        List<string> builder = new();
         if (!string.IsNullOrWhiteSpace(preserved))
         {
             builder.Add(preserved);
             builder.Add(string.Empty);
         }
 
-        foreach (var server in (servers ?? Enumerable.Empty<McpServerDefinition>()).Where(IsValidServer))
+        List<McpServerDefinition> requestedServers = (servers ?? Enumerable.Empty<McpServerDefinition>()).ToList();
+        McpServerDefinition requiredServer = CreateRequiredReactiveMemoryServer();
+        IEnumerable<McpServerDefinition> candidates = requestedServers.Where(IsRequestedServer);
+        foreach (McpServerDefinition server in new[] { requiredServer }.Concat(candidates).Where(IsValidServer))
         {
-            builder.Add("[mcp_servers." + server.Name.Trim() + "]");
+            builder.Add($"[mcp_servers.{server.Name.Trim()}]");
             if (string.Equals(server.TransportType, "url", StringComparison.OrdinalIgnoreCase))
             {
-                builder.Add("url = " + EncodeTomlString(server.Url.Trim()));
+                builder.Add($"url = {EncodeTomlString(server.Url.Trim())}");
             }
             else
             {
-                builder.Add("command = " + EncodeTomlString(server.Command.Trim()));
-                var args = NormalizeArgs(server).ToList();
+                builder.Add($"command = {EncodeTomlString(server.Command.Trim())}");
+                List<string> args = NormalizeArgs(server).ToList();
                 if (args.Count > 0)
                 {
-                    builder.Add("args = [" + string.Join(", ", args.Select(EncodeTomlString)) + "]");
+                    builder.Add($"args = [{string.Join(", ", args.Select(EncodeTomlString))}]");
                 }
             }
 
-            builder.Add("enabled = " + (server.IsEnabled ? "true" : "false"));
+            builder.Add($"enabled = {(server.IsEnabled ? "true" : "false")}");
             builder.Add(string.Empty);
         }
 
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+        string directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            _ = Directory.CreateDirectory(directory);
+        }
+
         File.WriteAllText(path, string.Join(Environment.NewLine, builder).TrimEnd() + Environment.NewLine);
         Refresh();
     }
 
-    public McpServerDefinition CreateTemplate(string transportType)
+    /// <summary>Creates template.</summary>
+    /// <param name="transportType">The transport Type.</param>
+    /// <returns>The create Template result.</returns>
+    private McpServerDefinition CreateTemplateCore(string transportType)
     {
-        var existingNames = new HashSet<string>(Snapshot.Select(x => x.Name), StringComparer.OrdinalIgnoreCase);
-        var prefix = string.Equals(transportType, "url", StringComparison.OrdinalIgnoreCase) ? "remote-mcp" : "local-mcp";
-        var index = 1;
-        var name = prefix;
+        HashSet<string> existingNames = new(Snapshot.Select((x) => x.Name), StringComparer.OrdinalIgnoreCase);
+        string prefix = (string.Equals(transportType, "url", StringComparison.OrdinalIgnoreCase) ? "remote-mcp" : "local-mcp");
+        int index = 1;
+        string name = prefix;
         while (existingNames.Contains(name))
         {
-            name = prefix + "-" + (++index).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            index++;
+            name = $"{prefix}-{index.ToString(CultureInfo.InvariantCulture)}";
         }
 
         return new McpServerDefinition
         {
             Name = name,
-            TransportType = string.Equals(transportType, "url", StringComparison.OrdinalIgnoreCase) ? "url" : "stdio",
-            Command = string.Equals(transportType, "url", StringComparison.OrdinalIgnoreCase) ? string.Empty : "npx",
-            Url = string.Equals(transportType, "url", StringComparison.OrdinalIgnoreCase) ? "https://example.com/mcp" : string.Empty,
+            TransportType = (string.Equals(transportType, "url", StringComparison.OrdinalIgnoreCase) ? "url" : "stdio"),
+            Command = (string.Equals(transportType, "url", StringComparison.OrdinalIgnoreCase) ? string.Empty : "npx"),
+            Url = (string.Equals(transportType, "url", StringComparison.OrdinalIgnoreCase) ? "https://example.com/mcp" : string.Empty),
             IsEnabled = true,
             Health = "new"
         };
     }
 
-    private static void EnsureReactiveMemoryDefault(string path)
+    /// <summary>Ensures reactive Memory Default.</summary>
+    /// <param name="path">The path.</param>
+    private void EnsureReactiveMemoryDefault(string path)
     {
-        var text = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-        var preferredBlock = FindMcpServerBlock(text, PreferredReactiveMemoryServerName);
+        string text = (File.Exists(path) ? File.ReadAllText(path) : string.Empty);
+        Match preferredBlock = FindMcpServerBlock(text, CpReactivememoryMcpServerText);
         if (preferredBlock.Success)
         {
-            var updated = EnsureMcpServerBlockEnabled(text, preferredBlock);
+            string updated = ReplaceReactiveMemoryBlock(text, preferredBlock);
             updated = DisableLegacyReactiveMemoryFallback(updated);
             if (!StringComparer.Ordinal.Equals(updated, text))
             {
@@ -124,177 +253,244 @@ public sealed class McpConfigService : IMcpConfigService
             return;
         }
 
-        var legacyBlock = FindMcpServerBlock(text, LegacyReactiveMemoryServerName);
+        Match legacyBlock = FindMcpServerBlock(text, ReactivememoryText);
         if (legacyBlock.Success)
         {
-            var migrated = MigrateLegacyReactiveMemoryBlock(text, legacyBlock);
-            File.WriteAllText(path, EnsureMcpServerBlockEnabled(migrated, FindMcpServerBlock(migrated, PreferredReactiveMemoryServerName)));
+            File.WriteAllText(path, ReplaceReactiveMemoryBlock(text, legacyBlock));
             return;
         }
 
-        var command = BuildReactiveMemoryCommand(out var args);
-        var defaultBlock = Environment.NewLine
-            + "# VSCodex default durable memory system. Uses the same MCP server name Codex desktop, CLI, and IDE extension share." + Environment.NewLine
-            + "[mcp_servers." + PreferredReactiveMemoryServerName + "]" + Environment.NewLine
-            + "command = \"" + command + "\"" + Environment.NewLine
-            + "args = [" + string.Join(", ", args.Select(x => "\"" + x.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"")) + "]" + Environment.NewLine
-            + "enabled = true" + Environment.NewLine;
+        string directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            _ = Directory.CreateDirectory(directory);
+        }
 
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-        File.AppendAllText(path, defaultBlock);
+        string separator = (string.IsNullOrWhiteSpace(text) ? string.Empty : (Environment.NewLine + Environment.NewLine));
+        File.WriteAllText(path, text.TrimEnd() + separator + BuildRequiredReactiveMemoryBlock());
     }
 
-    private static string BuildReactiveMemoryCommand(out IReadOnlyList<string> args)
+    /// <summary>Builds reactive Memory Command.</summary>
+    /// <param name="args">The args.</param>
+    /// <returns>The build Reactive Memory Command result.</returns>
+    private string BuildReactiveMemoryCommand(out IReadOnlyList<string> args)
     {
-        var project = FindReactiveMemoryProject();
-        if (!string.IsNullOrWhiteSpace(project))
+        string? bundledServer = FindBundledReactiveMemoryServer();
+        if (bundledServer?.Trim().Length > 0)
         {
-            args = new[] { "run", "--project", project! };
+            args = [bundledServer];
             return "dotnet";
         }
 
-        args = new[] { "CP.ReactiveMemory.Mcp.Server@1.*", "--yes" };
+        args = ["CP.ReactiveMemory.Mcp.Server@1.*", "--yes"];
         return "dnx";
     }
 
-    private static Match FindMcpServerBlock(string text, string serverName)
-        => Regex.Match(text ?? string.Empty, @"(?ims)^\s*\[mcp_servers\." + Regex.Escape(serverName) + @"\](?<body>.*?)(?=^\s*\[|\z)");
+    /// <summary>Creates required Reactive Memory Server.</summary>
+    /// <returns>The create Required Reactive Memory Server result.</returns>
+    private McpServerDefinition CreateRequiredReactiveMemoryServer()
+    {
+        string command = BuildReactiveMemoryCommand(out var args);
+        return new McpServerDefinition
+        {
+            Name = CpReactivememoryMcpServerText,
+            TransportType = "stdio",
+            Command = command,
+            ArgumentsText = string.Join(Environment.NewLine, args),
+            IsEnabled = true,
+            IsRequired = true,
+            Health = "required"
+        };
+    }
 
-    private static string EnsureMcpServerBlockEnabled(string text, Match block)
+    /// <summary>Builds required Reactive Memory Block.</summary>
+    /// <returns>The build Required Reactive Memory Block result.</returns>
+    private string BuildRequiredReactiveMemoryBlock()
+    {
+        McpServerDefinition server = CreateRequiredReactiveMemoryServer();
+        const string Description = "# Required VSCodex durable pause and project memory service. This server cannot be removed or disabled.";
+        string args = string.Join(", ", server.Args.Select(EncodeTomlString));
+        return string.Join(
+            Environment.NewLine,
+            Description,
+            "[mcp_servers.cp-reactivememory-mcp-server]",
+            $"command = {EncodeTomlString(server.Command)}",
+            $"args = [{args}]",
+            "enabled = true",
+            string.Empty);
+    }
+
+    /// <summary>Performs the replace Reactive Memory Block operation.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="block">The block.</param>
+    /// <returns>The replace Reactive Memory Block result.</returns>
+    private string ReplaceReactiveMemoryBlock(string text, Match block)
     {
         if (!block.Success)
         {
             return text;
         }
 
-        var serverName = ServerNameFromBlock(block);
-        if (string.IsNullOrWhiteSpace(serverName))
-        {
-            return text;
-        }
-
-        if (Regex.IsMatch(block.Groups["body"].Value, @"(?im)^\s*enabled\s*=\s*false\s*$"))
-        {
-            return Regex.Replace(text, @"(?ims)(^\s*\[mcp_servers\." + Regex.Escape(serverName) + @"\].*?^\s*enabled\s*=\s*)false(\s*$)", "$1true$2");
-        }
-
-        if (!Regex.IsMatch(block.Groups["body"].Value, @"(?im)^\s*enabled\s*="))
-        {
-            var insertAt = block.Index + block.Length;
-            return text.Insert(insertAt, Environment.NewLine + "enabled = true");
-        }
-
-        return text;
+        string before = text.Substring(0, block.Index).TrimEnd();
+        string after = text.Substring(block.Index + block.Length).TrimStart('\r', '\n');
+        string separator = (string.IsNullOrWhiteSpace(before) ? string.Empty : (Environment.NewLine + Environment.NewLine));
+        string suffix = (string.IsNullOrWhiteSpace(after) ? string.Empty : (Environment.NewLine + after));
+        return before + separator + BuildRequiredReactiveMemoryBlock() + suffix;
     }
 
-    private static string ServerNameFromBlock(Match block)
+    /// <summary>Finds mcp Server Block.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="serverName">The server Name.</param>
+    /// <returns>The find Mcp Server Block result.</returns>
+    private Match FindMcpServerBlock(string text, string serverName)
     {
-        var header = Regex.Match(block.Value, @"(?im)^\s*\[mcp_servers\.(?<name>[^\]]+)\]");
-        return header.Success ? header.Groups["name"].Value.Trim() : string.Empty;
+        var pattern = $"(?ims)^\\s*\\[mcp_servers\\.{Regex.Escape(serverName)}\\](?<body>.*?)(?=^\\s*\\[|\\z)";
+        var expression = new Regex(pattern, RegexOptions.Compiled);
+        return expression.Match(text ?? string.Empty);
     }
 
-    private static string MigrateLegacyReactiveMemoryBlock(string text, Match legacyBlock)
+    /// <summary>Performs the disable Legacy Reactive Memory Fallback operation.</summary>
+    /// <param name="text">The text.</param>
+    /// <returns>The disable Legacy Reactive Memory Fallback result.</returns>
+    private string DisableLegacyReactiveMemoryFallback(string text)
     {
-        if (!legacyBlock.Success)
-        {
-            return text;
-        }
-
-        var header = Regex.Match(legacyBlock.Value, @"(?im)^\s*\[mcp_servers\.reactivememory\]");
-        if (!header.Success)
-        {
-            return text;
-        }
-
-        return text.Remove(legacyBlock.Index + header.Index, header.Length)
-            .Insert(legacyBlock.Index + header.Index, "[mcp_servers." + PreferredReactiveMemoryServerName + "]");
-    }
-
-    private static string DisableLegacyReactiveMemoryFallback(string text)
-    {
-        var legacyBlock = FindMcpServerBlock(text, LegacyReactiveMemoryServerName);
+        Match legacyBlock = FindMcpServerBlock(text, ReactivememoryText);
         if (!legacyBlock.Success || !LooksLikeReactiveMemoryServerBlock(legacyBlock))
         {
             return text;
         }
 
-        if (Regex.IsMatch(legacyBlock.Groups["body"].Value, @"(?im)^\s*enabled\s*=\s*false\s*$"))
+        if (LegacyEnabledRegex.IsMatch(legacyBlock.Groups["body"].Value))
         {
             return text;
         }
 
-        if (Regex.IsMatch(legacyBlock.Groups["body"].Value, @"(?im)^\s*enabled\s*="))
-        {
-            return Regex.Replace(text, @"(?ims)(^\s*\[mcp_servers\.reactivememory\].*?^\s*enabled\s*=\s*)true(\s*$)", "$1false$2");
-        }
-
-        return text.Insert(legacyBlock.Index + legacyBlock.Length, Environment.NewLine + "enabled = false");
+        return LegacyEnabledAssignmentRegex.IsMatch(legacyBlock.Groups["body"].Value)
+            ? LegacyEnabledAssignmentRegex.Replace(text, "$1false$2")
+            : text.Insert(legacyBlock.Index + legacyBlock.Length, $"{Environment.NewLine}enabled = false");
     }
 
-    private static bool LooksLikeReactiveMemoryServerBlock(Match block)
+    /// <summary>Performs the looks Like Reactive Memory Server Block operation.</summary>
+    /// <param name="block">The block.</param>
+    /// <returns><see langword="true"/> when looks Like Reactive Memory Server Block succeeds; otherwise, <see langword="false"/>.</returns>
+    private bool LooksLikeReactiveMemoryServerBlock(Match block)
     {
-        var value = block.Value ?? string.Empty;
-        return value.IndexOf("ReactiveMemory", StringComparison.OrdinalIgnoreCase) >= 0
+        string value = block.Value ?? string.Empty;
+        return value.IndexOf(ReactiveMemoryText, StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("CP.ReactiveMemory.Mcp.Server", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("CP.ReactiveMemory.MCP.Server", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    private static string? FindReactiveMemoryProject()
+    /// <summary>Finds bundled Reactive Memory Server.</summary>
+    /// <returns>The find Bundled Reactive Memory Server result.</returns>
+    private string? FindBundledReactiveMemoryServer()
     {
-        var explicitProject = Environment.GetEnvironmentVariable("REACTIVEMEMORY_MCP_PROJECT");
-        if (!string.IsNullOrWhiteSpace(explicitProject) && File.Exists(explicitProject))
+        string explicitServer = Environment.GetEnvironmentVariable("VSCODEX_REACTIVEMEMORY_SERVER_PATH");
+        if (!string.IsNullOrWhiteSpace(explicitServer) && File.Exists(explicitServer))
         {
-            return explicitProject;
+            return Path.GetFullPath(explicitServer);
         }
 
-        var user = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var candidates = new[]
+        string extensionRoot = Path.GetDirectoryName(typeof(McpConfigService).Assembly.Location) ?? string.Empty;
+        string direct = new string[4]
         {
-            Path.Combine(user, "source", "repos", "ReactiveMemory.MCP.Server", "src", "ReactiveMemory.MCP.Server", "ReactiveMemory.MCP.Server.csproj"),
-            Path.Combine(user, "source", "repos", "ReactiveMemory.MCP.Server", "src", "ReactiveMemory.MCP.Server", "CP.ReactiveMemory.MCP.Server.csproj"),
-            Path.Combine(user, "Projects", "Github", "ReactiveMemory.MCP.Server", "src", "ReactiveMemory.MCP.Server", "CP.ReactiveMemory.MCP.Server.csproj"),
-            @"D:\Projects\Github\chrispulman\ReactiveMemory.MCP.Server\src\ReactiveMemory.MCP.Server\CP.ReactiveMemory.MCP.Server.csproj"
-        };
+            Path.Combine(extensionRoot, ReactiveMemoryText, CPReactiveMemoryMCPServerDllText),
+            Path.Combine(extensionRoot, ReactiveMemoryText, "CP.ReactiveMemory.Mcp.Server.dll"),
+            Path.Combine(extensionRoot, CPReactiveMemoryMCPServerDllText),
+            Path.Combine(extensionRoot, "CP.ReactiveMemory.Mcp.Server.dll")
+        }.FirstOrDefault(File.Exists);
+        if (!string.IsNullOrWhiteSpace(direct))
+        {
+            return direct;
+        }
 
-        return candidates.FirstOrDefault(File.Exists);
+        string bundledRoot = Path.Combine(extensionRoot, ReactiveMemoryText);
+        if (!Directory.Exists(bundledRoot))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Directory.EnumerateFiles(bundledRoot, CPReactiveMemoryMCPServerDllText, SearchOption.AllDirectories).FirstOrDefault();
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
-    private static IEnumerable<string> ParseArray(string value)
-    { var m = Regex.Match(value, "\\[(.*)\\]"); if (!m.Success) yield break; foreach (Match item in Regex.Matches(m.Groups[1].Value, "\"([^\"]*)\"")) yield return item.Groups[1].Value; }
-
-    private static bool IsValidServer(McpServerDefinition server)
+    /// <summary>Parses array.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns>The parse Array result.</returns>
+    private IEnumerable<string> ParseArray(string value)
     {
-        if (server == null || string.IsNullOrWhiteSpace(server.Name))
+        Match m = TomlArrayRegex.Match(value);
+        if (!m.Success)
+        {
+            yield break;
+        }
+
+        foreach (Match item in TomlStringRegex.Matches(m.Groups[1].Value))
+        {
+            yield return item.Groups[1].Value;
+        }
+    }
+
+    /// <summary>Determines whether is Valid Server.</summary>
+    /// <param name="server">The server.</param>
+    /// <returns><see langword="true"/> when is Valid Server succeeds; otherwise, <see langword="false"/>.</returns>
+    private bool IsValidServer(McpServerDefinition server)
+    {
+        if (server is null || string.IsNullOrWhiteSpace(server.Name))
         {
             return false;
         }
 
-        var name = server.Name.Trim();
-        if (name.Any(ch => !(char.IsLetterOrDigit(ch) || ch == '_' || ch == '-')))
+        if (server.Name.Trim().Any((ch) => !char.IsLetterOrDigit(ch) && ch != '_' && ch != '-'))
         {
             return false;
         }
 
-        return string.Equals(server.TransportType, "url", StringComparison.OrdinalIgnoreCase)
-            ? !string.IsNullOrWhiteSpace(server.Url)
-            : !string.IsNullOrWhiteSpace(server.Command);
+        return !string.Equals(server.TransportType, "url", StringComparison.OrdinalIgnoreCase) ? !string.IsNullOrWhiteSpace(server.Command) : !string.IsNullOrWhiteSpace(server.Url);
     }
 
-    private static IEnumerable<string> NormalizeArgs(McpServerDefinition server)
+    /// <summary>Determines whether a server was requested by the user.</summary>
+    /// <param name="server">The server.</param>
+    /// <returns><see langword="true"/> when the server is requested.</returns>
+    private bool IsRequestedServer(McpServerDefinition server)
+    {
+        return server is not null
+            && !string.Equals(server.Name, CpReactivememoryMcpServerText, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(server.Name, ReactivememoryText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Performs the normalize Args operation.</summary>
+    /// <param name="server">The server.</param>
+    /// <returns>The normalize Args result.</returns>
+    private IEnumerable<string> NormalizeArgs(McpServerDefinition server)
     {
         if (!string.IsNullOrWhiteSpace(server.ArgumentsText))
         {
-            return server.ArgumentsText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => x.Trim())
-                .Where(x => !string.IsNullOrWhiteSpace(x));
+            return from x in server.ArgumentsText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                   select x.Trim() into x
+                   where !string.IsNullOrWhiteSpace(x)
+                   select x;
         }
 
-        return server.Args ?? Enumerable.Empty<string>();
+        IEnumerable<string> args = server.Args;
+        return args ?? Enumerable.Empty<string>();
     }
 
-    private static string EncodeTomlString(string value)
+    /// <summary>Performs the encode Toml String operation.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns>The encode Toml String result.</returns>
+    private string EncodeTomlString(string value)
     {
-        return "\"" + (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        return $"\"{(value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     }
 }

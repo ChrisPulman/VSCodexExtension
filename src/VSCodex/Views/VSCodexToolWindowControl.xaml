@@ -14,6 +14,7 @@
     Foreground="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}">
     <UserControl.Resources>
         <views:RoleBrushConverter x:Key="RoleBrushConverter" />
+        <views:AvailableWidthConverter x:Key="TreeItemAvailableWidthConverter" Gutter="28" />
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
         <Style TargetType="TextBlock">
@@ -239,9 +240,9 @@
             <Setter Property="MinHeight" Value="25" />
             <Setter Property="Padding" Value="10,3" />
             <Setter Property="Margin" Value="0,0,6,6" />
-            <Setter Property="Background" Value="#303030" />
-            <Setter Property="Foreground" Value="#F2F2F2" />
-            <Setter Property="BorderBrush" Value="#484848" />
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsui:EnvironmentColors.CommandBarGradientBeginBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.CommandBarTextActiveBrushKey}}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsui:EnvironmentColors.CommandBarBorderBrushKey}}" />
         </Style>
 
         <Style
@@ -249,11 +250,11 @@
             BasedOn="{StaticResource {x:Type TextBox}}"
             TargetType="TextBox">
             <Setter Property="Padding" Value="4,2" />
-            <Setter Property="Background" Value="#2B2B2B" />
-            <Setter Property="Foreground" Value="#F4F4F4" />
-            <Setter Property="BorderBrush" Value="#2B2B2B" />
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="CaretBrush" Value="#F4F4F4" />
+            <Setter Property="CaretBrush" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
         </Style>
 
         <Style
@@ -262,7 +263,7 @@
             TargetType="TextBlock">
             <Setter Property="Margin" Value="0,0,5,6" />
             <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Foreground" Value="#CFCFCF" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.SystemGrayTextBrushKey}}" />
             <Setter Property="Opacity" Value="0.88" />
         </Style>
 
@@ -368,6 +369,7 @@
         <Style TargetType="TreeViewItem">
             <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}" />
             <Setter Property="Background" Value="Transparent" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
         </Style>
 
@@ -441,14 +443,17 @@
                                             <Setter Property="Visibility" Value="Collapsed" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding IsDeleted}" Value="True">
-                                            <Setter Property="Foreground" Value="#E81123" />
+                                            <Setter Property="Foreground" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowValidationErrorTextBrushKey}}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
                     </DockPanel>
-                    <controls:SelectableMarkdownViewer Markdown="{Binding Detail}">
+                    <controls:SelectableMarkdownViewer
+                        Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}, Converter={StaticResource TreeItemAvailableWidthConverter}}"
+                        HorizontalAlignment="Stretch"
+                        Markdown="{Binding Detail}">
                         <controls:SelectableMarkdownViewer.Style>
                             <Style
                                 BasedOn="{StaticResource SelectableMessageViewerStyle}"
@@ -566,8 +571,8 @@
 
         <Style x:Key="SettingsSectionBorderStyle" TargetType="Border">
             <Setter Property="Padding" Value="10" />
-            <Setter Property="Background" Value="#252525" />
-            <Setter Property="BorderBrush" Value="#3A3A3A" />
+            <Setter Property="Background" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowCodeBlockBackgroundBrushKey}}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="6" />
         </Style>
@@ -695,10 +700,10 @@
                         </Viewbox>
                     </Button>
                     <Button
-                        AutomationProperties.Name="Open VSCodex controls"
-                        Click="OnOpenToolPanelClick"
+                        AutomationProperties.Name="Open VSCodex settings"
+                        Click="OnOpenSettingsClick"
                         Style="{StaticResource IconButtonStyle}"
-                        ToolTip="Open VSCodex controls for setup, history, context, skills, MCP, memory, agents, and attachments.">
+                        ToolTip="Open VSCodex settings in Visual Studio Options.">
                         <Viewbox
                             Width="15"
                             Height="15"
@@ -784,6 +789,8 @@
                 VerticalScrollBarVisibility="Auto">
                 <TreeView
                     x:Name="ConversationTree"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch"
                     BorderThickness="0"
                     ItemsSource="{Binding RunActivityRoots}"
                     ScrollViewer.CanContentScroll="False" />
@@ -794,7 +801,7 @@
             Grid.Row="1"
             Grid.RowSpan="2"
             Width="620"
-            MinWidth="360"
+            MinWidth="0"
             MaxWidth="{Binding ActualWidth, ElementName=Root}"
             HorizontalAlignment="Right"
             Panel.ZIndex="10"
@@ -808,15 +815,23 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock
                         VerticalAlignment="Center"
                         FontWeight="SemiBold"
-                        Text="VSCodex controls" />
+                        Text="Workspace" />
                     <Button
                         Grid.Column="1"
+                        Margin="0,0,6,0"
+                        AutomationProperties.Name="Open VSCodex settings"
+                        Click="OnOpenSettingsClick"
+                        Content="Settings"
+                        Style="{StaticResource CompactButtonStyle}" />
+                    <Button
+                        Grid.Column="2"
                         Margin="0"
-                        AutomationProperties.Name="Close VSCodex controls"
+                        AutomationProperties.Name="Close VSCodex workspace"
                         Click="OnCloseToolPanelClick"
                         Content="Close"
                         Style="{StaticResource CompactButtonStyle}" />
@@ -824,7 +839,6 @@
             </Border>
             <TabControl
                 Margin="0"
-                IsHitTestVisible="{Binding CanEditSettings}"
                 SelectedIndex="{Binding SelectedToolTabIndex, Mode=TwoWay}">
                 <TabItem Header="History">
                     <DockPanel Margin="8">
@@ -928,7 +942,7 @@
                     </DockPanel>
                 </TabItem>
 
-                <TabItem Header="Setup">
+                <TabItem Header="Setup" Visibility="Collapsed">
                     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="12">
                             <TextBlock FontWeight="SemiBold" Text="{Binding CodexSetupSummary}" />
@@ -1032,7 +1046,7 @@
                     </Grid>
                 </TabItem>
 
-                <TabItem Header="Skills">
+                <TabItem Header="Skills" Visibility="Collapsed">
                     <Grid Margin="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -1129,7 +1143,7 @@
                     </Grid>
                 </TabItem>
 
-                <TabItem Header="MCP">
+                <TabItem Header="MCP" Visibility="Collapsed">
                     <Grid Margin="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -1368,7 +1382,8 @@
                         <Border
                             Grid.Row="0"
                             Margin="0,0,0,8"
-                            Style="{StaticResource SettingsSectionBorderStyle}">
+                            Style="{StaticResource SettingsSectionBorderStyle}"
+                            Visibility="Collapsed">
                             <DockPanel>
                                 <TextBlock
                                     DockPanel.Dock="Top"
@@ -1484,8 +1499,8 @@
             Grid.Row="2"
             Margin="12,10,12,8"
             Padding="12,10"
-            Background="#2B2B2B"
-            BorderBrush="#3B3B3B"
+            Background="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
+            BorderBrush="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBorderBrushKey}}"
             BorderThickness="1"
             CornerRadius="18">
             <Grid>
@@ -1497,18 +1512,57 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="0,0,0,4">
+                    <ItemsControl ItemsSource="{Binding ApprovalRequests}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border
+                                    Margin="0,0,0,8"
+                                    Padding="10,8"
+                                    Background="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowCodeBlockBackgroundBrushKey}}"
+                                    BorderBrush="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowValidationErrorBorderBrushKey}}"
+                                    BorderThickness="1"
+                                    CornerRadius="4">
+                                    <StackPanel>
+                                        <TextBlock
+                                            FontWeight="SemiBold"
+                                            Text="{Binding Reason}" />
+                                        <TextBlock
+                                            Margin="0,3,0,6"
+                                            MaxHeight="80"
+                                            FontFamily="Consolas"
+                                            FontSize="11"
+                                            Opacity="0.78"
+                                            Text="{Binding ArgumentsPreview}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <WrapPanel>
+                                            <Button
+                                                Command="{Binding DataContext.ApproveRequestCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                Content="Approve"
+                                                Style="{StaticResource CompactButtonStyle}" />
+                                            <Button
+                                                Command="{Binding DataContext.DeclineRequestCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                Content="Decline"
+                                                Style="{StaticResource CompactButtonStyle}" />
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <TextBlock
                         Margin="0,0,0,6"
                         HorizontalAlignment="Center"
                         FontSize="20"
                         FontWeight="SemiBold"
-                        Foreground="#F4F4F4"
+                        Foreground="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowTextBrushKey}}"
                         Text="What should we build?" />
                     <TextBlock
                         Margin="0,0,0,8"
                         HorizontalAlignment="Center"
                         FontSize="11"
-                        Foreground="#C7C7C7"
+                        Foreground="{DynamicResource {x:Static vsui:EnvironmentColors.SystemGrayTextBrushKey}}"
                         Text="Use # for selected code, / for focused commands, @ for files, and MCP tools from controls." />
                     <WrapPanel x:Name="ConversationActionPanel">
                         <Button
@@ -1583,7 +1637,7 @@
                     PreviewKeyDown="OnPromptPreviewKeyDown"
                     Style="{StaticResource ComposerPromptTextBoxStyle}"
                     Text="{Binding Prompt, UpdateSourceTrigger=PropertyChanged}"
-                    ToolTip="Ask VSCodex. Enter sends, Ctrl+Enter inserts a newline, Esc cancels. Use /MCP, /debug, /test, /plan, @filename, or #selection." />
+                    ToolTip="Ask VSCodex. Enter uses the configured follow-up behavior; Ctrl+Enter uses the opposite; Shift+Enter inserts a newline; Esc stops. Use /MCP, /debug, /test, /plan, @filename, or #selection." />
 
                 <Popup
                     x:Name="PromptSuggestionPopup"
@@ -1690,6 +1744,34 @@
                         Text="{Binding SelectedReasoning, UpdateSourceTrigger=PropertyChanged, Delay=250}"
                         ToolTip="Reasoning effort for this request." />
                     <Button
+                        AutomationProperties.Name="Steer active VSCodex turn"
+                        Command="{Binding SteerCommand}"
+                        Content="Steer"
+                        Style="{StaticResource CompactButtonStyle}"
+                        ToolTip="Add the current prompt to the active turn immediately."
+                        Visibility="{Binding IsPauseControlVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Button
+                        AutomationProperties.Name="Queue VSCodex follow-up"
+                        Command="{Binding QueueCommand}"
+                        Content="Queue"
+                        Style="{StaticResource CompactButtonStyle}"
+                        ToolTip="Run the current prompt after this turn."
+                        Visibility="{Binding IsPauseControlVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Button
+                        AutomationProperties.Name="Pause VSCodex request"
+                        Command="{Binding PauseCommand}"
+                        Content="Pause"
+                        Style="{StaticResource CompactButtonStyle}"
+                        ToolTip="Interrupt this turn and save its context in ReactiveMemory."
+                        Visibility="{Binding IsPauseControlVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Button
+                        AutomationProperties.Name="Resume paused VSCodex request"
+                        Command="{Binding ResumeCommand}"
+                        Content="Resume"
+                        Style="{StaticResource CompactButtonStyle}"
+                        ToolTip="Restore the durable ReactiveMemory checkpoint and continue."
+                        Visibility="{Binding IsResumeControlVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Button
                         VerticalAlignment="Center"
                         AutomationProperties.Name="Toggle VSCodex voice input"
                         Click="OnToggleVoiceInputClick"
@@ -1719,7 +1801,7 @@
                                 Margin="0,0,-1,-1"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Bottom"
-                                Fill="#E81123"
+                                Fill="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowValidationErrorTextBrushKey}}"
                                 Stroke="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
                                 StrokeThickness="1"
                                 Visibility="{Binding IsListeningToVoice, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -1730,7 +1812,7 @@
                         VerticalAlignment="Center"
                         FontSize="11"
                         FontWeight="SemiBold"
-                        Foreground="#E81123"
+                        Foreground="{DynamicResource {x:Static vsui:EnvironmentColors.ToolWindowValidationErrorTextBrushKey}}"
                         Text="Listening"
                         Visibility="{Binding IsListeningToVoice, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     <Button
@@ -1793,7 +1875,7 @@
                         AutomationProperties.Name="Stop VSCodex request"
                         Click="OnStopControlClick"
                         Style="{StaticResource IconButtonStyle}"
-                        ToolTip="Stop the active VSCodex request and clear queued prompts."
+                        ToolTip="Stop the active VSCodex request. Queued prompts are preserved."
                         Visibility="{Binding IsPersistentStopControlVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <Grid Width="16" Height="16">
                             <controls:ProgressRing

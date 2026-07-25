@@ -1,3 +1,6 @@
+// Copyright (c) 2019-2026 Chris Pulman and contributors. All rights reserved.
+// Chris Pulman and contributors licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System;
 using System.Globalization;
 using System.Linq;
@@ -9,31 +12,55 @@ using System.Threading.Tasks;
 
 namespace VSCodex.Services;
 
-public interface IVoiceInputService : IDisposable
-{
-    IObservable<string> Transcript { get; }
-    IObservable<string> Status { get; }
-    bool IsAvailable { get; }
-    bool IsListening { get; }
-    void Start();
-    void Stop();
-}
-
+/// <summary>Provides the voice Input Service implementation.</summary>
 public sealed class VoiceInputService : IVoiceInputService
 {
-    private readonly object _gate = new object();
-    private readonly Subject<string> _transcript = new Subject<string>();
-    private readonly BehaviorSubject<string> _status = new BehaviorSubject<string>("Voice input ready");
+    /// <summary>Named number used by this type.</summary>
+    private const float Numeric0Point35F = 0.35F;
+
+    /// <summary>Named number used by this type.</summary>
+    private const double Numeric1Point5 = 1.5;
+
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric10 = 10;
+
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric6 = 6;
+
+    /// <summary>Stores the gate.</summary>
+    private readonly object _gate = new();
+
+    /// <summary>Stores the transcript.</summary>
+    private readonly Subject<string> _transcript = new();
+
+    /// <summary>Stores the status.</summary>
+    private readonly BehaviorSubject<string> _status = new("Voice input ready");
+
+    /// <summary>Stores the recognizer.</summary>
     private SpeechRecognitionEngine? _recognizer;
+
+    /// <summary>Stores the start Task.</summary>
     private Task? _startTask;
+
+    /// <summary>Stores the is Available.</summary>
     private bool _isAvailable = true;
+
+    /// <summary>Stores the is Listening.</summary>
     private bool _isListening;
+
+    /// <summary>Stores the start Requested.</summary>
     private bool _startRequested;
+
+    /// <summary>Stores the disposed.</summary>
     private bool _disposed;
 
+    /// <summary>Gets the transcript.</summary>
     public IObservable<string> Transcript => _transcript.AsObservable();
+
+    /// <summary>Gets the status.</summary>
     public IObservable<string> Status => _status.AsObservable();
 
+    /// <summary>Gets the is Available.</summary>
     public bool IsAvailable
     {
         get
@@ -45,6 +72,7 @@ public sealed class VoiceInputService : IVoiceInputService
         }
     }
 
+    /// <summary>Gets the is Listening.</summary>
     public bool IsListening
     {
         get
@@ -56,6 +84,7 @@ public sealed class VoiceInputService : IVoiceInputService
         }
     }
 
+    /// <summary>Starts the operation.</summary>
     public void Start()
     {
         lock (_gate)
@@ -79,7 +108,7 @@ public sealed class VoiceInputService : IVoiceInputService
             }
 
             _startRequested = true;
-            if (_startTask != null && !_startTask.IsCompleted)
+            if (_startTask?.IsCompleted == false)
             {
                 SafeStatus("Voice input is starting");
                 return;
@@ -90,6 +119,7 @@ public sealed class VoiceInputService : IVoiceInputService
         }
     }
 
+    /// <summary>Stops the operation.</summary>
     public void Stop()
     {
         SpeechRecognitionEngine? recognizer;
@@ -102,7 +132,7 @@ public sealed class VoiceInputService : IVoiceInputService
             _isListening = false;
         }
 
-        if (recognizer != null && wasListening)
+        if (recognizer is not null && wasListening)
         {
             try
             {
@@ -111,7 +141,7 @@ public sealed class VoiceInputService : IVoiceInputService
             catch (Exception ex) when (IsSpeechInfrastructureException(ex))
             {
                 ReleaseRecognizer(recognizer);
-                SafeStatus("Voice input stopped after recognizer error: " + ex.Message);
+                SafeStatus($"Voice input stopped after recognizer error: {ex.Message}");
                 return;
             }
         }
@@ -119,6 +149,7 @@ public sealed class VoiceInputService : IVoiceInputService
         SafeStatus("Voice input stopped");
     }
 
+    /// <summary>Performs the dispose operation.</summary>
     public void Dispose()
     {
         SpeechRecognitionEngine? recognizer;
@@ -141,6 +172,7 @@ public sealed class VoiceInputService : IVoiceInputService
         _status.Dispose();
     }
 
+    /// <summary>Starts listening Core.</summary>
     private void StartListeningCore()
     {
         SpeechRecognitionEngine? recognizer = null;
@@ -183,7 +215,7 @@ public sealed class VoiceInputService : IVoiceInputService
             }
 
             ReleaseRecognizer(recognizer);
-            SafeStatus("Voice input unavailable: " + ex.Message);
+            SafeStatus($"Voice input unavailable: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -193,15 +225,17 @@ public sealed class VoiceInputService : IVoiceInputService
                 _startRequested = false;
             }
 
-            SafeStatus("Voice input failed to start: " + ex.Message);
+            SafeStatus($"Voice input failed to start: {ex.Message}");
         }
     }
 
+    /// <summary>Gets or Create Recognizer.</summary>
+    /// <returns>The get Or Create Recognizer result.</returns>
     private SpeechRecognitionEngine GetOrCreateRecognizer()
     {
         lock (_gate)
         {
-            if (_recognizer != null)
+            if (_recognizer is not null)
             {
                 return _recognizer;
             }
@@ -220,6 +254,8 @@ public sealed class VoiceInputService : IVoiceInputService
         }
     }
 
+    /// <summary>Creates recognizer.</summary>
+    /// <returns>The create Recognizer result.</returns>
     private SpeechRecognitionEngine CreateRecognizer()
     {
         var recognizers = SpeechRecognitionEngine.InstalledRecognizers().ToList();
@@ -227,18 +263,13 @@ public sealed class VoiceInputService : IVoiceInputService
             .FirstOrDefault(x => Equals(x.Culture, CultureInfo.CurrentUICulture))
             ?? recognizers
                 .FirstOrDefault(x => string.Equals(x.Culture.TwoLetterISOLanguageName, CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, StringComparison.OrdinalIgnoreCase))
-            ?? recognizers.FirstOrDefault();
-
-        if (recognizerInfo == null)
-        {
-            throw new InvalidOperationException("No Windows speech recognizer is installed.");
-        }
+            ?? recognizers.FirstOrDefault() ?? throw new InvalidOperationException("No Windows speech recognizer is installed.");
 
         var recognizer = new SpeechRecognitionEngine(recognizerInfo);
-        recognizer.InitialSilenceTimeout = TimeSpan.FromSeconds(10);
-        recognizer.BabbleTimeout = TimeSpan.FromSeconds(6);
+        recognizer.InitialSilenceTimeout = TimeSpan.FromSeconds(Numeric10);
+        recognizer.BabbleTimeout = TimeSpan.FromSeconds(Numeric6);
         recognizer.EndSilenceTimeout = TimeSpan.FromSeconds(1);
-        recognizer.EndSilenceTimeoutAmbiguous = TimeSpan.FromSeconds(1.5);
+        recognizer.EndSilenceTimeoutAmbiguous = TimeSpan.FromSeconds(Numeric1Point5);
         recognizer.LoadGrammar(new DictationGrammar());
         recognizer.SetInputToDefaultAudioDevice();
         recognizer.SpeechDetected += OnSpeechDetected;
@@ -248,32 +279,43 @@ public sealed class VoiceInputService : IVoiceInputService
         return recognizer;
     }
 
+    /// <summary>Handles the speech Detected event.</summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">The e.</param>
     private void OnSpeechDetected(object sender, EventArgs e)
     {
-        if (IsListening)
+        if (!IsListening)
         {
-            SafeStatus("Voice input detected speech");
+            return;
         }
+
+        SafeStatus("Voice input detected speech");
     }
 
+    /// <summary>Handles the recognize Completed event.</summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">The e.</param>
     private void OnRecognizeCompleted(object sender, RecognizeCompletedEventArgs e)
     {
         lock (_gate)
         {
             _isListening = false;
-            if (e.Error != null)
+            if (e.Error is not null)
             {
                 _startRequested = false;
             }
         }
 
-        SafeStatus(e.Error == null ? "Voice input stopped" : "Voice input stopped: " + e.Error.Message);
+        SafeStatus(e.Error is null ? "Voice input stopped" : $"Voice input stopped: {e.Error.Message}");
     }
 
+    /// <summary>Handles the speech Recognized event.</summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">The e.</param>
     private void OnSpeechRecognized(object sender, SpeechRecognizedEventArgs e)
     {
         var result = e.Result;
-        if (result == null || string.IsNullOrWhiteSpace(result.Text))
+        if (result is null || string.IsNullOrWhiteSpace(result.Text))
         {
             if (IsListening)
             {
@@ -285,22 +327,29 @@ public sealed class VoiceInputService : IVoiceInputService
 
         var text = result.Text.Trim();
         SafeTranscript(text);
-        SafeStatus(result.Confidence < 0.35f
-            ? "Voice input captured a low-confidence transcript; review it: " + text
-            : "Voice input captured: " + text);
+        SafeStatus(result.Confidence < Numeric0Point35F
+            ? $"Voice input captured a low-confidence transcript; review it: {text}"
+            : $"Voice input captured: {text}");
     }
 
+    /// <summary>Handles the speech Recognition Rejected event.</summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">The e.</param>
     private void OnSpeechRecognitionRejected(object sender, SpeechRecognitionRejectedEventArgs e)
     {
-        if (IsListening)
+        if (!IsListening)
         {
-            SafeStatus("Voice input heard speech but could not recognize it");
+            return;
         }
+
+        SafeStatus("Voice input heard speech but could not recognize it");
     }
 
+    /// <summary>Performs the release Recognizer operation.</summary>
+    /// <param name="recognizer">The recognizer.</param>
     private void ReleaseRecognizer(SpeechRecognitionEngine? recognizer)
     {
-        if (recognizer == null)
+        if (recognizer is null)
         {
             return;
         }
@@ -318,6 +367,8 @@ public sealed class VoiceInputService : IVoiceInputService
         }
     }
 
+    /// <summary>Performs the safe Status operation.</summary>
+    /// <param name="status">The status.</param>
     private void SafeStatus(string status)
     {
         try
@@ -329,6 +380,8 @@ public sealed class VoiceInputService : IVoiceInputService
         }
     }
 
+    /// <summary>Performs the safe Transcript operation.</summary>
+    /// <param name="text">The text.</param>
     private void SafeTranscript(string text)
     {
         try
@@ -340,7 +393,10 @@ public sealed class VoiceInputService : IVoiceInputService
         }
     }
 
-    private static bool IsSpeechInfrastructureException(Exception ex)
+    /// <summary>Determines whether is Speech Infrastructure Exception.</summary>
+    /// <param name="ex">The ex.</param>
+    /// <returns><see langword="true"/> when is Speech Infrastructure Exception succeeds; otherwise, <see langword="false"/>.</returns>
+    private bool IsSpeechInfrastructureException(Exception ex)
         => ex is InvalidOperationException
         || ex is COMException
         || ex is InvalidComObjectException

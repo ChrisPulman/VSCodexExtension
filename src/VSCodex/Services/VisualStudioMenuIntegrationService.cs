@@ -1,3 +1,6 @@
+// Copyright (c) 2019-2026 Chris Pulman and contributors. All rights reserved.
+// Chris Pulman and contributors licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -8,13 +11,22 @@ using VSCodex.Commands;
 
 namespace VSCodex.Services;
 
+/// <summary>Provides the visual Studio Menu Integration Service implementation.</summary>
 internal static class VisualStudioMenuIntegrationService
 {
-    private const int MsoControlPopup = 10;
-    private static bool _installed;
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric10 = 10;
 
+    /// <summary>Named number used by this type.</summary>
+    private const int Numeric2 = 2;
+
+    /// <summary>Defines the mso Control Popup.</summary>
+    private const int MsoControlPopup = Numeric10;
+
+    /// <summary>Stores the open Tool Window.</summary>
     private static readonly MenuCommandSpec OpenToolWindow = new("View.VSCodex", "VSCodex", CodexCommandIds.OpenToolWindowCommandId);
 
+    /// <summary>Stores the core Actions.</summary>
     private static readonly MenuCommandSpec[] CoreActions =
     {
         OpenToolWindow,
@@ -34,37 +46,38 @@ internal static class VisualStudioMenuIntegrationService
         new("VSCodex.ReactiveMemorySetup", "VSCodex ReactiveMemory Setup", CodexCommandIds.ConfigureMemoryCommandId)
     };
 
-    public static async Task InitializeAsync(AsyncPackage package)
+    /// <summary>Stores whether runtime menus have been installed.</summary>
+    private static bool _installed;
+
+    /// <summary>Initializes the operation.</summary>
+    /// <param name="package">The package.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    internal static async Task InitializeAsync(AsyncPackage package)
     {
         if (_installed)
         {
             return;
         }
 
-        for (var attempt = 1; attempt <= 10 && !_installed; attempt++)
+        for (var attempt = 1; attempt <= Numeric10 && !_installed; attempt++)
         {
             await package.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
 
             try
             {
                 var dte = await package.GetServiceAsync(typeof(DTE)).ConfigureAwait(true) as DTE;
-                if (dte?.CommandBars == null)
+                if (dte?.CommandBars is null)
                 {
-                    ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), "DTE command bars were unavailable; VSCodex runtime menu bridge will retry.");
+                    _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), "DTE command bars were unavailable; VSCodex runtime menu bridge will retry.");
                 }
                 else if (InstallMainMenus(dte))
                 {
-                    InstallContextMenus(dte);
+                    InstallContextMenus();
                     _installed = true;
                     return;
                 }
-                else
-                {
-                    // Keep retrying quietly; the static VSCT menu entries remain usable even
-                    // when DTE does not expose the command names early in startup.
-                }
 
-                await Task.Delay(TimeSpan.FromSeconds(2), package.DisposalToken).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(Numeric2), package.DisposalToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (package.DisposalToken.IsCancellationRequested)
             {
@@ -72,100 +85,190 @@ internal static class VisualStudioMenuIntegrationService
             }
             catch (Exception ex)
             {
-                ActivityLog.TryLogError(nameof(VisualStudioMenuIntegrationService), ex.ToString());
-                await Task.Delay(TimeSpan.FromSeconds(2), package.DisposalToken).ConfigureAwait(false);
+                _ = ActivityLog.TryLogError(nameof(VisualStudioMenuIntegrationService), ex.ToString());
+                await Task.Delay(TimeSpan.FromSeconds(Numeric2), package.DisposalToken).ConfigureAwait(false);
             }
         }
 
-        if (!_installed)
+        if (_installed)
         {
-            ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), "VSCodex static VSCT menu entries are available, but runtime DTE menu repair did not resolve the commands during startup.");
+            return;
         }
+
+        _ = ActivityLog.TryLogWarning(
+            nameof(VisualStudioMenuIntegrationService),
+            "VSCodex static VSCT menu entries are available, but runtime DTE menu repair did not resolve the commands during startup.");
     }
 
+    /// <summary>Performs the install Main Menus operation.</summary>
+    /// <param name="dte">The dte.</param>
+    /// <returns><see langword="true"/> when install Main Menus succeeds; otherwise, <see langword="false"/>.</returns>
     private static bool InstallMainMenus(DTE dte)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
         var menuBar = TryGetCommandBar(dte.CommandBars, "MenuBar");
-        if (menuBar == null)
+        if (menuBar is null)
         {
             return false;
         }
 
-        var topLevel = EnsurePopup(menuBar, "VSCodex");
-        if (topLevel != null)
-        {
-            AddCommands(dte, GetPopupCommandBar(topLevel), CoreActions);
-        }
-
-        var viewMenu = FindControlByCaption(menuBar, "View");
-        var openCommandVisible = false;
-        if (viewMenu != null)
-        {
-            var viewCommandBar = GetPopupCommandBar(viewMenu);
-
-            if (viewCommandBar != null)
-            {
-                openCommandVisible = AddCommands(dte, viewCommandBar, new[] { OpenToolWindow }) > 0;
-            }
-
-            var viewPopup = viewCommandBar == null ? null : EnsurePopup(viewCommandBar, "VSCodex Actions");
-            if (viewPopup != null)
-            {
-                AddCommands(dte, GetPopupCommandBar(viewPopup), CoreActions);
-            }
-
-            var otherWindowsPopup = viewCommandBar == null ? null : FindControlByCaption(viewCommandBar, "Other Windows");
-            if (otherWindowsPopup != null)
-            {
-                SetVisible(otherWindowsPopup);
-                AddCommands(dte, GetPopupCommandBar(otherWindowsPopup), new[] { OpenToolWindow });
-            }
-        }
-
-        var toolsMenu = FindControlByCaption(menuBar, "Tools");
-        if (toolsMenu != null)
-        {
-            var toolsCommandBar = GetPopupCommandBar(toolsMenu);
-            var toolsPopup = toolsCommandBar == null ? null : EnsurePopup(toolsCommandBar, "VSCodex");
-            if (toolsPopup != null)
-            {
-                AddCommands(dte, GetPopupCommandBar(toolsPopup), CoreActions);
-            }
-        }
-
-        var debugMenu = FindControlByCaption(menuBar, "Debug");
-        if (debugMenu != null)
-        {
-            AddCommands(
-                dte,
-                GetPopupCommandBar(debugMenu),
-                new[]
-                {
-                    new MenuCommandSpec("VSCodex.Debug", "Debug With VSCodex", CodexCommandIds.DebugWithCodexCommandId),
-                    new MenuCommandSpec("VSCodex.FixActiveException", "Fix Active Exception", CodexCommandIds.FixActiveExceptionCommandId),
-                    new MenuCommandSpec("VSCodex.FixWithVSCodex", "Fix with VSCodex", CodexCommandIds.FixActiveErrorCommandId)
-                });
-        }
-
-        var testMenu = FindControlByCaption(menuBar, "Test");
-        if (testMenu != null)
-        {
-            AddCommands(
-                dte,
-                GetPopupCommandBar(testMenu),
-                new[]
-                {
-                    new MenuCommandSpec("VSCodex.GenerateTests", "Generate Tests", CodexCommandIds.CreateTestFromSelectionCommandId),
-                    new MenuCommandSpec("VSCodex.FixTestFailure", "Fix Test Failure", CodexCommandIds.FixTestFailureCommandId)
-                });
-        }
-
+        AddTopLevelMenu(dte, menuBar);
+        var openCommandVisible = AddViewMenuEntries(dte, menuBar);
+        AddToolsMenuEntries(dte, menuBar);
+        AddDebugMenuEntries(dte, menuBar);
+        AddTestMenuEntries(dte, menuBar);
         return openCommandVisible;
     }
 
-    private static void InstallContextMenus(DTE dte)
+    /// <summary>Adds the top-level VSCodex menu.</summary>
+    /// <param name="dte">The DTE.</param>
+    /// <param name="menuBar">The menu bar.</param>
+    private static void AddTopLevelMenu(DTE dte, object menuBar)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var topLevel = EnsurePopup(menuBar, "VSCodex");
+        if (topLevel is null)
+        {
+            return;
+        }
+
+        _ = AddCommands(dte, GetPopupCommandBar(topLevel), CoreActions);
+    }
+
+    /// <summary>Adds View-menu entries.</summary>
+    /// <param name="dte">The DTE.</param>
+    /// <param name="menuBar">The menu bar.</param>
+    /// <returns><see langword="true"/> when the open command is visible.</returns>
+    private static bool AddViewMenuEntries(DTE dte, object menuBar)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var viewMenu = FindControlByCaption(menuBar, "View");
+        if (viewMenu is null)
+        {
+            return false;
+        }
+
+        var viewCommandBar = GetPopupCommandBar(viewMenu);
+        var openCommandVisible = viewCommandBar is not null && AddCommands(dte, viewCommandBar, [OpenToolWindow]) > 0;
+        AddViewActionsPopup(dte, viewCommandBar);
+        AddOtherWindowsEntry(dte, viewCommandBar);
+        return openCommandVisible;
+    }
+
+    /// <summary>Adds the View-menu actions popup.</summary>
+    /// <param name="dte">The DTE.</param>
+    /// <param name="viewCommandBar">The View command bar.</param>
+    private static void AddViewActionsPopup(DTE dte, object? viewCommandBar)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (viewCommandBar is null)
+        {
+            return;
+        }
+
+        var viewPopup = EnsurePopup(viewCommandBar, "VSCodex Actions");
+        if (viewPopup is null)
+        {
+            return;
+        }
+
+        _ = AddCommands(dte, GetPopupCommandBar(viewPopup), CoreActions);
+    }
+
+    /// <summary>Adds the Other Windows menu entry.</summary>
+    /// <param name="dte">The DTE.</param>
+    /// <param name="viewCommandBar">The View command bar.</param>
+    private static void AddOtherWindowsEntry(DTE dte, object? viewCommandBar)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (viewCommandBar is null)
+        {
+            return;
+        }
+
+        var otherWindowsPopup = FindControlByCaption(viewCommandBar, "Other Windows");
+        if (otherWindowsPopup is null)
+        {
+            return;
+        }
+
+        SetVisible(otherWindowsPopup);
+        _ = AddCommands(dte, GetPopupCommandBar(otherWindowsPopup), [OpenToolWindow]);
+    }
+
+    /// <summary>Adds Tools-menu entries.</summary>
+    /// <param name="dte">The DTE.</param>
+    /// <param name="menuBar">The menu bar.</param>
+    private static void AddToolsMenuEntries(DTE dte, object menuBar)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var toolsMenu = FindControlByCaption(menuBar, "Tools");
+        if (toolsMenu is null)
+        {
+            return;
+        }
+
+        var toolsCommandBar = GetPopupCommandBar(toolsMenu);
+        if (toolsCommandBar is null)
+        {
+            return;
+        }
+
+        var toolsPopup = EnsurePopup(toolsCommandBar, "VSCodex");
+        if (toolsPopup is null)
+        {
+            return;
+        }
+
+        _ = AddCommands(dte, GetPopupCommandBar(toolsPopup), CoreActions);
+    }
+
+    /// <summary>Adds Debug-menu entries.</summary>
+    /// <param name="dte">The DTE.</param>
+    /// <param name="menuBar">The menu bar.</param>
+    private static void AddDebugMenuEntries(DTE dte, object menuBar)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var debugMenu = FindControlByCaption(menuBar, "Debug");
+        if (debugMenu is null)
+        {
+            return;
+        }
+
+        _ = AddCommands(
+            dte,
+            GetPopupCommandBar(debugMenu),
+            [
+                new MenuCommandSpec("VSCodex.Debug", "Debug With VSCodex", CodexCommandIds.DebugWithCodexCommandId),
+                new MenuCommandSpec("VSCodex.FixActiveException", "Fix Active Exception", CodexCommandIds.FixActiveExceptionCommandId),
+                new MenuCommandSpec("VSCodex.FixWithVSCodex", "Fix with VSCodex", CodexCommandIds.FixActiveErrorCommandId)
+            ]);
+    }
+
+    /// <summary>Adds Test-menu entries.</summary>
+    /// <param name="dte">The DTE.</param>
+    /// <param name="menuBar">The menu bar.</param>
+    private static void AddTestMenuEntries(DTE dte, object menuBar)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var testMenu = FindControlByCaption(menuBar, "Test");
+        if (testMenu is null)
+        {
+            return;
+        }
+
+        _ = AddCommands(
+            dte,
+            GetPopupCommandBar(testMenu),
+            [
+                new MenuCommandSpec("VSCodex.GenerateTests", "Generate Tests", CodexCommandIds.CreateTestFromSelectionCommandId),
+                new MenuCommandSpec("VSCodex.FixTestFailure", "Fix Test Failure", CodexCommandIds.FixTestFailureCommandId)
+            ]);
+    }
+
+    /// <summary>Performs the install Context Menus operation.</summary>
+    private static void InstallContextMenus()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
@@ -173,10 +276,15 @@ internal static class VisualStudioMenuIntegrationService
         // create duplicate editor entries after the command table is refreshed.
     }
 
+    /// <summary>Adds commands.</summary>
+    /// <param name="dte">The dte.</param>
+    /// <param name="commandBar">The command Bar.</param>
+    /// <param name="commands">The commands.</param>
+    /// <returns>The add Commands result.</returns>
     private static int AddCommands(DTE dte, object? commandBar, IEnumerable<MenuCommandSpec> commands)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        if (commandBar == null)
+        if (commandBar is null)
         {
             return 0;
         }
@@ -186,24 +294,25 @@ internal static class VisualStudioMenuIntegrationService
         foreach (var command in commands)
         {
             var dteCommand = TryGetCommand(dte, command);
-            if (dteCommand == null)
+            if (dteCommand is null)
             {
-                ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), $"VSCodex command '{command.CanonicalName}' was not available for runtime menu placement.");
+                _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), $"VSCodex command '{command.CanonicalName}' was not available for runtime menu placement.");
                 continue;
             }
 
             try
             {
                 var existing = FindControlByCaption(commandBar, command.Caption);
-                if (existing != null)
+                if (existing is not null)
                 {
                     SetVisible(existing);
                     placed++;
                     continue;
                 }
 
-                var addedControl = dteCommand.AddControl(commandBar, position++);
-                if (addedControl != null)
+                var addedControl = dteCommand.AddControl(commandBar, position);
+                position++;
+                if (addedControl is not null)
                 {
                     SetVisible(addedControl);
                     placed++;
@@ -211,52 +320,67 @@ internal static class VisualStudioMenuIntegrationService
             }
             catch (Exception ex)
             {
-                ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), $"Could not add '{command.Caption}' to a Visual Studio menu: {ex.Message}");
+                _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), $"Could not add '{command.Caption}' to a Visual Studio menu: {ex.Message}");
             }
         }
 
         return placed;
     }
 
+    /// <summary>Attempts to get Command.</summary>
+    /// <param name="dte">The dte.</param>
+    /// <param name="command">The command.</param>
+    /// <returns>The try Get Command result.</returns>
     private static Command? TryGetCommand(DTE dte, MenuCommandSpec command)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         try
         {
-            return dte.Commands.Item(command.CanonicalName, -1);
+            return dte.Commands.Item(command.CanonicalName);
         }
-        catch
+        catch (Exception ex)
         {
+            _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), ex.Message);
         }
 
         try
         {
             return dte.Commands.Item(CodexCommandIds.CommandSetGuidString, command.CommandId);
         }
-        catch
+        catch (Exception ex)
         {
+            _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), ex.Message);
             return null;
         }
     }
 
+    /// <summary>Attempts to get Command Bar.</summary>
+    /// <param name="commandBars">The command Bars.</param>
+    /// <param name="name">The name.</param>
+    /// <returns>The try Get Command Bar result.</returns>
     private static object? TryGetCommandBar(object commandBars, string name)
     {
         try
         {
-            return commandBars.GetType().InvokeMember("Item", BindingFlags.InvokeMethod, null, commandBars, new object[] { name });
+            return commandBars.GetType().InvokeMember("Item", BindingFlags.InvokeMethod, null, commandBars, [name]);
         }
-        catch
+        catch (Exception ex)
         {
+            _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), ex.Message);
             return null;
         }
     }
 
+    /// <summary>Ensures popup.</summary>
+    /// <param name="commandBar">The command Bar.</param>
+    /// <param name="caption">The caption.</param>
+    /// <returns>The ensure Popup result.</returns>
     private static object? EnsurePopup(object commandBar, string caption)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
         var existing = FindControlByCaption(commandBar, caption);
-        if (existing != null)
+        if (existing is not null)
         {
             SetVisible(existing);
             return existing;
@@ -265,7 +389,7 @@ internal static class VisualStudioMenuIntegrationService
         try
         {
             var controls = GetControls(commandBar);
-            if (controls == null)
+            if (controls is null)
             {
                 return null;
             }
@@ -275,7 +399,7 @@ internal static class VisualStudioMenuIntegrationService
                 BindingFlags.InvokeMethod,
                 null,
                 controls,
-                new object[] { MsoControlPopup, Type.Missing, Type.Missing, Type.Missing, true });
+                [MsoControlPopup, Type.Missing, Type.Missing, Type.Missing, true]);
 
             SetProperty(popup, "Caption", caption);
             SetProperty(popup, "TooltipText", caption);
@@ -284,17 +408,21 @@ internal static class VisualStudioMenuIntegrationService
         }
         catch (Exception ex)
         {
-            ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), $"Could not create '{caption}' menu popup: {ex.Message}");
+            _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), $"Could not create '{caption}' menu popup: {ex.Message}");
             return null;
         }
     }
 
+    /// <summary>Finds control By Caption.</summary>
+    /// <param name="commandBar">The command Bar.</param>
+    /// <param name="caption">The caption.</param>
+    /// <returns>The find Control By Caption result.</returns>
     private static object? FindControlByCaption(object commandBar, string caption)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
         var controls = GetControls(commandBar);
-        if (controls == null)
+        if (controls is null)
         {
             return null;
         }
@@ -311,49 +439,74 @@ internal static class VisualStudioMenuIntegrationService
         return null;
     }
 
+    /// <summary>Gets popup Command Bar.</summary>
+    /// <param name="popup">The popup.</param>
+    /// <returns>The get Popup Command Bar result.</returns>
     private static object? GetPopupCommandBar(object popup)
     {
         return GetProperty(popup, "CommandBar");
     }
 
+    /// <summary>Gets controls.</summary>
+    /// <param name="commandBar">The command Bar.</param>
+    /// <returns>The get Controls result.</returns>
     private static object? GetControls(object commandBar)
     {
         return GetProperty(commandBar, "Controls");
     }
 
+    /// <summary>Gets property.</summary>
+    /// <param name="target">The target.</param>
+    /// <param name="propertyName">The property Name.</param>
+    /// <returns>The get Property result.</returns>
     private static object? GetProperty(object target, string propertyName)
     {
         try
         {
-            return target.GetType().InvokeMember(propertyName, BindingFlags.GetProperty, null, target, Array.Empty<object>());
+            return target.GetType().InvokeMember(propertyName, BindingFlags.GetProperty, null, target, []);
         }
-        catch
+        catch (Exception ex)
         {
+            _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), ex.Message);
             return null;
         }
     }
 
+    /// <summary>Gets string Property.</summary>
+    /// <param name="target">The target.</param>
+    /// <param name="propertyName">The property Name.</param>
+    /// <returns>The get String Property result.</returns>
     private static string GetStringProperty(object target, string propertyName)
     {
-        return GetProperty(target, propertyName) as string ?? string.Empty;
+        return (GetProperty(target, propertyName) as string) ?? string.Empty;
     }
 
+    /// <summary>Sets property.</summary>
+    /// <param name="target">The target.</param>
+    /// <param name="propertyName">The property Name.</param>
+    /// <param name="value">The value.</param>
     private static void SetProperty(object target, string propertyName, object value)
     {
-        target.GetType().InvokeMember(propertyName, BindingFlags.SetProperty, null, target, new[] { value });
+        _ = target.GetType().InvokeMember(propertyName, BindingFlags.SetProperty, null, target, [value]);
     }
 
+    /// <summary>Sets visible.</summary>
+    /// <param name="target">The target.</param>
     private static void SetVisible(object target)
     {
         try
         {
             SetProperty(target, "Visible", true);
         }
-        catch
+        catch (Exception ex)
         {
+            _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), ex.Message);
         }
     }
 
+    /// <summary>Performs the enumerate Controls operation.</summary>
+    /// <param name="controls">The controls.</param>
+    /// <returns>The enumerate Controls result.</returns>
     private static IEnumerable<object> EnumerateControls(object controls)
     {
         var count = 0;
@@ -361,8 +514,9 @@ internal static class VisualStudioMenuIntegrationService
         {
             count = Convert.ToInt32(GetProperty(controls, "Count"));
         }
-        catch
+        catch (Exception ex)
         {
+            _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), ex.Message);
         }
 
         for (var i = 1; i <= count; i++)
@@ -370,24 +524,33 @@ internal static class VisualStudioMenuIntegrationService
             object? control = null;
             try
             {
-                control = controls.GetType().InvokeMember("Item", BindingFlags.InvokeMethod, null, controls, new object[] { i });
+                control = controls.GetType().InvokeMember("Item", BindingFlags.InvokeMethod, null, controls, [i]);
             }
-            catch
+            catch (Exception ex)
             {
+                _ = ActivityLog.TryLogWarning(nameof(VisualStudioMenuIntegrationService), ex.Message);
             }
 
-            if (control != null)
+            if (control is not null)
             {
                 yield return control;
             }
         }
     }
 
+    /// <summary>Performs the normalize Caption operation.</summary>
+    /// <param name="caption">The caption.</param>
+    /// <returns>The normalize Caption result.</returns>
     private static string NormalizeCaption(string caption)
         => caption.Replace("&", string.Empty).Trim();
 
+    /// <summary>Provides the menu Command Spec implementation.</summary>
     private sealed class MenuCommandSpec
     {
+        /// <summary>Initializes a new instance of the <see cref="MenuCommandSpec"/> class.</summary>
+        /// <param name="canonicalName">The canonical Name.</param>
+        /// <param name="caption">The caption.</param>
+        /// <param name="commandId">The command Id.</param>
         public MenuCommandSpec(string canonicalName, string caption, int commandId)
         {
             CanonicalName = canonicalName;
@@ -395,8 +558,13 @@ internal static class VisualStudioMenuIntegrationService
             CommandId = commandId;
         }
 
+        /// <summary>Gets the canonical Name.</summary>
         public string CanonicalName { get; }
+
+        /// <summary>Gets the caption.</summary>
         public string Caption { get; }
+
+        /// <summary>Gets the command Id.</summary>
         public int CommandId { get; }
     }
 }
