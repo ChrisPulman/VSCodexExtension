@@ -18,7 +18,7 @@
     <PackageVersion Include="Roslynator.Analyzers" Version="4.16.1" />
     <PackageVersion Include="StyleSharp.Analyzers" Version="$(StyleSharpAnalyzersVersion)" />
     <PackageVersion Include="System.Reactive" Version="6.1.0" />
-    <PackageVersion Include="TUnit" Version="1.65.0" />
+    <PackageVersion Include="TUnit" Version="1.65.31" />
     <PackageVersion Include="CP.Nuke.BuildTools" Version="3.0.2" />
     <PackageVersion Include="Nuke.Common" Version="10.1.0" />
     <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.11" />
