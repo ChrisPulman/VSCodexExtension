@@ -795,7 +795,7 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
             return;
         }
 
-        if (!request.Method.Equals("item/commandExecution/requestApproval", StringComparison.Ordinal) && !request.Method.Equals("item/fileChange/requestApproval", StringComparison.Ordinal))
+        if (!IsApprovalRequest(request.Method))
         {
             Status = "This Codex request requires structured input that is not a yes/no approval.";
             return;
@@ -803,7 +803,7 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
 
         try
         {
-            await _codex.RespondToServerRequestAsync(request.Id, approve).ConfigureAwait(continueOnCapturedContext: false);
+            await _codex.RespondToServerRequestAsync(request.Id, request.Method, approve).ConfigureAwait(continueOnCapturedContext: false);
             await _joinableTaskFactory.SwitchToMainThreadAsync(default(CancellationToken));
             request.IsPending = false;
             _ = ApprovalRequests.Remove(request);
@@ -814,6 +814,15 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
             await _joinableTaskFactory.SwitchToMainThreadAsync(default(CancellationToken));
             Status = $"Could not answer the Codex approval request: {ex.Message}";
         }
+    }
+
+    /// <summary>Determines whether a server request can be answered by an approval decision.</summary>
+    /// <param name="method">The server request method.</param>
+    /// <returns><see langword="true"/> when the request supports approve or decline.</returns>
+    private static bool IsApprovalRequest(string method)
+    {
+        return method.EndsWith("/requestApproval", StringComparison.Ordinal)
+            || method.Equals("mcpServer/elicitation/request", StringComparison.Ordinal);
     }
 
     /// <summary>Refreshes the operation.</summary>
