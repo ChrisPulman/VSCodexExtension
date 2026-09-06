@@ -36,9 +36,10 @@ public interface ICodexOrchestrator
 
     /// <summary>Responds to a server request.</summary>
     /// <param name="requestId">The request identifier.</param>
+    /// <param name="method">The server request method.</param>
     /// <param name="approve">Whether to approve the request.</param>
     /// <returns>A task that completes after the response is sent.</returns>
-    Task RespondToServerRequestAsync(string requestId, bool approve);
+    Task RespondToServerRequestAsync(string requestId, string method, bool approve);
 
     /// <summary>Cancels active work without blocking.</summary>
     void Cancel();
