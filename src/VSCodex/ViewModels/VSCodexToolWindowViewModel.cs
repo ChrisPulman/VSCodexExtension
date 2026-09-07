@@ -816,15 +816,6 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
         }
     }
 
-    /// <summary>Determines whether a server request can be answered by an approval decision.</summary>
-    /// <param name="method">The server request method.</param>
-    /// <returns><see langword="true"/> when the request supports approve or decline.</returns>
-    private static bool IsApprovalRequest(string method)
-    {
-        return method.EndsWith("/requestApproval", StringComparison.Ordinal)
-            || method.Equals("mcpServer/elicitation/request", StringComparison.Ordinal);
-    }
-
     /// <summary>Refreshes the operation.</summary>
     private void Refresh()
     {
