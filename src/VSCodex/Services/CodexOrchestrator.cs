@@ -94,11 +94,18 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
 
     /// <summary>Responds to an SDK server request.</summary>
     /// <param name="requestId">The request identifier.</param>
+    /// <param name="method">The server request method.</param>
     /// <param name="approve">Whether to approve the request.</param>
     /// <returns>A task that completes after the response is sent.</returns>
-    public async Task RespondToServerRequestAsync(string requestId, bool approve)
+    public async Task RespondToServerRequestAsync(string requestId, string method, bool approve)
     {
-        var response = new JObject { ["decision"] = approve ? "accept" : "decline" };
+        JObject response = method.Equals("mcpServer/elicitation/request", StringComparison.Ordinal)
+            ? new JObject
+            {
+                ["action"] = approve ? "accept" : "decline",
+                ["content"] = JValue.CreateNull()
+            }
+            : new JObject { ["decision"] = approve ? "accept" : "decline" };
         _ = await _sdk.RespondToServerRequestAsync(requestId, response)
             .ConfigureAwait(continueOnCapturedContext: false);
     }
