@@ -2,7 +2,7 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CPReactiveMemoryMcpServerVersion>1.1.2</CPReactiveMemoryMcpServerVersion>
-    <StyleSharpAnalyzersVersion>3.41.14</StyleSharpAnalyzersVersion>
+    <StyleSharpAnalyzersVersion>4.2.2</StyleSharpAnalyzersVersion>
   </PropertyGroup>
 
   <ItemGroup>
