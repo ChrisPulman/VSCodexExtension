@@ -13,6 +13,12 @@ public sealed class PackagingAndSurfaceTests
     /// <summary>Named number used by this type.</summary>
     private const int Numeric3 = 3;
 
+    /// <summary>Path to the view-model source files.</summary>
+    private const string ViewModelsDirectory = "src/VSCodex/ViewModels";
+
+    /// <summary>Search pattern for tool-window view-model source files.</summary>
+    private const string ToolWindowViewModelSearchPattern = "VSCodexToolWindowViewModel*.cs";
+
     /// <summary>Gets the repository root containing Directory.Packages.props.</summary>
     private static string RepositoryRoot
     {
@@ -106,7 +112,7 @@ public sealed class PackagingAndSurfaceTests
             + ReadText("src/VSCodex/Options/VSCodexOptionsModel.cs");
         var view = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml");
         var viewCode = ReadText("src/VSCodex/Views/VSCodexToolWindowControl.xaml.cs");
-        var viewModel = ReadTextFiles("src/VSCodex/ViewModels", "VSCodexToolWindowViewModel*.cs");
+        var viewModel = ReadTextFiles(ViewModelsDirectory, ToolWindowViewModelSearchPattern);
 
         await Assert.That(package).Contains("ProvideOptionPage(typeof(OptionsProvider.GeneralOptions), \"VSCodex\", \"General\"");
         await Assert.That(options).Contains("class GeneralOptions : DialogPage");
@@ -125,7 +131,7 @@ public sealed class PackagingAndSurfaceTests
     public async Task Run_controls_use_exact_app_server_turns_and_durable_pause()
     {
         var bridge = ReadText("src/VSCodex/Resources/codex-bridge.mjs");
-        var viewModel = ReadTextFiles("src/VSCodex/ViewModels", "VSCodexToolWindowViewModel*.cs");
+        var viewModel = ReadTextFiles(ViewModelsDirectory, ToolWindowViewModelSearchPattern);
         var reactiveMemory = ReadText("src/VSCodex/Services/ReactiveMemoryService.cs");
 
         await Assert.That(bridge).Contains("method: 'turn/start'");
@@ -138,6 +144,20 @@ public sealed class PackagingAndSurfaceTests
         await Assert.That(viewModel).Contains("SavePauseCheckpointAsync");
         await Assert.That(viewModel).Contains("RestorePauseCheckpointAsync");
         await Assert.That(reactiveMemory).Contains("schema\"] = \"vscodex.pause-checkpoint/1\"");
+    }
+
+    /// <summary>Verifies that MCP elicitations can receive approve and decline responses.</summary>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    [Test]
+    public async Task Approval_controls_respond_to_MCP_elicitations()
+    {
+        var viewModel = ReadTextFiles(ViewModelsDirectory, ToolWindowViewModelSearchPattern);
+        var orchestrator = ReadText("src/VSCodex/Services/CodexOrchestrator.cs");
+
+        await Assert.That(viewModel).Contains("mcpServer/elicitation/request");
+        await Assert.That(viewModel).Contains("request.Id, request.Method, approve");
+        await Assert.That(orchestrator).Contains("[\"action\"] = approve ? \"accept\" : \"decline\"");
+        await Assert.That(orchestrator).Contains("[\"content\"] = JValue.CreateNull()");
     }
 
     /// <summary>Verifies that ReactiveMemory is bundled and cannot be disabled or removed.</summary>
