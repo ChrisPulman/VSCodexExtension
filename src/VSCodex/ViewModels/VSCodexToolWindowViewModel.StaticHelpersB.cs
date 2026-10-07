@@ -256,6 +256,15 @@ public sealed partial class VSCodexToolWindowViewModel
         return (prompt ?? string.Empty).Trim().StartsWith("/MCP", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Determines whether a server request can be answered by an approval decision.</summary>
+    /// <param name="method">The server request method.</param>
+    /// <returns><see langword="true"/> when the request supports approve or decline.</returns>
+    private static bool IsApprovalRequest(string method)
+    {
+        return method.EndsWith("/requestApproval", StringComparison.Ordinal)
+            || method.Equals("mcpServer/elicitation/request", StringComparison.Ordinal);
+    }
+
     /// <summary>Performs the clamp Input Height operation.</summary>
     /// <param name="value">The value.</param>
     /// <returns>The clamp Input Height result.</returns>
