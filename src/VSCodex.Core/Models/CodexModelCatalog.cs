@@ -13,13 +13,21 @@ public static class CodexModelCatalog
     /// <summary>Stores the current model identifiers.</summary>
     private static readonly string[] Models =
     {
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
-        "gpt-5.6-luna",
+        "gpt-5.6-luna"
+    };
+
+    /// <summary>Stores earlier suggestions still usable when advertised by an API account.</summary>
+    private static readonly string[] PreviousModels =
+    {
         "gpt-5.5",
         "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.3-codex-spark"
+        "gpt-5.4-mini"
     };
 
     /// <summary>Stores the Sol and Terra effort identifiers.</summary>
@@ -34,6 +42,7 @@ public static class CodexModelCatalog
     /// <summary>Stores retired shipped model identifiers.</summary>
     private static readonly string[] LegacyModels =
     {
+        "gpt-5.3-codex-spark",
         "gpt-5.4-codex",
         "gpt-5.3-codex",
         "gpt-5.2",
@@ -54,17 +63,34 @@ public static class CodexModelCatalog
     /// <summary>Stores the safe effort identifiers used for an unknown custom model.</summary>
     private static readonly IReadOnlyList<string> UnknownModelEffortValues = Array.AsReadOnly(["medium"]);
 
+    /// <summary>Stores offline capabilities while runtime metadata remains authoritative.</summary>
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> OfflineEfforts =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["gpt-6.1-sol"] = SolTerraEffortValues,
+            ["gpt-6-astra"] = SolTerraEffortValues,
+            ["gpt-6-sol"] = SolTerraEffortValues,
+            ["gpt-6-luna"] = LunaEffortValues,
+            ["gpt-5.6-sol"] = SolTerraEffortValues,
+            ["gpt-5.6-terra"] = SolTerraEffortValues,
+            ["gpt-5.6-luna"] = LunaEffortValues,
+            ["gpt-5.5"] = StandardEffortValues,
+            ["gpt-5.4"] = StandardEffortValues,
+            ["gpt-5.4-mini"] = StandardEffortValues,
+            ["gpt-5.3-codex-spark"] = StandardEffortValues,
+        };
+
     /// <summary>Stores the last complete account catalog, replaced atomically.</summary>
     private static volatile CodexRuntimeModel[] _runtimeModels = [];
 
     /// <summary>Gets the Codex Power default.</summary>
-    public static string DefaultModel => _runtimeModels.FirstOrDefault(model => model.IsDefault)?.Model ?? "gpt-5.6-sol";
+    public static string DefaultModel => (_runtimeModels.FirstOrDefault(model => model.IsDefault) ?? _runtimeModels.FirstOrDefault())?.Model ?? "gpt-6.1-sol";
 
     /// <summary>Gets the default lower-cost failover model.</summary>
-    public static string DefaultFailoverModel => "gpt-5.6-terra";
+    public static string DefaultFailoverModel => ResolveModelSelection("gpt-6-sol", []);
 
     /// <summary>Gets the default model for lower-cost, repeatable work.</summary>
-    public static string DefaultBudgetModel => "gpt-5.6-luna";
+    public static string DefaultBudgetModel => ResolveModelSelection("gpt-6-luna", []);
 
     /// <summary>Gets the balanced reasoning default.</summary>
     public static string DefaultReasoningEffort => "medium";
@@ -93,7 +119,7 @@ public static class CodexModelCatalog
     /// <summary>Determines whether an identifier was shipped in the offline catalog.</summary>
     /// <param name="model">The identifier.</param>
     /// <returns>Whether it was a shipped choice.</returns>
-    public static bool IsShippedModel(string? model) => Models.Contains(model ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+    public static bool IsShippedModel(string? model) => Models.Concat(PreviousModels).Contains(model ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Resolves a saved choice against the last complete runtime catalog.</summary>
     /// <param name="model">The saved choice.</param>
@@ -125,13 +151,9 @@ public static class CodexModelCatalog
             return runtime.ReasoningEfforts.Count > 0 ? runtime.ReasoningEfforts : Array.AsReadOnly(new[] { runtime.DefaultReasoningEffort });
         }
 
-        return (model ?? string.Empty).Trim().ToLowerInvariant() switch
-        {
-            "gpt-5.6-sol" or "gpt-5.6-terra" => SolTerraEffortValues,
-            "gpt-5.6-luna" => LunaEffortValues,
-            "gpt-5.5" or "gpt-5.4" or "gpt-5.4-mini" or "gpt-5.3-codex-spark" => StandardEffortValues,
-            _ => UnknownModelEffortValues,
-        };
+        return OfflineEfforts.TryGetValue((model ?? string.Empty).Trim(), out IReadOnlyList<string>? efforts)
+            ? efforts
+            : UnknownModelEffortValues;
     }
 
     /// <summary>Resolves an effort to a valid value for a model.</summary>

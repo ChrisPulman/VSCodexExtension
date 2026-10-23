@@ -9,6 +9,18 @@ namespace VSCodex.Tests;
 /// <summary>Verifies the current Codex application model and effort catalog.</summary>
 public sealed class CodexModelCatalogTests
 {
+    /// <summary>Stores the current Sol model identifier.</summary>
+    private const string Gpt61Sol = "gpt-6.1-sol";
+
+    /// <summary>Stores the Astra model identifier.</summary>
+    private const string Gpt6Astra = "gpt-6-astra";
+
+    /// <summary>Stores the previous Sol model identifier.</summary>
+    private const string Gpt6Sol = "gpt-6-sol";
+
+    /// <summary>Stores the current Luna model identifier.</summary>
+    private const string Gpt6Luna = "gpt-6-luna";
+
     /// <summary>Stores the GPT-5.3 Codex Spark model identifier.</summary>
     private const string Gpt53CodexSpark = "gpt-5.3-codex-spark";
 
@@ -44,21 +56,36 @@ public sealed class CodexModelCatalogTests
     [Test]
     public async Task Current_models_match_the_Codex_application_catalog()
     {
-        await Assert.That(CodexModelCatalog.DefaultModel).IsEqualTo(Gpt56Sol);
-        await Assert.That(CodexModelCatalog.DefaultFailoverModel).IsEqualTo(Gpt56Terra);
-        await Assert.That(CodexModelCatalog.DefaultBudgetModel).IsEqualTo(Gpt56Luna);
+        await Assert.That(CodexModelCatalog.DefaultModel).IsEqualTo(Gpt61Sol);
+        await Assert.That(CodexModelCatalog.DefaultFailoverModel).IsEqualTo(Gpt6Sol);
+        await Assert.That(CodexModelCatalog.DefaultBudgetModel).IsEqualTo(Gpt6Luna);
         await Assert.That(CodexModelCatalog.DefaultReasoningEffort).IsEqualTo(MediumEffort);
         await Assert.That(CodexModelCatalog.SupportedModels).IsEquivalentTo(
             [
+                Gpt61Sol,
+                Gpt6Astra,
+                Gpt6Sol,
+                Gpt6Luna,
                 Gpt56Sol,
                 Gpt56Terra,
-                Gpt56Luna,
-                Gpt55,
-                Gpt54,
-                Gpt54Mini,
-                Gpt53CodexSpark
+                Gpt56Luna
             ],
             CollectionOrdering.Matching);
+    }
+
+    /// <summary>Verifies current Codex model capabilities before runtime discovery.</summary>
+    /// <param name="model">The bundled current model.</param>
+    /// <param name="maximum">The greatest offline reasoning effort.</param>
+    /// <returns>The asynchronous assertions.</returns>
+    [Test]
+    [Arguments(Gpt61Sol, UltraEffort)]
+    [Arguments(Gpt6Astra, UltraEffort)]
+    [Arguments(Gpt6Sol, UltraEffort)]
+    [Arguments(Gpt6Luna, "max")]
+    public async Task Current_generation_efforts_are_model_aware(string model, string maximum)
+    {
+        await Assert.That(CodexModelCatalog.GetReasoningEfforts(model).Last()).IsEqualTo(maximum);
+        await Assert.That(CodexModelCatalog.ResolveReasoningEffort(model, UltraEffort)).IsEqualTo(maximum);
     }
 
     /// <summary>Verifies that Sol, Terra, and Luna expose their current effort limits.</summary>
@@ -108,7 +135,10 @@ public sealed class CodexModelCatalogTests
         await Assert.That(CodexModelCatalog.IsLegacyModel("gpt-5.3-codex")).IsTrue();
         await Assert.That(CodexModelCatalog.IsLegacyModel("gpt-5.2-codex")).IsTrue();
         await Assert.That(CodexModelCatalog.IsSupportedModel("gpt-5.3-codex")).IsFalse();
-        await Assert.That(CodexModelCatalog.IsSupportedModel(Gpt53CodexSpark)).IsTrue();
+        await Assert.That(CodexModelCatalog.IsSupportedModel(Gpt53CodexSpark)).IsFalse();
+        await Assert.That(CodexModelCatalog.IsLegacyModel(Gpt53CodexSpark)).IsTrue();
+        await Assert.That(CodexModelCatalog.IsSupportedModel(Gpt55)).IsFalse();
+        await Assert.That(CodexModelCatalog.IsShippedModel(Gpt55)).IsTrue();
     }
 
     /// <summary>Verifies safe defaults for missing and unknown catalog values.</summary>

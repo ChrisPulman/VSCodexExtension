@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using VSCodex.Core.Models;
 using VSCodex.Models;
 
 namespace VSCodex.Services;
@@ -69,6 +68,34 @@ public sealed class ModelAnalyticsService : IModelAnalyticsService
     [
         new ModelProfile
         {
+            Id = "gpt-6.1-sol", DisplayName = "GPT-6.1 Sol",
+            InputPricePerMillion = 2.00D, OutputPricePerMillion = 10.00D,
+            ContextWindowTokens = Numeric1050000, BestForComplexity = ModelTaskComplexity.High,
+            IsCodexOptimized = true, Notes = "Standard API token-price estimate; subscription credits and long-context premiums differ."
+        },
+        new ModelProfile
+        {
+            Id = "gpt-6-astra", DisplayName = "GPT-6 Astra",
+            InputPricePerMillion = 10.00D, OutputPricePerMillion = 50.00D,
+            ContextWindowTokens = Numeric1050000, BestForComplexity = ModelTaskComplexity.High,
+            IsCodexOptimized = true, Notes = "Standard API token-price estimate for demanding work; subscription usage differs."
+        },
+        new ModelProfile
+        {
+            Id = "gpt-6-sol", DisplayName = "GPT-6 Sol",
+            InputPricePerMillion = 2.00D, OutputPricePerMillion = 10.00D,
+            ContextWindowTokens = Numeric1050000, BestForComplexity = ModelTaskComplexity.High,
+            IsCodexOptimized = true, Notes = "Previous Sol generation; standard API token-price estimate."
+        },
+        new ModelProfile
+        {
+            Id = "gpt-6-luna", DisplayName = "GPT-6 Luna",
+            InputPricePerMillion = 0.10D, OutputPricePerMillion = 0.50D,
+            ContextWindowTokens = Numeric1050000, BestForComplexity = ModelTaskComplexity.Low,
+            IsCodexOptimized = true, Notes = "Standard API token-price estimate for focused, repeatable work."
+        },
+        new ModelProfile
+        {
             Id = "gpt-5.6-sol", DisplayName = "GPT-5.6 Sol",
             InputPricePerMillion = 5.00D, OutputPricePerMillion = 30.00D,
             ContextWindowTokens = Numeric1050000, BestForComplexity = ModelTaskComplexity.High,
@@ -76,14 +103,14 @@ public sealed class ModelAnalyticsService : IModelAnalyticsService
         },
         new ModelProfile
         {
-            Id = CodexModelCatalog.DefaultFailoverModel, DisplayName = "GPT-5.6 Terra",
+            Id = "gpt-5.6-terra", DisplayName = "GPT-5.6 Terra",
             InputPricePerMillion = 2.50D, OutputPricePerMillion = 15.00D,
             ContextWindowTokens = Numeric1050000, BestForComplexity = ModelTaskComplexity.Medium,
             IsCodexOptimized = true, Notes = "Codex everyday model balancing capability and cost."
         },
         new ModelProfile
         {
-            Id = CodexModelCatalog.DefaultBudgetModel, DisplayName = "GPT-5.6 Luna",
+            Id = "gpt-5.6-luna", DisplayName = "GPT-5.6 Luna",
             InputPricePerMillion = 1.00D, OutputPricePerMillion = 6.00D,
             ContextWindowTokens = Numeric1050000, BestForComplexity = ModelTaskComplexity.Low,
             IsCodexOptimized = true, Notes = "Codex model for clear, repeatable, high-volume work."
@@ -312,7 +339,7 @@ public sealed class ModelAnalyticsService : IModelAnalyticsService
             OutputPricePerMillion = fallback.OutputPricePerMillion,
             ContextWindowTokens = fallback.ContextWindowTokens,
             BestForComplexity = fallback.BestForComplexity,
-            Notes = "Unknown model id; estimated with GPT-5.6 Sol pricing until the profile is added."
+            Notes = "Unknown model id; estimated with GPT-6.1 Sol standard API pricing until the profile is added."
         };
     }
 }

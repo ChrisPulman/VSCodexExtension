@@ -4,25 +4,27 @@ VSCodex is a Visual Studio extension that brings OpenAI Codex into the IDE as a 
 
 The extension is built as a classic in-process Visual Studio VSIX using the ReactiveUI.Wpf.Reactive compatibility package and System.Reactive. The solution entry point is `src/VSCodex.slnx`.
 
-The current update fixes MCP form elicitations and numeric request IDs, UTF-8 process communication, and transcript wrapping/theme behavior. Tools > Options > VSCodex now provides grouped searchable settings with validation and per-setting defaults. Prompts capture bounded solution/project/configuration and editor metadata when queued. See [the issue and validation report](docs/ISSUE-RESOLUTION.md) and [the Desktop parity assessment](docs/DESKTOP-PARITY.md) for verified behavior, remaining features, and compatibility limits.
+VSCodex provides a docked Codex conversation with typed MCP form approvals, UTF-8 process communication, searchable settings, bounded workspace context, server-backed chat history, managed local worktrees and opt-in local automations. See [the issue and validation report](docs/ISSUE-RESOLUTION.md) and [the Desktop parity assessment](docs/DESKTOP-PARITY.md) for implementation details and compatibility limits.
 
-The conversation surface uses compact Visual Studio icons and tooltips, keeps tool/MCP/skill/file details collapsed, and shows the final assistant summary when a turn completes. Account quota windows are identified by their actual duration, including accounts with only a weekly limit. **Execution transport** selects Codex app-server or CLI only; CLI conversations retain the actual Codex thread for follow-ups and support Stop.
+The conversation surface uses compact Visual Studio icons and tooltips, keeps tool/MCP/skill/file details collapsed, and shows the final assistant summary when a turn completes. Account quota windows are identified by their reported duration, so weekly-only accounts display correctly; percentages and reset times come from account telemetry. **Execution transport** selects Codex app-server or CLI only; CLI conversations retain the actual Codex thread for follow-ups and support Stop. Runtime account model discovery is authoritative when available, while bundled choices support offline setup. Model availability can vary by account, client and workspace; consult the [Codex models documentation](https://learn.chatgpt.com/docs/models) for current information.
 
-History can import matching-workspace Codex threads, fork, pin, archive and restore them. Review active file opens Visual Studio's native Git HEAD diff. The Workspace panel also provides [managed local worktrees](docs/WORKTREES.md) and [opt-in local automations with result notifications](docs/AUTOMATIONS.md). These local capabilities have explicit lifecycle limits; the parity assessment distinguishes them from Desktop cloud, remote and private-service features.
+History can import matching-workspace Codex threads, fork, pin, archive and restore them. Review active file opens Visual Studio's native Git HEAD diff. The Workspace panel also provides [managed local worktrees](docs/WORKTREES.md) and [opt-in local automations with result notifications](docs/AUTOMATIONS.md). Worktree archive and restore preserve staged and working files with recovery snapshots; automation jobs use the CLI in a read-only sandbox and run only while the extension tool window is loaded. These local capabilities have explicit lifecycle limits; the parity assessment distinguishes them from Desktop cloud, remote and private-service features.
 
 ## Requirements
 
 - Visual Studio 2022 17.x or Visual Studio 2026 18.x on Windows. The VSIX manifest supports Visual Studio major versions 17 and 18.
+- Native acceptance has been completed on Visual Studio 2026; Visual Studio 2022 runtime compatibility is not yet verified.
 - Visual Studio SDK workload for building or debugging the extension.
 - .NET Framework 4.8 runtime. The VSIX targets `net48` because in-process Visual Studio packages run on the Visual Studio .NET Framework host.
+- .NET 10 runtime for the bundled ReactiveMemory MCP server, which runs in a separate process.
 - Node.js LTS and npm on the same PATH seen by Visual Studio.
-- Codex SDK bridge package:
+- Codex SDK package for the bundled JavaScript bridge:
 
 ```powershell
 npm install -g @openai/codex-sdk
 ```
 
-- Optional Codex CLI fallback:
+- Codex CLI for the default app-server transport, CLI-only conversations and local automations (install both packages for the complete feature set):
 
 ```powershell
 npm install -g @openai/codex
@@ -34,13 +36,12 @@ VSCodex reads local Codex configuration from `%USERPROFILE%\.codex\config.toml`.
 ## Getting Started
 
 1. Install Node.js LTS and restart Visual Studio so `node` and `npm` are available to the IDE process.
-2. Install `@openai/codex-sdk` globally.
-3. Install `@openai/codex` globally if you want the CLI fallback transport.
-4. Authenticate Codex/OpenAI from PowerShell if your account requires it.
-5. Install VSCodex from the Marketplace or build the VSIX locally.
-6. Open Visual Studio. VSCodex opens on first run and can be reopened from the VSCodex, View, Tools, editor context, project, solution, error, and debug menus.
-7. Open a solution or repository folder. VSCodex treats that opened project as the Codex project boundary and runs Codex from the resolved repository root.
-8. Open the VSCodex tool window. Global configuration is available under **Tools > Options > VSCodex > General**.
+2. Install both `@openai/codex-sdk` and `@openai/codex` globally for the complete transport and automation feature set.
+3. Authenticate Codex/OpenAI from PowerShell if your account requires it.
+4. Install VSCodex from the Marketplace or build the VSIX locally.
+5. Open Visual Studio. VSCodex opens on first run and can be reopened from the VSCodex, View, Tools, editor context, project, solution, error, and debug menus.
+6. Open a solution or repository folder. VSCodex treats that opened project as the Codex project boundary and runs Codex from the resolved repository root.
+7. Open the VSCodex tool window. Global configuration is available under **Tools > Options > VSCodex > General**.
 
 ## Build and Test
 
@@ -74,7 +75,10 @@ The VSCodex tool window is the primary workflow surface. It includes:
 - Inline context suggestions for `/`, `#`, and `@`.
 - A collapsible workspace panel for history, context, memory activity, agents, and attachments.
 - Approval feedback for Codex command execution and file-change requests.
-- Current thread status and Codex rate-limit telemetry for five-hour and weekly windows when emitted by the SDK.
+- Typed MCP elicitation forms with required-field validation and Accept, Decline and Cancel actions.
+- Streaming assistant responses that stay expanded while generating; after completion, earlier details collapse and the latest nonempty summary is shown expanded.
+- Current thread status and Codex rate-limit telemetry, labeled by the actual quota-window duration and showing only windows reported by the account.
+- Searchable, grouped Visual Studio options with draft validation and Cancel, separate from the native Unified Settings surface.
 
 The tool window uses Visual Studio environment colors and includes the VSCodex icon in the header. It is laid out for docked use and constrains narrow views so the core prompt and run controls remain available.
 
@@ -111,19 +115,21 @@ Commands use query-status routing so they appear in context-sensitive locations 
 
 The options page is separate from the main tool window, matching the Codex application’s dedicated settings surface. It also controls whether Enter queues or steers an active turn; Ctrl+Enter always performs the opposite action.
 
-The shipped Codex catalog follows the current application: GPT-5.6 Sol is the Power default, GPT-5.6 Terra is the failover, and GPT-5.6 Luna is the budget default. GPT-5.5, GPT-5.4, GPT-5.4 Mini, and GPT-5.3 Codex Spark remain selectable. Reasoning choices are model-aware: Sol and Terra support `low` through `ultra`, Luna supports `low` through `max`, and the other current models support `low` through `xhigh`. VSCodex validates the pair again in every SDK, app-server, orchestration, failover, and CLI path.
+The bundled offline defaults are GPT-6.1 Sol for primary, GPT-6 Sol for failover and GPT-6 Luna for budget selection. GPT-6 Astra, GPT-5.6 Sol, GPT-5.6 Terra and GPT-5.6 Luna are also available as bundled choices. At runtime, the account's Codex model catalog and reasoning capabilities take precedence. **Check setup** refreshes that catalog, excludes hidden models and updates the pickers. Unavailable previously shipped choices migrate to the runtime default, including explicit agent-role selections; blank agent models continue to inherit the run model. Custom IDs remain editable, and older API models remain usable when advertised by the runtime. Availability depends on the account, client and workspace. See the [official Codex models documentation](https://learn.chatgpt.com/docs/models) for current availability.
+
+Offline reasoning choices run from `low` to `ultra` for Sol, Astra and Terra, and `low` to `max` for Luna. Runtime-advertised choices and defaults override these fallbacks. VSCodex validates the selected model and reasoning effort together before execution.
 
 Tool-window setting changes are retained per Visual Studio solution under the VSCodex app-data workspace state. Global Visual Studio options remain the default profile for newly opened solutions.
 
 ## Codex SDK and CLI Transport
 
-VSCodex prefers the `@openai/codex-sdk` bridge shipped in the VSIX under `Resources/codex-bridge.mjs`. At startup and before execution it verifies:
+VSCodex includes the `@openai/codex-sdk` bridge under `Resources/codex-bridge.mjs`. The app-server transport uses the Codex CLI app-server; SDK transport is available as a fallback, and CLI-only conversations are also supported. At startup and before execution it verifies:
 
 - Node.js is available.
 - npm is available.
 - `@openai/codex-sdk` can be resolved.
 - the bundled bridge file exists.
-- the optional `@openai/codex` CLI fallback can be found when configured.
+- the `@openai/codex` CLI can be found for app-server, CLI-only and automation use.
 
 If setup is incomplete, VSCodex shows Windows-specific instructions in the conversation and Visual Studio options page rather than failing silently.
 
@@ -155,9 +161,9 @@ The Skills tab lists available Codex skills and controls which skills are inject
 
 ## Analytics and Rate Limits
 
-The Analytics tab estimates prompt size, output size, complexity, primary model cost, budget model cost, savings percentage, and recommended model. This helps decide whether a cheaper model is appropriate before sending the request.
+The Analytics tab estimates prompt size, output size, complexity, primary model cost, budget model cost, savings percentage, and recommended model. Cost estimates use standard API token prices; they are not subscription-credit or billing quotes. Service tiers, caching and long-context premiums can change actual charges. Current profiles follow the [OpenAI API model catalog](https://developers.openai.com/api/docs/models).
 
-Rate limits are displayed from real Codex SDK telemetry when present. VSCodex maps Codex primary telemetry to the five-hour window and secondary telemetry to the weekly window so the display matches the Codex rate-limit UI.
+Rate limits are displayed from account telemetry when present and classified by the actual window duration. This supports weekly-only accounts and avoids showing placeholder windows when the account does not report them. Percentages and local reset times follow the latest received telemetry.
 
 ## Attachments
 

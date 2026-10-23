@@ -332,8 +332,8 @@ function buildTurnStartParams(request, threadId) {
 
 const reasoningEffortOrder = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const runtimeModelEfforts = new Map();
-const solTerraModels = new Set(['gpt-5.6-sol', 'gpt-5.6-terra']);
-const lunaModels = new Set(['gpt-5.6-luna']);
+const solTerraModels = new Set(['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-5.6-sol', 'gpt-5.6-terra']);
+const lunaModels = new Set(['gpt-6-luna', 'gpt-5.6-luna']);
 const standardReasoningModels = new Set(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark']);
 
 function normalizeModel(value) {
@@ -373,6 +373,10 @@ function normalizeServiceTier(value) {
 if (process.argv.includes('--self-test-model-catalog')) {
   try {
     const cases = [
+      ['gpt-6.1-sol', 'ultra', 'ultra'],
+      ['gpt-6-astra', 'ultra', 'ultra'],
+      ['gpt-6-sol', 'max', 'max'],
+      ['gpt-6-luna', 'ultra', 'max'],
       ['gpt-5.6-sol', 'ultra', 'ultra'],
       ['gpt-5.6-terra', 'max', 'max'],
       ['gpt-5.6-luna', 'ultra', 'max'],
@@ -387,7 +391,7 @@ if (process.argv.includes('--self-test-model-catalog')) {
       if (actual !== expected) throw new Error(`${model}/${requested} resolved to ${actual}; expected ${expected}.`);
       return { model, requested, actual };
     });
-    const request = { model: 'gpt-5.6-luna', reasoningEffort: 'ultra', workspaceRoot: process.cwd(), prompt: 'test' };
+    const request = { model: 'gpt-6-luna', reasoningEffort: 'ultra', workspaceRoot: process.cwd(), prompt: 'test' };
     const thread = buildThreadOptions(request);
     const turn = buildTurnStartParams(request, 'thread-test');
     const execArgs = buildCodexExecArgs(request);
