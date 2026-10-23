@@ -23,6 +23,10 @@ public interface ICodexClient
     /// <returns>A task whose result contains the rate limits.</returns>
     Task<JObject?> GetRateLimitsAsync();
 
+    /// <summary>Gets the complete model catalog advertised by the active account.</summary>
+    /// <returns>The model catalog, or null when this transport does not support discovery.</returns>
+    Task<JObject?> GetModelsAsync();
+
     /// <summary>Steers an active turn.</summary>
     /// <param name="threadId">The thread identifier.</param>
     /// <param name="prompt">The steering prompt.</param>
@@ -38,7 +42,7 @@ public interface ICodexClient
     /// <param name="requestId">The request identifier.</param>
     /// <param name="result">The response payload.</param>
     /// <returns>A task whose result contains the bridge response.</returns>
-    Task<JObject> RespondToServerRequestAsync(string requestId, JObject result);
+    Task<JObject> RespondToServerRequestAsync(JToken requestId, JObject result);
 
     /// <summary>Cancels the active run without waiting for its completion.</summary>
     void CancelActiveRun();

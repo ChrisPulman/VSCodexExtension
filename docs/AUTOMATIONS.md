@@ -1,0 +1,13 @@
+# Local automations
+
+Open the tool panel's Automations tab, enter a name, prompt and interval in minutes, and save for the current workspace. New schedules are paused. Select Enable / Pause to opt into execution. Delete removes a schedule and its latest notification; Mark read acknowledges the saved result.
+
+Schedules run only while the extension tool window is loaded in Visual Studio. They do not register Windows scheduled tasks and cannot wake Visual Studio. The scheduler polls every 30 seconds. After downtime, each overdue enabled schedule runs once rather than replaying every missed interval. The next due time and a unique execution claim are checkpointed together before launch.
+
+Multiple Visual Studio instances share a short exclusive state lease. Every action reloads the latest file under that lease before changing it. A busy lease returns immediately; the UI asks you to retry the action and the scheduler retries on a later poll. File access runs in background tasks. Each active job also retains its own exclusive OS lease, so another instance cannot launch the same job even if its saved deadline has expired. After an owner crashes, the OS releases its handle and the saved claim becomes recoverable after the 15-minute timeout plus a one-minute cleanup margin. Empty lease files are retained to avoid delete-and-recreate races.
+
+Each job uses an independent Codex CLI process, the configured default model, a read-only sandbox and no interactive approvals. Jobs cannot publish streaming output into the active chat. A job times out after 15 minutes; closing the extension cancels its process. An operation requiring workspace writes or approvals fails and leaves its error visible.
+
+Name, prompt, captured workspace, interval, enabled state, next due time, last completion, response or failure and unread state are saved atomically in `%LOCALAPPDATA%\VSCodex\automations.json`. The tab displays the latest notification for each schedule. No schedules are created by installation or initialization. Pausing prevents future launches; an execution already in progress completes or reaches its timeout.
+
+Completion reloads the latest state and merges only result fields when the saved owner token still matches. A deleted schedule stays deleted, and another instance's pause, prompt edits, interval changes or newly added schedules survive completion. Mark read only acknowledges the displayed completion timestamp, preserving a newer unread result. Result saves retry short lease contention for up to one second; persistent contention is shown as an automation error and the abandoned claim remains eligible for recovery after its deadline.

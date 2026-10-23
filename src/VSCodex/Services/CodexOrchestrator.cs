@@ -13,7 +13,7 @@ using VSCodex.Models;
 namespace VSCodex.Services;
 
 /// <summary>Coordinates SDK and CLI Codex transports.</summary>
-public sealed class CodexOrchestrator : ICodexOrchestrator
+public sealed class CodexOrchestrator : ICodexOrchestrator, IThreadCatalogClient
 {
     /// <summary>Stores the prompt builder.</summary>
     private readonly PromptBuilder _promptBuilder = new();
@@ -26,6 +26,9 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
 
     /// <summary>Publishes transport events.</summary>
     private readonly Subject<CodexEvent> _events = new();
+
+    /// <summary>Tracks the active execution transport for interruption and steering.</summary>
+    private volatile bool _isCliActive;
 
     /// <summary>Initializes a new instance of the <see cref="CodexOrchestrator"/> class.</summary>
     /// <param name="sdk">The SDK client.</param>
@@ -40,12 +43,33 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
     /// <summary>Gets transport events.</summary>
     public IObservable<CodexEvent> Events => _events.AsObservable();
 
+    /// <summary>Gets the transport capability without implying CLI support.</summary>
+    private IThreadCatalogClient ThreadCatalog => _sdk as IThreadCatalogClient
+        ?? throw new NotSupportedException("Thread management requires the Codex app-server transport.");
+
+    /// <summary>Gets models from the account-aware app-server transport.</summary>
+    /// <returns>The complete runtime catalog.</returns>
+    public Task<JObject?> GetModelsAsync() => _sdk.GetModelsAsync();
+
+    /// <inheritdoc />
+    public Task<JObject> ListThreadsAsync(bool archived) => ThreadCatalog.ListThreadsAsync(archived);
+
+    /// <inheritdoc />
+    public Task<JObject> ReadThreadAsync(string threadId) => ThreadCatalog.ReadThreadAsync(threadId);
+
+    /// <inheritdoc />
+    public Task<JObject> ForkThreadAsync(string threadId) => ThreadCatalog.ForkThreadAsync(threadId);
+
+    /// <inheritdoc />
+    public Task<JObject> SetThreadArchivedAsync(string threadId, bool archived) => ThreadCatalog.SetThreadArchivedAsync(threadId, archived);
+
     /// <summary>Runs a Codex request.</summary>
     /// <param name="request">The request.</param>
     /// <returns>A task whose result contains the run result.</returns>
     public async Task<CodexRunResult> RunAsync(CodexRunRequest request)
     {
         CodexRunRequest enrichedRequest = EnrichRequest(request);
+        _isCliActive = request.Options.Transport == CodexTransportKind.CliFallback;
         if (request.Options.Transport == CodexTransportKind.CliFallback)
         {
             return await _cli.RunAsync(enrichedRequest).ConfigureAwait(continueOnCapturedContext: false);
@@ -55,7 +79,7 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
         {
             return await _sdk.RunAsync(enrichedRequest).ConfigureAwait(continueOnCapturedContext: false);
         }
-        catch (Exception sdkException)
+        catch (Exception sdkException) when (sdkException is not CodexRunFailureException)
         {
             return await RunWithFallbackAsync(enrichedRequest, sdkException).ConfigureAwait(continueOnCapturedContext: false);
         }
@@ -81,7 +105,8 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
     /// <returns>A task that completes after steering.</returns>
     public async Task SteerAsync(string threadId, string prompt)
     {
-        _ = await _sdk.SteerAsync(threadId, prompt).ConfigureAwait(continueOnCapturedContext: false);
+        ICodexClient active = _isCliActive ? _cli : _sdk;
+        _ = await active.SteerAsync(threadId, prompt).ConfigureAwait(continueOnCapturedContext: false);
     }
 
     /// <summary>Interrupts an active SDK turn.</summary>
@@ -89,23 +114,20 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
     /// <returns>A task that completes after interruption.</returns>
     public async Task InterruptAsync(string? threadId)
     {
-        _ = await _sdk.InterruptAsync(threadId).ConfigureAwait(continueOnCapturedContext: false);
+        ICodexClient active = _isCliActive ? _cli : _sdk;
+        _ = await active.InterruptAsync(threadId).ConfigureAwait(continueOnCapturedContext: false);
     }
 
     /// <summary>Responds to an SDK server request.</summary>
     /// <param name="requestId">The request identifier.</param>
     /// <param name="method">The server request method.</param>
     /// <param name="approve">Whether to approve the request.</param>
+    /// <param name="content">The accepted form values.</param>
+    /// <param name="cancel">Whether the user cancelled elicitation.</param>
     /// <returns>A task that completes after the response is sent.</returns>
-    public async Task RespondToServerRequestAsync(string requestId, string method, bool approve)
+    public async Task RespondToServerRequestAsync(JToken requestId, string method, bool approve, JObject? content, bool cancel)
     {
-        JObject response = method.Equals("mcpServer/elicitation/request", StringComparison.Ordinal)
-            ? new JObject
-            {
-                ["action"] = approve ? "accept" : "decline",
-                ["content"] = JValue.CreateNull()
-            }
-            : new JObject { ["decision"] = approve ? "accept" : "decline" };
+        JObject response = ServerRequestProtocol.CreateResult(method, approve, content, cancel);
         _ = await _sdk.RespondToServerRequestAsync(requestId, response)
             .ConfigureAwait(continueOnCapturedContext: false);
     }
@@ -174,6 +196,7 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
             WorkspaceRoot = source.WorkspaceRoot,
             WorkspaceName = source.WorkspaceName,
             WorkspaceSolutionPath = source.WorkspaceSolutionPath,
+            SolutionContext = source.SolutionContext,
             WorkspaceMemoryRoot = source.WorkspaceMemoryRoot,
             ReactiveMemoryContext = source.ReactiveMemoryContext,
             WorkspaceIdentity = source.WorkspaceIdentity,
@@ -215,7 +238,7 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
         {
             return await _sdk.RunAsync(failoverRequest).ConfigureAwait(continueOnCapturedContext: false);
         }
-        catch (Exception failoverException)
+        catch (Exception failoverException) when (failoverException is not CodexRunFailureException)
         {
             PublishFallbackEvent("fallback", $"SDK failover model also failed; using CLI fallback: {failoverException.Message}");
             return await RunCliFallbackAsync(failoverRequest, failoverException).ConfigureAwait(continueOnCapturedContext: false);
@@ -238,6 +261,7 @@ public sealed class CodexOrchestrator : ICodexOrchestrator
     {
         try
         {
+            _isCliActive = true;
             return await _cli.RunAsync(request).ConfigureAwait(continueOnCapturedContext: false);
         }
         catch (Exception cliException)

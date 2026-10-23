@@ -30,6 +30,11 @@ public sealed class PromptBuilder
         var sb = new StringBuilder();
         var identity = request.WorkspaceIdentity ?? new WorkspaceIdentity();
         AppendWorkspaceDetails(sb, request, identity);
+        if (request.Options.IncludeWorkspaceContext && request.SolutionContext is not null)
+        {
+            _ = sb.AppendLine(request.SolutionContext.Format());
+        }
+
         AppendReactiveMemoryDetails(sb, request, identity);
         AppendRecoveredMemory(sb, request);
         AppendRelevantMemory(sb, request);

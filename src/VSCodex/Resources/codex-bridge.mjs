@@ -81,6 +81,7 @@ const threads = new Map();
 let codex;
 let activeAbort;
 let appServer;
+let appServerStartup;
 let appServerSequence = 0;
 const activeAppServerTurns = new Map();
 const earlyTurnCompletions = new Map();
@@ -132,27 +133,32 @@ async function handle(request) {
   if (request.command === 'steer') return await steerAppServerTurn(request);
   if (request.command === 'respondServerRequest') return respondToAppServerRequest(request);
   if (request.command === 'getRateLimits') return await getRateLimits();
+  if (request.command === 'getModels') return await getModels();
+  if (['listThreads', 'readThread', 'forkThread', 'archiveThread'].includes(request.command)) return await manageThread(request);
   if (!request.workspaceRoot) throw new Error('VSCodex workspaceRoot is required. Wait for Visual Studio to finish loading a solution or project before running Codex.');
   try {
     return await runAppServerTurn(request);
   } catch (error) {
+    if (request.appServerReady || request.turnDispatched) throw error;
     emit({ type: 'transport-fallback', message: 'Codex app-server transport failed; trying the SDK bridge.', detail: error?.message ?? String(error) });
     const thread = await getThread(request);
     activeAbort = new AbortController();
-    try {
-      const result = await runSdkThread(thread, request);
-      const threadId = result?.threadId ?? thread.id ?? request.threadId;
-      if (threadId) threads.set(threadId, { thread, workspaceRoot: request.workspaceRoot });
-      return result;
-    } catch (sdkError) {
-      if (!isSdkJsonNoiseError(sdkError)) throw sdkError;
-      return await runResilientCodexExec(request);
-    }
+    const result = await runSdkThread(thread, request);
+    const threadId = result?.threadId ?? thread.id ?? request.threadId;
+    if (threadId) threads.set(threadId, { thread, workspaceRoot: request.workspaceRoot });
+    return result;
   }
 }
 
 async function ensureAppServer() {
   if (appServer?.child && !appServer.child.killed && appServer.child.exitCode == null) return appServer;
+  if (appServerStartup) return await appServerStartup;
+  appServerStartup = startAppServer();
+  try { return await appServerStartup; }
+  finally { appServerStartup = undefined; }
+}
+
+async function startAppServer() {
   const child = spawn(resolveCodexExecutable(), ['app-server', '--listen', 'stdio://'], {
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe']
@@ -163,23 +169,38 @@ async function ensureAppServer() {
     if (!message) return;
     stderr += message + '\n';
   });
-  const rpc = createJsonRpcClient(child, 30000, processAppServerMessage);
-  const initialize = await rpc.send({
-    jsonrpc: '2.0',
-    id: nextAppServerId(),
-    method: 'initialize',
-    params: {
-      clientInfo: { name: 'VSCodex', title: 'VSCodex for Visual Studio', version: '0.5.0' },
-      capabilities: { experimentalApi: true }
+  const rpc = createJsonRpcClient(child, 30000, processAppServerMessage, error => {
+    for (const active of activeAppServerTurns.values()) {
+      flushAssistantDelta(active);
+      active.completion.reject(error);
     }
+    activeAppServerTurns.clear();
+    earlyTurnCompletions.clear();
+    if (appServer?.child === child) appServer = undefined;
   });
-  if (initialize.error) {
+  try {
+    const initialize = await rpc.send({
+      jsonrpc: '2.0',
+      id: nextAppServerId(),
+      method: 'initialize',
+      params: {
+        clientInfo: { name: 'VSCodex', title: 'VSCodex for Visual Studio', version: '0.5.0' },
+        capabilities: { experimentalApi: true }
+      }
+    });
+    if (initialize.error) {
+      rpc.close();
+      try { child.kill(); } catch {}
+      throw new Error('Codex app-server initialization failed: ' + JSON.stringify(initialize.error) + (stderr ? '\n' + stderr.trim() : ''));
+    }
+    await rpc.notify('initialized', {});
+    appServer = { child, rpc };
+    return appServer;
+    } catch (error) {
     rpc.close();
     try { child.kill(); } catch {}
-    throw new Error('Codex app-server initialization failed: ' + JSON.stringify(initialize.error) + (stderr ? '\n' + stderr.trim() : ''));
+    throw error;
   }
-  appServer = { child, rpc };
-  return appServer;
 }
 
 function nextAppServerId() {
@@ -189,6 +210,10 @@ function nextAppServerId() {
 
 async function runAppServerTurn(request) {
   const server = await ensureAppServer();
+  // Once connected, thread errors (including another active writer) must remain
+  // actionable failures. A second transport could write to the same chat.
+  request.appServerReady = true;
+  if (request.threadId && activeAppServerTurns.has(request.threadId)) throw new Error('The selected chat already has an active Codex turn.');
   const threadResponse = request.threadId
     ? await server.rpc.send({
         jsonrpc: '2.0',
@@ -206,29 +231,43 @@ async function runAppServerTurn(request) {
   const threadId = threadResponse.result?.thread?.id ?? request.threadId;
   if (!threadId) throw new Error('Codex app-server returned no thread identifier.');
 
-  const turnResponse = await server.rpc.send({
-    jsonrpc: '2.0',
-    id: nextAppServerId(),
-    method: 'turn/start',
-    params: buildTurnStartParams(request, threadId)
-  });
-  throwOnRpcError(turnResponse, 'start turn');
-  const turnId = turnResponse.result?.turn?.id;
-  if (!turnId) throw new Error('Codex app-server returned no turn identifier.');
-
+  if (activeAppServerTurns.has(threadId)) throw new Error('The selected chat already has an active Codex turn.');
   const completion = createDeferred();
+  // Register before dispatch: a single stdout chunk can contain the response,
+  // all text deltas, and completion before the send promise resumes.
   const state = {
     threadId,
-    turnId,
-    operationId: request.operationId ?? turnId,
+    turnId: undefined,
+    operationId: request.operationId ?? nextAppServerId(),
     finalResponse: '',
     pendingDelta: '',
     deltaTimer: null,
     items: [],
     completion
   };
+  completion.promise.catch(() => {});
   activeAppServerTurns.set(threadId, state);
-  emit({ type: 'turn-started', message: 'Codex is working...', threadId, turnId, operationId: state.operationId });
+  request.turnDispatched = true;
+  let turnResponse;
+  try {
+    turnResponse = await server.rpc.send({
+      jsonrpc: '2.0',
+      id: nextAppServerId(),
+      method: 'turn/start',
+      params: buildTurnStartParams(request, threadId)
+    });
+    throwOnRpcError(turnResponse, 'start turn');
+    } catch (error) {
+    if (activeAppServerTurns.get(threadId) === state) activeAppServerTurns.delete(threadId);
+    throw error;
+  }
+  const turnId = turnResponse.result?.turn?.id;
+  if (!turnId) {
+    if (activeAppServerTurns.get(threadId) === state) activeAppServerTurns.delete(threadId);
+    throw new Error('Codex app-server returned no turn identifier.');
+  }
+  state.turnId = turnId;
+  if (activeAppServerTurns.get(threadId) === state) emit({ type: 'turn-started', message: 'Codex is working...', threadId, turnId, operationId: state.operationId });
 
   const earlyCompletion = earlyTurnCompletions.get(turnId);
   if (earlyCompletion) {
@@ -292,6 +331,7 @@ function buildTurnStartParams(request, threadId) {
 }
 
 const reasoningEffortOrder = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+const runtimeModelEfforts = new Map();
 const solTerraModels = new Set(['gpt-5.6-sol', 'gpt-5.6-terra']);
 const lunaModels = new Set(['gpt-5.6-luna']);
 const standardReasoningModels = new Set(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark']);
@@ -302,6 +342,8 @@ function normalizeModel(value) {
 }
 
 function getSupportedReasoningEfforts(model) {
+  const runtime = runtimeModelEfforts.get(model);
+  if (runtime?.efforts.length) return runtime.efforts;
   if (solTerraModels.has(model)) return reasoningEffortOrder;
   if (lunaModels.has(model)) return reasoningEffortOrder.slice(0, -1);
   if (standardReasoningModels.has(model)) return reasoningEffortOrder.slice(0, 4);
@@ -312,6 +354,8 @@ function normalizeReasoningEffort(model, value) {
   const supported = getSupportedReasoningEfforts(model);
   const normalized = normalizeLower(value).trim();
   if (supported.includes(normalized)) return normalized;
+  const runtimeDefault = runtimeModelEfforts.get(model)?.defaultEffort;
+  if (runtimeDefault && supported.includes(runtimeDefault)) return runtimeDefault;
   const requestedRank = reasoningEffortOrder.indexOf(normalized);
   return requestedRank > reasoningEffortOrder.indexOf(supported.at(-1)) ? supported.at(-1) : 'medium';
 }
@@ -401,7 +445,7 @@ async function interruptAppServerTurn(threadId) {
 }
 
 function respondToAppServerRequest(request) {
-  if (!request.requestId) throw new Error('A server request identifier is required.');
+  if (request.requestId === undefined || request.requestId === null) throw new Error('A server request identifier is required.');
   if (!appServer?.rpc) throw new Error('Codex app-server is not running.');
   return appServer.rpc.respond(request.requestId, request.result ?? { decision: 'decline' });
 }
@@ -425,6 +469,8 @@ function processAppServerMessage(item) {
   const turnId = params.turnId ?? params.turn?.id;
   const threadId = params.threadId;
   const active = threadId ? activeAppServerTurns.get(threadId) : findActiveTurn(turnId);
+  if (active?.turnId && turnId && active.turnId !== turnId) return;
+  if (active && turnId && !active.turnId) active.turnId = turnId;
   if (item.method === 'item/agentMessage/delta' && active) {
     const delta = params.delta ?? '';
     active.finalResponse += delta;
@@ -556,27 +602,41 @@ async function runSdkThread(thread, request) {
 }
 
 async function getRateLimits() {
-  const child = spawn(resolveCodexExecutable(), ['app-server', '--listen', 'stdio://'], {
-    env: process.env,
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-
-  let stderr = '';
-  child.stderr.on('data', data => { stderr += data.toString(); });
-  const rpc = createJsonRpcClient(child, 15000);
-  try {
-    await rpc.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'VSCodex', version: '0.4.3' }, capabilities: { experimentalApi: true } } });
-    const response = await rpc.send({ jsonrpc: '2.0', id: 2, method: 'account/rateLimits/read' });
-    if (response.error) throw new Error(JSON.stringify(response.error));
-    if (!response.result && stderr) throw new Error(stderr.trim());
-    return response.result ?? {};
-  } finally {
-    rpc.close();
-    try { child.kill(); } catch {}
-  }
+  const server = await ensureAppServer();
+  const response = await server.rpc.send({ jsonrpc: '2.0', id: nextAppServerId(), method: 'account/rateLimits/read' });
+  throwOnRpcError(response, 'read account rate limits');
+  return response.result ?? {};
 }
 
-function createJsonRpcClient(child, timeoutMs, onMessage) {
+async function getModels() {
+  const server = await ensureAppServer();
+  const models = new Map();
+  const cursors = new Set();
+  let cursor = null;
+  do {
+    const response = await server.rpc.send({ jsonrpc: '2.0', id: nextAppServerId(), method: 'model/list', params: { cursor, includeHidden: false } });
+    throwOnRpcError(response, 'list available models');
+    const page = response.result;
+    if (!Array.isArray(page?.data)) throw new Error('Codex model/list returned an invalid model catalog.');
+    for (const model of page.data) {
+      if (model?.model && !model.hidden) models.set(model.model, model);
+    }
+    cursor = page.nextCursor ?? null;
+    if (cursor !== null) {
+      if (cursors.has(cursor)) throw new Error('Codex model/list repeated a pagination cursor.');
+      cursors.add(cursor);
+    }
+  } while (cursor !== null);
+  const data = [...models.values()];
+  // Publish capabilities only after every page succeeds, avoiding partial catalogs.
+  for (const model of data) runtimeModelEfforts.set(normalizeModel(model.model), {
+    efforts: model.supportedReasoningEfforts?.map(item => item.reasoningEffort).filter(Boolean) ?? [],
+    defaultEffort: model.defaultReasoningEffort
+  });
+  return { data };
+}
+
+function createJsonRpcClient(child, timeoutMs, onMessage, onDisconnect) {
   const stdout = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   const pending = new Map();
   let closed = false;
@@ -589,9 +649,16 @@ function createJsonRpcClient(child, timeoutMs, onMessage) {
     pending.clear();
   };
 
-  child.once('error', rejectAll);
+  const disconnect = error => {
+    if (closed) return;
+    closed = true;
+    rejectAll(error);
+    onDisconnect?.(error);
+  };
+  child.stdin.on('error', disconnect);
+  child.once('error', disconnect);
   child.once('close', code => {
-    if (code !== 0) rejectAll(new Error('Codex app-server exited before returning rate limits. Exit code: ' + code));
+    disconnect(new Error('Codex app-server disconnected. Exit code: ' + code));
   });
 
   stdout.on('line', line => {
@@ -612,16 +679,25 @@ function createJsonRpcClient(child, timeoutMs, onMessage) {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(request.id);
-          reject(new Error('Timed out reading Codex account rate limits.'));
+          reject(new Error('Timed out waiting for Codex app-server method ' + request.method + '.'));
         }, timeoutMs);
         pending.set(request.id, { resolve, reject, timer });
-        child.stdin.write(JSON.stringify(request) + '\n');
+        child.stdin.write(JSON.stringify(request) + '\n', error => {
+          if (error) disconnect(error);
+        });
+      });
+    },
+    notify(method, params) {
+      if (closed) return Promise.reject(new Error('Codex app-server JSON-RPC client is closed.'));
+      return new Promise((resolve, reject) => {
+        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n', error => error ? reject(error) : resolve());
       });
     },
     respond(id, result) {
       if (closed) return Promise.reject(new Error('Codex app-server JSON-RPC client is closed.'));
-      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
-      return Promise.resolve({ responded: true });
+      return new Promise((resolve, reject) => {
+        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n', error => error ? reject(error) : resolve({ responded: true }));
+      });
     },
     close() {
       closed = true;
@@ -804,9 +880,49 @@ rl.on('line', async line => {
 });
 function closeAppServer() {
   try { appServer?.rpc?.close(); } catch {}
-  try { appServer?.child?.kill(); } catch {}
+  const child = appServer?.child;
+  if (!child || child.exitCode !== null) return;
+  // The app-server owns MCP children. Windows does not kill descendants when
+  // Visual Studio closes its pipes, so terminate only this owned process tree.
+  try {
+    if (process.platform === 'win32' && child.pid) {
+      execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 5000 });
+    } else child.kill();
+  } catch { try { child.kill(); } catch {} }
 }
+rl.once('close', () => { closeAppServer(); process.exit(0); });
 process.once('SIGINT', () => { closeAppServer(); process.exit(130); });
 process.once('SIGTERM', () => { closeAppServer(); process.exit(143); });
 process.once('exit', closeAppServer);
 emit({ type: 'ready', message: 'Codex SDK bridge ready' });
+
+// Thread mutations are sent once and their failures are never converted into turn fallbacks.
+async function manageThread(request) {
+  const server = await ensureAppServer();
+  const send = async (method, params) => {
+    const response = await server.rpc.send({ jsonrpc: '2.0', id: nextAppServerId(), method, params });
+    throwOnRpcError(response, method);
+    return response.result ?? {};
+  };
+  if (request.command === 'listThreads') {
+    const threads = new Map();
+    const cursors = new Set();
+    let cursor = null;
+    do {
+      const page = await send('thread/list', { archived: request.archived === true, cursor, limit: 100, sortKey: 'updated_at' });
+      if (!Array.isArray(page.data)) throw new Error('Codex thread/list returned an invalid catalog.');
+      for (const thread of page.data) if (thread?.id) threads.set(thread.id, thread);
+      cursor = page.nextCursor ?? null;
+      if (cursor !== null) {
+        if (cursors.has(cursor)) throw new Error('Codex thread/list repeated a pagination cursor.');
+        cursors.add(cursor);
+      }
+    } while (cursor !== null);
+    return { data: [...threads.values()] };
+  }
+  if (typeof request.threadId !== 'string' || !request.threadId.trim()) throw new Error('A Codex thread identifier is required.');
+  const params = { threadId: request.threadId };
+  if (request.command === 'readThread') return await send('thread/read', { ...params, includeTurns: true });
+  if (request.command === 'forkThread') return await send('thread/fork', params);
+  return await send(request.archived === true ? 'thread/archive' : 'thread/unarchive', params);
+}

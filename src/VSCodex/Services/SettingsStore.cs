@@ -154,6 +154,7 @@ public sealed class SettingsStore : ISettingsStore
         target.CodexCliPath = source.CodexCliPath;
         target.NodePath = source.NodePath;
         target.BridgeScriptPath = source.BridgeScriptPath;
+        target.DefaultTransport = source.DefaultTransport;
         target.DefaultModel = source.DefaultModel;
         target.DefaultFailoverModel = source.DefaultFailoverModel;
         target.DefaultReasoningEffort = source.DefaultReasoningEffort;

@@ -73,6 +73,7 @@ public sealed class SelectableMarkdownViewer : RichTextBox
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
         VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
         ContextMenu = BuildContextMenu();
+        SetResourceReference(ForegroundProperty, Microsoft.VisualStudio.PlatformUI.EnvironmentColors.ToolWindowTextBrushKey);
     }
 
     /// <summary>Gets or sets the markdown.</summary>
@@ -140,7 +141,7 @@ public sealed class SelectableMarkdownViewer : RichTextBox
     /// <param name="e">The e.</param>
     private static void OnHyperlinkClick(object sender, RoutedEventArgs e)
     {
-        if (!(sender is Hyperlink { Tag: string target }) || string.IsNullOrWhiteSpace(target))
+        if (sender is not Hyperlink { Tag: string target } || string.IsNullOrWhiteSpace(target))
         {
             return;
         }
@@ -417,6 +418,7 @@ public sealed class SelectableMarkdownViewer : RichTextBox
         hyperlink.Cursor = Cursors.Hand;
         hyperlink.Tag = target.Trim('<', '>');
         Hyperlink link = hyperlink;
+        _ = BindingOperations.SetBinding(link, TextElement.ForegroundProperty, CreateViewerBinding(nameof(Foreground)));
         link.Click += OnHyperlinkClick;
         paragraph.Inlines.Add(link);
     }

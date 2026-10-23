@@ -197,7 +197,7 @@ public sealed partial class VSCodexToolWindowViewModel
     private readonly object _modelSettingsSaveGate = new();
 
     /// <summary>Stores the queued Prompts.</summary>
-    private readonly Queue<string> _queuedPrompts = new();
+    private readonly Queue<QueuedPromptContext> _queuedPrompts = new();
 
     /// <summary>Stores the session.</summary>
     private CodexSessionDocument _session;

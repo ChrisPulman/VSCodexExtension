@@ -9,6 +9,9 @@ namespace VSCodex.Models;
 /// <summary>Provides the codex Run Request implementation.</summary>
 public sealed class CodexRunRequest
 {
+    /// <summary>Gets or sets the immutable Visual Studio metadata captured at enqueue.</summary>
+    public SolutionContextSnapshot? SolutionContext { get; set; }
+
     /// <summary>Gets or sets the operation Id.</summary>
     public string OperationId { get; set; } = Guid.NewGuid().ToString("N");
 

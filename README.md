@@ -2,7 +2,13 @@
 
 VSCodex is a Visual Studio extension that brings OpenAI Codex into the IDE as a docked, theme-aware developer tool window. It is designed for developers who want Copilot-style editor integration plus explicit control over model selection, failover behavior, MCP servers, skills, memory, prompt context, analytics, approvals, sandboxing, and task orchestration.
 
-The extension is built as a classic in-process Visual Studio VSIX using ReactiveUI.WPF, ReactiveUI.Extensions, and System.Reactive. The solution entry point is `src/VSCodex.slnx`.
+The extension is built as a classic in-process Visual Studio VSIX using the ReactiveUI.Wpf.Reactive compatibility package and System.Reactive. The solution entry point is `src/VSCodex.slnx`.
+
+The current update fixes MCP form elicitations and numeric request IDs, UTF-8 process communication, and transcript wrapping/theme behavior. Tools > Options > VSCodex now provides grouped searchable settings with validation and per-setting defaults. Prompts capture bounded solution/project/configuration and editor metadata when queued. See [the issue and validation report](docs/ISSUE-RESOLUTION.md) and [the Desktop parity assessment](docs/DESKTOP-PARITY.md) for verified behavior, remaining features, and compatibility limits.
+
+The conversation surface uses compact Visual Studio icons and tooltips, keeps tool/MCP/skill/file details collapsed, and shows the final assistant summary when a turn completes. Account quota windows are identified by their actual duration, including accounts with only a weekly limit. **Execution transport** selects Codex app-server or CLI only; CLI conversations retain the actual Codex thread for follow-ups and support Stop.
+
+History can import matching-workspace Codex threads, fork, pin, archive and restore them. Review active file opens Visual Studio's native Git HEAD diff. The Workspace panel also provides [managed local worktrees](docs/WORKTREES.md) and [opt-in local automations with result notifications](docs/AUTOMATIONS.md). These local capabilities have explicit lifecycle limits; the parity assessment distinguishes them from Desktop cloud, remote and private-service features.
 
 ## Requirements
 

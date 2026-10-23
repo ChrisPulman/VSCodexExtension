@@ -22,6 +22,11 @@ public interface ISessionStore
     /// <param name="session">The session.</param>
     void Save(CodexSessionDocument session);
 
+    /// <summary>Saves a session while optionally preserving its imported timestamp.</summary>
+    /// <param name="session">The session.</param>
+    /// <param name="preserveUpdated">Whether to preserve the imported timestamp.</param>
+    void Save(CodexSessionDocument session, bool preserveUpdated);
+
     /// <summary>Deletes the operation.</summary>
     /// <param name="id">The id.</param>
     void Delete(string id);

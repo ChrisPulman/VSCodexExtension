@@ -27,6 +27,12 @@ public sealed class CodexSessionDocument
     /// <summary>Gets or sets the workspace Solution Path.</summary>
     public string WorkspaceSolutionPath { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets whether this local history entry is pinned.</summary>
+    public bool IsPinned { get; set; }
+
+    /// <summary>Gets or sets whether this conversation is archived.</summary>
+    public bool IsArchived { get; set; }
+
     /// <summary>Gets or sets the title.</summary>
     public string Title { get; set; } = string.Empty;
 

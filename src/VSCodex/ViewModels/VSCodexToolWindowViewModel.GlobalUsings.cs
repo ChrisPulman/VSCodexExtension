@@ -19,7 +19,7 @@ global using System.Windows.Threading;
 global using Microsoft.VisualStudio.Threading;
 global using Microsoft.Win32;
 global using Newtonsoft.Json.Linq;
-global using ReactiveUI.Extensions;
+global using ReactiveUI.Reactive;
 global using VSCodex.Core.Models;
 global using VSCodex.Infrastructure;
 global using VSCodex.Models;

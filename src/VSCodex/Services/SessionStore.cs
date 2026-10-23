@@ -50,9 +50,14 @@ public sealed class SessionStore(TimeProvider timeProvider) : ISessionStore
         }
     }
 
+    /// <summary>Saves the session with a fresh local activity timestamp.</summary>
+    /// <param name="session">The session.</param>
+    public void Save(CodexSessionDocument session) => Save(session, preserveUpdated: false);
+
     /// <summary>Saves the operation.</summary>
     /// <param name="session">The session.</param>
-    public void Save(CodexSessionDocument session)
+    /// <param name="preserveUpdated">Whether to preserve a timestamp imported from the thread catalog.</param>
+    public void Save(CodexSessionDocument session, bool preserveUpdated)
     {
         if (session is null)
         {
@@ -60,7 +65,11 @@ public sealed class SessionStore(TimeProvider timeProvider) : ISessionStore
         }
 
         _ = Directory.CreateDirectory(LocalPaths.SessionsRoot);
-        session.Updated = _timeProvider.GetLocalNow();
+        if (!preserveUpdated)
+        {
+            session.Updated = _timeProvider.GetLocalNow();
+        }
+
         _store.Write(SessionPath(session.Id), session);
     }
 

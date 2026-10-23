@@ -2,8 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
-using ReactiveUI;
-
 namespace VSCodex.ViewModels;
 
 /// <summary>Coordinates prompt submission, steering, queuing, interruption, pause, and resume.</summary>
@@ -137,6 +135,7 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
     /// <summary>Performs the queue Prompt operation.</summary>
     private void QueuePrompt()
     {
+        Microsoft.VisualStudio.Shell.ThreadHelper.ThrowIfNotOnUIThread();
         string userPrompt = ExpandAssistantSlashCommand(Prompt);
         if (string.IsNullOrWhiteSpace(userPrompt))
         {
@@ -156,7 +155,14 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
             return;
         }
 
-        _queuedPrompts.Enqueue(userPrompt);
+        Microsoft.VisualStudio.Shell.ThreadHelper.ThrowIfNotOnUIThread();
+        var queuedContext = PrepareQueuedPrompt(userPrompt);
+        if (queuedContext is null)
+        {
+            return;
+        }
+
+        _queuedPrompts.Enqueue(queuedContext);
         QueuedPromptCount = _queuedPrompts.Count;
         if (_isProcessingRunQueue)
         {
@@ -258,7 +264,7 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
             PartialResponse = _activeStreamingResponse?.Detail ?? lastAssistant?.Content ?? string.Empty,
             Context = BuildPauseContext()
         };
-        checkpoint.QueuedPrompts.AddRange(_queuedPrompts);
+        checkpoint.QueuedPrompts.AddRange(_queuedPrompts.Select(context => context.Prompt));
         return checkpoint;
     }
 
@@ -299,10 +305,19 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
 
         ReactiveMemoryPauseCheckpoint restoredCheckpoint = restored.Checkpoint;
         _queuedPrompts.Clear();
-        _queuedPrompts.Enqueue(BuildResumePrompt(restoredCheckpoint));
+        var resumeContext = PrepareQueuedPrompt(BuildResumePrompt(restoredCheckpoint));
+        if (resumeContext is not null)
+        {
+            _queuedPrompts.Enqueue(resumeContext);
+        }
+
         foreach (string queuedPrompt in restoredCheckpoint.QueuedPrompts.Where((prompt) => !string.IsNullOrWhiteSpace(prompt)))
         {
-            _queuedPrompts.Enqueue(queuedPrompt);
+            var restoredContext = PrepareQueuedPrompt(queuedPrompt);
+            if (restoredContext is not null)
+            {
+                _queuedPrompts.Enqueue(restoredContext);
+            }
         }
 
         QueuedPromptCount = _queuedPrompts.Count;
@@ -345,7 +360,7 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
                 await _joinableTaskFactory.SwitchToMainThreadAsync(default(CancellationToken));
                 if (_queuedPrompts.Count != 0 && !_pauseRequested && !_stopRequested)
                 {
-                    string nextPrompt = _queuedPrompts.Dequeue();
+                    QueuedPromptContext nextPrompt = _queuedPrompts.Dequeue();
                     QueuedPromptCount = _queuedPrompts.Count;
                     await ProcessQueuedPromptAsync(nextPrompt).ConfigureAwait(continueOnCapturedContext: true);
                     continue;
@@ -375,22 +390,28 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
     }
 
     /// <summary>Processes one queued prompt against the active Visual Studio workspace.</summary>
-    /// <param name="userPrompt">The user prompt.</param>
+    /// <param name="context">The enqueue-time prompt snapshot.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
-    private async Task ProcessQueuedPromptAsync(string userPrompt)
+    private async Task ProcessQueuedPromptAsync(QueuedPromptContext context)
     {
         await _joinableTaskFactory.SwitchToMainThreadAsync(default(CancellationToken));
-        QueuedPromptContext? context = PrepareQueuedPrompt(userPrompt);
-        if (context is null)
+        context.RunRoot = BeginRunActivity(context.Prompt);
+        if (context.ThreadId is null && string.Equals(context.WorkspaceIdentity.Id, _workspace.CurrentWorkspaceIdentity.Id, StringComparison.Ordinal))
         {
-            return;
+            context.ThreadId = ThreadId;
         }
+
+        _pendingUserActivityPromptToSuppress = context.Prompt;
 
         IDisposable progressSubscription = StartRunProgress(
             $"Preparing request for {context.WorkspaceRoot}");
         try
         {
             await ExecuteQueuedPromptAsync(context).ConfigureAwait(continueOnCapturedContext: false);
+        }
+        catch (OperationCanceledException) when (_stopRequested || _pauseRequested)
+        {
+            CompleteInterruptedPrompt(context);
         }
         catch (Exception exception)
         {
@@ -419,12 +440,11 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
         }
 
         ApplyCurrentWorkspaceToSession();
-        _pendingUserActivityPromptToSuppress = userPrompt;
         string? threadId = ThreadId;
+        var options = CreateRunOptions();
         return new QueuedPromptContext
         {
             Prompt = userPrompt,
-            RunRoot = BeginRunActivity(userPrompt),
             WorkspaceRoot = _workspace.CurrentWorkspaceRoot,
             WorkspaceName = _workspace.CurrentWorkspaceName,
             SolutionPath = _workspace.CurrentSolutionPath,
@@ -432,12 +452,15 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
             WorkspaceIdentity = CloneWorkspaceIdentity(_workspace.CurrentWorkspaceIdentity)
                 ?? new WorkspaceIdentity(),
             ThreadId = threadId,
-            HashReferences = _workspace.ResolveHashReferences(userPrompt, 0),
+            HashReferences = options.IncludeWorkspaceContext
+                ? _workspace.ResolveMentions(userPrompt, Numeric12000).Concat(_workspace.ResolveHashReferences(userPrompt, Numeric12000)).ToList()
+                : [],
             SelectedAgents = ApplyModelSelection(AgentRoles.Where((agent) => agent.IsEnabled)).ToList(),
             Skills = Skills.Where((skill) => skill.IsEnabled).ToList(),
             McpServers = McpServers.Where((server) => server.IsEnabled).ToList(),
             Attachments = Attachments.ToList(),
-            Options = CreateRunOptions()
+            Options = options,
+            SolutionContext = options.IncludeWorkspaceContext ? _workspace.CaptureSolutionContext() : null
         };
     }
 
@@ -605,6 +628,7 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
             WorkspaceMemoryRoot = context.MemoryRoot,
             ReactiveMemoryContext = memoryReaction.ContextText,
             WorkspaceIdentity = context.WorkspaceIdentity,
+            SolutionContext = context.SolutionContext,
             Options = context.Options,
             Attachments = context.Attachments,
             Skills = context.Skills,
@@ -620,8 +644,7 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
     /// <returns>The resolved references.</returns>
     private List<WorkspaceFileReference> ResolveWorkspaceFiles(QueuedPromptContext context)
     {
-        return _workspace.ResolveMentions(context.Prompt, Numeric12000)
-            .Concat(context.HashReferences)
+        return context.HashReferences
             .GroupBy(
                 (reference) => string.IsNullOrWhiteSpace(reference.ReferenceKey)
                     ? reference.Path
@@ -638,12 +661,7 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
     {
         ModelUsageEstimate estimate = await Task.Run(
             () => _modelAnalytics.Estimate(request)).ConfigureAwait(continueOnCapturedContext: false);
-        RunOnUiThread(() =>
-        {
-            ModelEstimate = estimate;
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
-        });
+        RunOnUiThread(() => ModelEstimate = estimate);
     }
 
     /// <summary>Processes the completed Codex result.</summary>
@@ -662,7 +680,9 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
         CompleteStreamingResponse(result);
         _ = AddMessage(
             CodexMessageRole.Assistant,
-            result.FinalResponse,
+            string.IsNullOrWhiteSpace(result.FinalResponse)
+                ? _activeStreamingResponse?.Detail ?? string.Empty
+                : result.FinalResponse,
             persist: true,
             _activeStreamingResponse is null);
         await SaveRunDiaryAsync(context, result).ConfigureAwait(continueOnCapturedContext: false);
@@ -679,13 +699,29 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
     /// <param name="result">The completed result.</param>
     private void CompleteStreamingResponse(CodexRunResult result)
     {
-        if (_activeStreamingResponse is null)
+        RunOnUiThread(() =>
         {
-            return;
-        }
+            if (_activeStreamingResponse is null)
+            {
+                return;
+            }
 
-        _activeStreamingResponse.Title = "Final assistant response";
-        _activeStreamingResponse.Detail = result.FinalResponse;
+            IReadOnlyList<string> responses = VSCodex.Core.Presentation.ResponsePresentation.GetCompletedResponses(
+                _activeStreamingResponse.Detail,
+                result.FinalResponse);
+            _activeStreamingResponse.Detail = responses[0];
+            if (responses.Count > 1)
+            {
+                _activeStreamingResponse.Title = "Earlier assistant response";
+                _activeStreamingResponse.IsExpanded = false;
+                _ = AddMessage(CodexMessageRole.Assistant, responses[0], persist: true, appendToActivity: false);
+                _activeStreamingResponse = AddRunActivity(RunActivityKind.Assistant, "Final assistant response", responses[1]);
+            }
+            else
+            {
+                _activeStreamingResponse.Title = "Final assistant response";
+            }
+        });
     }
 
     /// <summary>Writes the completed run to the ReactiveMemory diary.</summary>
@@ -726,12 +762,36 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
             Status = result.UsedFallback ? "Complete using CLI fallback" : "Complete";
             context.RunRoot.CompletedAt = _timeProvider.GetLocalNow();
             UpdateRunActivityElapsed(context.RunRoot);
+            CompleteRunActivityPresentation(context.RunRoot);
             _session.ThreadId = ThreadId;
             if (string.IsNullOrWhiteSpace(_session.Title))
             {
                 _session.Title = DeriveSessionTitle(_session);
             }
 
+            _sessionStore.Save(_session);
+            RefreshHistory();
+        });
+    }
+
+    /// <summary>Completes an explicitly interrupted turn without recording an application failure.</summary>
+    /// <param name="context">The originating request.</param>
+    private void CompleteInterruptedPrompt(QueuedPromptContext context)
+    {
+        string outcome = _pauseRequested ? "Paused" : "Stopped";
+        FinishRunProgress(outcome);
+        RunOnUiThread(() =>
+        {
+            context.RunRoot.CompletedAt = _timeProvider.GetLocalNow();
+            UpdateRunActivityElapsed(context.RunRoot);
+            CompleteRunActivityPresentation(context.RunRoot);
+            Status = outcome;
+            if (_activeStreamingResponse is { } response && !string.IsNullOrWhiteSpace(response.Detail))
+            {
+                _ = AddMessage(CodexMessageRole.Assistant, response.Detail, persist: true, appendToActivity: false);
+            }
+
+            _session.ThreadId = ThreadId;
             _sessionStore.Save(_session);
             RefreshHistory();
         });
@@ -744,13 +804,16 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
         QueuedPromptContext context,
         Exception exception)
     {
-        FinishRunProgress($"Failed: {exception.Message}");
-        _ = AddMessage(CodexMessageRole.Error, exception.ToString());
+        var explanation = RunFailureMessageFormatter.Format(exception);
+        _ = Microsoft.VisualStudio.Shell.ActivityLog.TryLogError(nameof(VSCodexToolWindowViewModel), exception.ToString());
+        FinishRunProgress($"Failed: {explanation}");
+        _ = AddMessage(CodexMessageRole.Error, $"{explanation} Review any changes before retrying. Full diagnostics are in the Visual Studio activity log.");
         RunOnUiThread(() =>
         {
             context.RunRoot.CompletedAt = _timeProvider.GetLocalNow();
             UpdateRunActivityElapsed(context.RunRoot);
-            Status = $"Failed: {exception.Message}";
+            CompleteRunActivityPresentation(context.RunRoot);
+            Status = $"Failed: {explanation}";
         });
     }
 
@@ -787,8 +850,9 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
     /// <summary>Performs the respond To Approval operation.</summary>
     /// <param name="request">The request.</param>
     /// <param name="approve">The approve.</param>
+    /// <param name="cancel">Whether to cancel elicitation.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
-    private async Task RespondToApprovalAsync(ApprovalRequest request, bool approve)
+    private async Task RespondToApprovalAsync(ApprovalRequest request, bool approve, bool cancel = false)
     {
         if (request?.IsPending != true)
         {
@@ -801,17 +865,27 @@ public sealed partial class VSCodexToolWindowViewModel : ReactiveObject, IDispos
             return;
         }
 
+        JObject? content = null;
+        if (approve && request.Form is not null && !request.Form.TryBuildContent(out content, out string error))
+        {
+            Status = error;
+            return;
+        }
+
+        request.IsPending = false;
         try
         {
-            await _codex.RespondToServerRequestAsync(request.Id, request.Method, approve).ConfigureAwait(continueOnCapturedContext: false);
+            await _codex.RespondToServerRequestAsync(request.ServerRequestId ?? new JValue(request.Id), request.Method, approve, content, cancel).ConfigureAwait(continueOnCapturedContext: false);
             await _joinableTaskFactory.SwitchToMainThreadAsync(default(CancellationToken));
             request.IsPending = false;
             _ = ApprovalRequests.Remove(request);
-            Status = (approve ? "Approved Codex request." : "Declined Codex request.");
+            var responseStatus = approve ? "Approved Codex request." : "Declined Codex request.";
+            Status = cancel ? "Cancelled Codex request." : responseStatus;
         }
         catch (Exception ex)
         {
             await _joinableTaskFactory.SwitchToMainThreadAsync(default(CancellationToken));
+            request.IsPending = true;
             Status = $"Could not answer the Codex approval request: {ex.Message}";
         }
     }

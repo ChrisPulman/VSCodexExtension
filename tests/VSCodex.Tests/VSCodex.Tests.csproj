@@ -11,12 +11,31 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Testing.Platform" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="TUnit" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="ReactiveUI.Reactive" />
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\VSCodex\Services\RateLimitTelemetry.cs" Link="Services\RateLimitTelemetry.cs" />
+    <Using Include="ReactiveUI.Reactive" />
+    <Compile Include="..\..\src\VSCodex\Models\PrerequisiteStatus.cs" Link="Models\PrerequisiteStatus.cs" />
+    <Compile Include="..\..\src\VSCodex\Models\PrerequisiteState.cs" Link="Models\PrerequisiteState.cs" />
+    <Compile Include="..\..\src\VSCodex\Models\McpServerDefinition.cs" Link="Models\McpServerDefinition.cs" />
+    <Compile Include="..\..\src\VSCodex\Infrastructure\JsonFileStore.cs" Link="Infrastructure\JsonFileStore.cs" />
+    <Compile Include="..\..\src\VSCodex\Services\LocalAutomationCoordinator.cs" Link="Services\LocalAutomationCoordinator.cs" />
+    <Compile Include="..\..\src\VSCodex\Services\Utf8ProcessStreams.cs" Link="Services\Utf8ProcessStreams.cs" />
+    <Compile Include="..\..\src\VSCodex\Services\CodexCliJsonParser.cs" Link="Services\CodexCliJsonParser.cs" />
+    <Compile Include="..\..\src\VSCodex\Models\CodexEvent.cs" Link="Models\CodexEvent.cs" />
+    <Compile Include="..\..\src\VSCodex\Services\RunFailureMessageFormatter.cs" Link="Services\RunFailureMessageFormatter.cs" />
     <Compile Include="..\..\build\VersionStamp.cs" Link="Build\VersionStamp.cs" />
+    <Compile Include="..\..\src\VSCodex\Models\ElicitationField.cs" Link="Models\ElicitationField.cs" />
+    <Compile Include="..\..\src\VSCodex\Models\ElicitationForm.cs" Link="Models\ElicitationForm.cs" />
+    <Compile Include="..\..\src\VSCodex\Services\ServerRequestProtocol.cs" Link="Services\ServerRequestProtocol.cs" />
+    <Compile Include="..\..\src\VSCodex\Models\ManagedWorktree.cs" Link="Models\ManagedWorktree.cs" />
+    <Compile Include="..\..\src\VSCodex\Services\ManagedWorktreeService.cs" Link="Services\ManagedWorktreeService.cs" />
     <ProjectReference Include="..\..\src\VSCodex.Core\VSCodex.Core.csproj" />
   </ItemGroup>
 </Project>

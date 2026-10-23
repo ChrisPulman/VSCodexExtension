@@ -78,16 +78,25 @@ public sealed partial class VSCodexToolWindowViewModel
             return;
         }
 
-        string model = DefaultIfBlank(settings.DefaultModel, CodexModelCatalog.DefaultModel);
-        string budgetModel = DefaultIfBlank(
-            settings.DefaultBudgetModel,
-            CodexModelCatalog.DefaultBudgetModel);
+        IEnumerable<string> customModels = (settings.CustomModels ?? new List<string>())
+            .Where(candidate => !CodexModelCatalog.IsShippedModel(candidate) && !CodexModelCatalog.IsLegacyModel(candidate));
+        string model = CodexModelCatalog.ResolveModelSelection(DefaultIfBlank(settings.DefaultModel, CodexModelCatalog.DefaultModel), customModels);
+        string budgetModel = CodexModelCatalog.ResolveModelSelection(DefaultIfBlank(settings.DefaultBudgetModel, CodexModelCatalog.DefaultBudgetModel), customModels);
         string reasoningModel = settings.DefaultBudgetDrivenModelSelection ? budgetModel : model;
         string reasoningEffort = CodexModelCatalog.ResolveReasoningEffort(
             reasoningModel,
             settings.DefaultReasoningEffort);
         IEnumerable<string> models = CodexModelCatalog.SupportedModels
-            .Concat(settings.CustomModels ?? new List<string>())
+            .Concat((settings.CustomModels ?? new List<string>())
+                .Where(candidate => !CodexModelCatalog.IsShippedModel(candidate) && !CodexModelCatalog.IsLegacyModel(candidate)))
+            .Concat(new[]
+            {
+                model,
+                budgetModel,
+                CodexModelCatalog.ResolveModelSelection(settings.DefaultFailoverModel, customModels),
+                CodexModelCatalog.ResolveModelSelection(settings.DefaultOrchestrationModel, customModels)
+            })
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
             .Distinct(StringComparer.OrdinalIgnoreCase);
         bool changed = ApplySettingsValues(settings, model, budgetModel, reasoningEffort);
         changed |= ApplySettingsCollections(settings, models, reasoningModel);
@@ -112,9 +121,10 @@ public sealed partial class VSCodexToolWindowViewModel
         string reasoningEffort)
     {
         bool changed = SetPropertyFromSettings(ref _selectedModel, model, nameof(SelectedModel));
-        string failover = DefaultIfBlank(
-            settings.DefaultFailoverModel,
-            CodexModelCatalog.DefaultFailoverModel);
+        changed |= SetPropertyFromSettings(ref _transport, settings.DefaultTransport, nameof(Transport));
+        IEnumerable<string> customModels = (settings.CustomModels ?? new List<string>())
+            .Where(candidate => !CodexModelCatalog.IsShippedModel(candidate) && !CodexModelCatalog.IsLegacyModel(candidate));
+        string failover = CodexModelCatalog.ResolveModelSelection(DefaultIfBlank(settings.DefaultFailoverModel, CodexModelCatalog.DefaultFailoverModel), customModels);
         changed |= SetPropertyFromSettings(ref _failoverModel, failover, nameof(FailoverModel));
         changed |= SetPropertyFromSettings(
             ref _selectedReasoning,
@@ -125,7 +135,7 @@ public sealed partial class VSCodexToolWindowViewModel
             settings.DefaultVerbosity,
             nameof(SelectedVerbosity));
         changed |= ApplyRunPolicySettings(settings);
-        string orchestrationModel = DefaultIfBlank(settings.DefaultOrchestrationModel, model);
+        string orchestrationModel = CodexModelCatalog.ResolveModelSelection(DefaultIfBlank(settings.DefaultOrchestrationModel, model), customModels);
         changed |= SetPropertyFromSettings(
             ref _orchestrationModel,
             orchestrationModel,

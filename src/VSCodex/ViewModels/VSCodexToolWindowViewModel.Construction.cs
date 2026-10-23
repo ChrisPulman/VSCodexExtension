@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for full license information.
 
 using System.Diagnostics.CodeAnalysis;
-using ReactiveUI;
 
 namespace VSCodex.ViewModels;
 
@@ -32,7 +31,7 @@ public sealed partial class VSCodexToolWindowViewModel
         _timeProvider = dependencies.TimeProvider;
         _joinableTaskFactory = dependencies.JoinableTaskFactory;
         _uiDispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
-        _uiScheduler = new DispatcherScheduler(_uiDispatcher);
+        _uiScheduler = new ReactiveUI.Primitives.Reactive.Concurrency.DispatcherSequencer(_uiDispatcher);
         _session = _sessionStore.Create();
         ExtensionSettings settings = _settingsStore.Current;
         InitializeSettingState(settings);
@@ -41,6 +40,8 @@ public sealed partial class VSCodexToolWindowViewModel
         InitializeHistoryAndSetupCommands();
         InitializeMemoryMcpAndSkillCommands();
         InitializeAssistantCommands();
+        InitializeWorktreeCommands();
+        InitializeAutomationCommands();
         _subscriptions = CreateSubscriptions();
         RefreshWorkspaceIdentityForStartup();
         UpdateAnalytics(Prompt);
@@ -56,6 +57,7 @@ public sealed partial class VSCodexToolWindowViewModel
     private void InitializeSettingState(ExtensionSettings settings)
     {
         _selectedModel = settings.DefaultModel;
+        _transport = settings.DefaultTransport;
         _failoverModel = string.IsNullOrWhiteSpace(settings.DefaultFailoverModel)
             ? CodexModelCatalog.DefaultFailoverModel
             : settings.DefaultFailoverModel;
@@ -112,7 +114,8 @@ public sealed partial class VSCodexToolWindowViewModel
         Prerequisites = new();
         ApprovalRequests = new();
         ModelOptions = new(CodexModelCatalog.SupportedModels
-            .Concat(settings.CustomModels ?? new List<string>())
+            .Concat((settings.CustomModels ?? new List<string>())
+                .Where(model => !CodexModelCatalog.IsShippedModel(model) && !CodexModelCatalog.IsLegacyModel(model)))
             .Distinct(StringComparer.OrdinalIgnoreCase));
         ReasoningOptions = new(CodexModelCatalog.GetReasoningEfforts(EffectiveMainModel()));
         VerbosityOptions = new(DistinctOptions(settings.CustomVerbosityOptions));
@@ -137,7 +140,8 @@ public sealed partial class VSCodexToolWindowViewModel
         nameof(PauseCommand),
         nameof(ResumeCommand),
         nameof(ApproveRequestCommand),
-        nameof(DeclineRequestCommand))]
+        nameof(DeclineRequestCommand),
+        nameof(CancelRequestCommand))]
     private void InitializeRunCommands()
     {
         IObservable<bool> canRun = this.WhenAnyValue(
@@ -169,6 +173,9 @@ public sealed partial class VSCodexToolWindowViewModel
         ApproveRequestCommand = ReactiveCommand.CreateFromTask(
             (ApprovalRequest request) => RespondToApprovalAsync(request, approve: true),
             outputScheduler: _uiScheduler);
+        CancelRequestCommand = ReactiveCommand.CreateFromTask(
+            (ApprovalRequest request) => RespondToApprovalAsync(request, approve: false, cancel: true),
+            outputScheduler: _uiScheduler);
         DeclineRequestCommand = ReactiveCommand.CreateFromTask(
             (ApprovalRequest request) => RespondToApprovalAsync(request, approve: false),
             outputScheduler: _uiScheduler);
@@ -176,6 +183,11 @@ public sealed partial class VSCodexToolWindowViewModel
 
     /// <summary>Initializes history, prerequisite, and analytics commands.</summary>
     [MemberNotNull(
+        nameof(ReviewActiveFileCommand),
+        nameof(RefreshThreadsCommand),
+        nameof(ForkSessionCommand),
+        nameof(ArchiveSessionCommand),
+        nameof(PinSessionCommand),
         nameof(NewThreadCommand),
         nameof(ShowHistoryCommand),
         nameof(RefreshHistoryCommand),
@@ -195,15 +207,7 @@ public sealed partial class VSCodexToolWindowViewModel
         IObservable<bool> canShowHistory = this.WhenAnyValue(
             (model) => model.IsRunning,
             (running) => !running).ObserveOn(_uiScheduler);
-        NewThreadCommand = ReactiveCommand.Create(StartNewThread, outputScheduler: _uiScheduler);
-        ShowHistoryCommand = ReactiveCommand.Create(ShowHistory, canShowHistory, _uiScheduler);
-        RefreshHistoryCommand = ReactiveCommand.Create(RefreshHistory, outputScheduler: _uiScheduler);
-        LoadHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(
-            LoadHistoryItem,
-            outputScheduler: _uiScheduler);
-        DeleteHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(
-            DeleteHistoryItem,
-            outputScheduler: _uiScheduler);
+        InitializeThreadManagementCommands(canShowHistory);
         BeginRenameHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(
             BeginRenameHistoryItem,
             outputScheduler: _uiScheduler);
@@ -228,6 +232,43 @@ public sealed partial class VSCodexToolWindowViewModel
             outputScheduler: _uiScheduler);
         ApplyRecommendedModelCommand = ReactiveCommand.Create(
             ApplyRecommendedModel,
+            outputScheduler: _uiScheduler);
+    }
+
+    /// <summary>Initializes protocol and local history operations.</summary>
+    /// <param name="canShowHistory">Whether the active conversation permits changing history.</param>
+    [MemberNotNull(
+        nameof(NewThreadCommand),
+        nameof(ShowHistoryCommand),
+        nameof(RefreshHistoryCommand),
+        nameof(ReviewActiveFileCommand),
+        nameof(RefreshThreadsCommand),
+        nameof(ForkSessionCommand),
+        nameof(ArchiveSessionCommand),
+        nameof(PinSessionCommand),
+        nameof(LoadHistoryCommand),
+        nameof(DeleteHistoryCommand))]
+    private void InitializeThreadManagementCommands(IObservable<bool> canShowHistory)
+    {
+        IObservable<bool> canManageSelectedHistory = this.WhenAnyValue(
+            model => model.IsRunning,
+            model => model.SelectedHistoryItem,
+            (running, item) => !running && item is not null).ObserveOn(_uiScheduler);
+        NewThreadCommand = ReactiveCommand.Create(StartNewThread, outputScheduler: _uiScheduler);
+        ShowHistoryCommand = ReactiveCommand.Create(ShowHistory, canShowHistory, _uiScheduler);
+        RefreshHistoryCommand = ReactiveCommand.Create(RefreshHistory, outputScheduler: _uiScheduler);
+        ReviewActiveFileCommand = ReactiveCommand.CreateFromTask(ReviewActiveFileAsync, canShowHistory, _uiScheduler);
+        RefreshThreadsCommand = ReactiveCommand.CreateFromTask(RefreshThreadsAsync, canShowHistory, _uiScheduler);
+        ForkSessionCommand = ReactiveCommand.CreateFromTask<SessionHistoryItem>(ForkSessionAsync, canManageSelectedHistory, _uiScheduler);
+        ArchiveSessionCommand = ReactiveCommand.CreateFromTask<SessionHistoryItem>(ArchiveSessionAsync, canManageSelectedHistory, _uiScheduler);
+        PinSessionCommand = ReactiveCommand.Create<SessionHistoryItem>(PinSession, canManageSelectedHistory, _uiScheduler);
+        LoadHistoryCommand = ReactiveCommand.CreateFromTask<SessionHistoryItem>(
+            LoadHistoryItemAsync,
+            canExecute: canShowHistory,
+            outputScheduler: _uiScheduler);
+        DeleteHistoryCommand = ReactiveCommand.Create<SessionHistoryItem>(
+            DeleteHistoryItem,
+            canExecute: canShowHistory,
             outputScheduler: _uiScheduler);
     }
 
@@ -410,17 +451,18 @@ public sealed partial class VSCodexToolWindowViewModel
     private IDisposable CreateSubscriptions()
     {
         return new CompositeDisposableLike(
-            _codex.Events.ObserveOnSafe(_uiScheduler).Subscribe(OnCodexEvent),
-            _taskOrchestrator.Events.ObserveOnSafe(_uiScheduler).Subscribe(OnOrchestrationEvent),
-            _skillIndex.Skills.ObserveOnSafe(_uiScheduler).Subscribe(UpdateSkills),
-            _memoryStore.Memories.ObserveOnSafe(_uiScheduler).Subscribe(UpdateMemories),
-            _mcpConfig.Servers.ObserveOnSafe(_uiScheduler).Subscribe(UpdateMcpServers),
-            _settingsStore.SettingsChanged.ObserveOnSafe(_uiScheduler).Subscribe(
+            _codex.Events.ObserveOn(_uiScheduler).Subscribe(OnCodexEvent),
+            _taskOrchestrator.Events.ObserveOn(_uiScheduler).Subscribe(OnOrchestrationEvent),
+            _skillIndex.Skills.ObserveOn(_uiScheduler).Subscribe(UpdateSkills),
+            _memoryStore.Memories.ObserveOn(_uiScheduler).Subscribe(UpdateMemories),
+            _mcpConfig.Servers.ObserveOn(_uiScheduler).Subscribe(UpdateMcpServers),
+            _settingsStore.SettingsChanged.ObserveOn(_uiScheduler).Subscribe(
                 ApplySettingsFromStore),
-            _voiceInput.Transcript.ObserveOnSafe(_uiScheduler).Subscribe(AppendVoiceTranscript),
-            _voiceInput.Status.ObserveOnSafe(_uiScheduler).Subscribe(UpdateVoiceInputStatus),
+            _voiceInput.Transcript.ObserveOn(_uiScheduler).Subscribe(AppendVoiceTranscript),
+            _voiceInput.Status.ObserveOn(_uiScheduler).Subscribe(UpdateVoiceInputStatus),
             this.WhenAnyValue((model) => model.Prompt)
-                .ThrottleDistinct(TimeSpan.FromMilliseconds(Numeric180), _uiScheduler)
+                .Throttle(TimeSpan.FromMilliseconds(Numeric180), _uiScheduler)
+                .DistinctUntilChanged()
                 .Subscribe(OnPromptChanged));
     }
 }

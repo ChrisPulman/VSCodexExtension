@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using ReactiveUI;
 
 namespace VSCodex.Models;
 
@@ -39,13 +38,37 @@ public sealed class McpServerDefinition : ReactiveObject
     public string Name { get => _name; set => this.RaiseAndSetIfChanged(ref _name, value ?? string.Empty); }
 
     /// <summary>Gets or sets the transport Type.</summary>
-    public string TransportType { get => _transportType; set => this.RaiseAndSetIfChanged(ref _transportType, string.IsNullOrWhiteSpace(value) ? "stdio" : value.Trim()); }
+    public string TransportType
+    {
+        get => _transportType;
+        set
+        {
+            _ = this.RaiseAndSetIfChanged(ref _transportType, string.IsNullOrWhiteSpace(value) ? "stdio" : value.Trim());
+            this.RaisePropertyChanged(nameof(EndpointSummary));
+        }
+    }
 
     /// <summary>Gets or sets the command.</summary>
-    public string Command { get => _command; set => this.RaiseAndSetIfChanged(ref _command, value ?? string.Empty); }
+    public string Command
+    {
+        get => _command;
+        set
+        {
+            _ = this.RaiseAndSetIfChanged(ref _command, value ?? string.Empty);
+            this.RaisePropertyChanged(nameof(EndpointSummary));
+        }
+    }
 
     /// <summary>Gets or sets the url.</summary>
-    public string Url { get => _url; set => this.RaiseAndSetIfChanged(ref _url, value ?? string.Empty); }
+    public string Url
+    {
+        get => _url;
+        set
+        {
+            _ = this.RaiseAndSetIfChanged(ref _url, value ?? string.Empty);
+            this.RaisePropertyChanged(nameof(EndpointSummary));
+        }
+    }
 
     /// <summary>Gets or sets the args.</summary>
     public List<string> Args { get; } = [];
@@ -87,8 +110,8 @@ public sealed class McpServerDefinition : ReactiveObject
                 IsEnabled = true;
             }
 
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(CanDisable));
+            this.RaisePropertyChanged(nameof(CanRemove));
         }
     }
 

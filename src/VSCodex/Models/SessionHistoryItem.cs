@@ -2,7 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 using System;
-using ReactiveUI;
 
 namespace VSCodex.Models;
 
@@ -20,6 +19,12 @@ public sealed class SessionHistoryItem : ReactiveObject
 
     /// <summary>Gets or sets the thread Id.</summary>
     public string? ThreadId { get; set; }
+
+    /// <summary>Gets or sets whether this local history entry is pinned.</summary>
+    public bool IsPinned { get; set; }
+
+    /// <summary>Gets or sets whether this conversation is archived.</summary>
+    public bool IsArchived { get; set; }
 
     /// <summary>Gets or sets the title.</summary>
     public string Title { get; set; } = string.Empty;

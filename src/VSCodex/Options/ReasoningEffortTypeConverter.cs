@@ -7,7 +7,7 @@ using System.Linq;
 namespace VSCodex.Options;
 
 /// <summary>Provides the reasoning Effort Type Converter implementation.</summary>
-public sealed class ReasoningEffortTypeConverter : StringConverter
+public sealed class ReasoningEffortTypeConverter : System.ComponentModel.StringConverter
 {
     /// <summary>Gets standard Values Supported.</summary>
     /// <param name="context">The context.</param>

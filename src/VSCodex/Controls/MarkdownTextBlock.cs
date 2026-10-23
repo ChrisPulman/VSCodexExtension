@@ -104,7 +104,7 @@ public sealed class MarkdownTextBlock : TextBlock
     /// <param name="e">The e.</param>
     private static void OnHyperlinkClick(object sender, RoutedEventArgs e)
     {
-        if (!(sender is Hyperlink link) || !(link.Tag is string target) || string.IsNullOrWhiteSpace(target))
+        if (sender is not Hyperlink link || link.Tag is not string target || string.IsNullOrWhiteSpace(target))
         {
             return;
         }

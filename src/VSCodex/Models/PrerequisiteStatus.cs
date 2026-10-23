@@ -2,7 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 using System;
-using ReactiveUI;
 
 namespace VSCodex.Models;
 
@@ -18,6 +17,12 @@ public sealed class PrerequisiteStatus : ReactiveObject
     /// <summary>Stores the status.</summary>
     private string _status = string.Empty;
 
+    /// <summary>Stores the installation command.</summary>
+    private string _installCommand = string.Empty;
+
+    /// <summary>Stores the update command.</summary>
+    private string _updateCommand = string.Empty;
+
     /// <summary>Gets or sets the name.</summary>
     public string Name { get; set; } = string.Empty;
 
@@ -31,23 +36,51 @@ public sealed class PrerequisiteStatus : ReactiveObject
         set
         {
             _ = this.RaiseAndSetIfChanged(ref _state, value);
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(CanCopyCommand));
+            this.RaisePropertyChanged(nameof(CanUpdate));
+            this.RaisePropertyChanged(nameof(ActionButtonText));
         }
     }
 
     /// <summary>Gets or sets the status.</summary>
-    public string Status { get => _status; set => this.RaiseAndSetIfChanged(ref _status, value ?? string.Empty); }
+    public string Status
+    {
+        get => _status;
+        set
+        {
+            _ = this.RaiseAndSetIfChanged(ref _status, value ?? string.Empty);
+            this.RaisePropertyChanged(nameof(ActionButtonText));
+        }
+    }
 
     /// <summary>Gets or sets the details.</summary>
     public string Details { get => _details; set => this.RaiseAndSetIfChanged(ref _details, value ?? string.Empty); }
 
     /// <summary>Gets or sets the install Command.</summary>
-    public string InstallCommand { get; set; } = string.Empty;
+    public string InstallCommand
+    {
+        get => _installCommand;
+        set
+        {
+            _ = this.RaiseAndSetIfChanged(ref _installCommand, value ?? string.Empty);
+            this.RaisePropertyChanged(nameof(ActionCommand));
+            this.RaisePropertyChanged(nameof(CanCopyCommand));
+            this.RaisePropertyChanged(nameof(CanUpdate));
+        }
+    }
 
     /// <summary>Gets or sets the update Command.</summary>
-    public string UpdateCommand { get; set; } = string.Empty;
+    public string UpdateCommand
+    {
+        get => _updateCommand;
+        set
+        {
+            _ = this.RaiseAndSetIfChanged(ref _updateCommand, value ?? string.Empty);
+            this.RaisePropertyChanged(nameof(ActionCommand));
+            this.RaisePropertyChanged(nameof(CanCopyCommand));
+            this.RaisePropertyChanged(nameof(CanUpdate));
+        }
+    }
 
     /// <summary>Gets or sets the is Blocking.</summary>
     public bool IsBlocking { get; set; }
@@ -62,5 +95,17 @@ public sealed class PrerequisiteStatus : ReactiveObject
     public string ActionCommand => string.IsNullOrWhiteSpace(UpdateCommand) ? InstallCommand : UpdateCommand;
 
     /// <summary>Gets the action Button Text.</summary>
-    public string ActionButtonText => State == PrerequisiteState.Missing || Status.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0 ? "Install" : "Update";
+    public string ActionButtonText => State == PrerequisiteState.Missing || HasMissingStatus(Status) ? "Install" : "Update";
+
+    /// <summary>Checks the setup error marker using the available framework API.</summary>
+    /// <param name="status">The current setup message.</param>
+    /// <returns>Whether setup reported a missing component.</returns>
+    private static bool HasMissingStatus(string status)
+    {
+#if NETFRAMEWORK
+        return status.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0;
+#else
+        return status.Contains("not found", StringComparison.OrdinalIgnoreCase);
+#endif
+    }
 }

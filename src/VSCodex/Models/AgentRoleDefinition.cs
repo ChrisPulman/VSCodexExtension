@@ -2,7 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 using Newtonsoft.Json;
-using ReactiveUI;
 
 namespace VSCodex.Models;
 

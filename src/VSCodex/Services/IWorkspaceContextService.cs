@@ -31,6 +31,10 @@ public interface IWorkspaceContextService
     /// <summary>Refreshes the operation.</summary>
     void Refresh();
 
+    /// <summary>Captures bounded solution metadata on the UI thread.</summary>
+    /// <returns>An immutable metadata snapshot.</returns>
+    SolutionContextSnapshot CaptureSolutionContext();
+
     /// <summary>Refreshes workspace Identity.</summary>
     void RefreshWorkspaceIdentity();
 

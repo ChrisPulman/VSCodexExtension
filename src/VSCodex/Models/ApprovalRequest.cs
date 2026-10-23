@@ -2,7 +2,7 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 using System;
-using ReactiveUI;
+using Newtonsoft.Json.Linq;
 
 namespace VSCodex.Models;
 
@@ -14,6 +14,12 @@ public sealed class ApprovalRequest : ReactiveObject
 
     /// <summary>Gets or sets the id.</summary>
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>Gets or sets the original JSON-RPC identifier.</summary>
+    public JToken? ServerRequestId { get; set; }
+
+    /// <summary>Gets or sets the elicitation form, when requested.</summary>
+    public ElicitationForm? Form { get; set; }
 
     /// <summary>Gets or sets the method.</summary>
     public string Method { get; set; } = string.Empty;

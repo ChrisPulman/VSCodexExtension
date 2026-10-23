@@ -2,8 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
-using ReactiveUI;
-
 namespace VSCodex.ViewModels;
 
 /// <summary>Coordinates workspace, MCP, skill, voice, and prerequisite features.</summary>
@@ -40,7 +38,7 @@ public sealed partial class VSCodexToolWindowViewModel
     /// <summary>Performs the raise Workspace Display Properties operation.</summary>
     private void RaiseWorkspaceDisplayProperties()
     {
-        this.RaisePropertyChanged();
+        this.RaisePropertyChanged(nameof(CurrentWorkspaceDisplay));
     }
 
     /// <summary>Performs the scan Project Memory operation.</summary>
@@ -337,32 +335,21 @@ public sealed partial class VSCodexToolWindowViewModel
 
         string commandName = (command.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .FirstOrDefault() ?? string.Empty).ToLowerInvariant();
-        switch (commandName)
+        Action? action = commandName switch
         {
-            case "/threads" or "/history":
-                {
-                    ShowHistory();
-                    Prompt = string.Empty;
-                    return true;
-                }
-
-            case "/models" or "/settings":
-                {
-                    Status = "Open Tools > Options > VSCodex to change settings";
-                    Prompt = string.Empty;
-                    return true;
-                }
-
-            case "/refresh":
-                {
-                    Refresh();
-                    Prompt = string.Empty;
-                    return true;
-                }
-
-            default:
-                return TryHandleToolPanelSlashCommand(commandName);
+            "/threads" or "/history" => ShowHistory,
+            "/models" or "/settings" => () => Status = "Open Tools > Options > VSCodex to change settings",
+            "/refresh" => Refresh,
+            _ => null
+        };
+        if (action is null)
+        {
+            return TryHandleToolPanelSlashCommand(commandName);
         }
+
+        action();
+        Prompt = string.Empty;
+        return true;
     }
 
     /// <summary>Attempts to handle a tool Panel Slash Command.</summary>
@@ -478,7 +465,7 @@ public sealed partial class VSCodexToolWindowViewModel
         }
 
         _voiceInput.Stop();
-        this.RaisePropertyChanged();
+        this.RaisePropertyChanged(nameof(IsListeningToVoice));
         TaskObserver.FireAndForget(_joinableTaskFactory.RunAsync(
             async () => await SubmitPromptAsync().ConfigureAwait(continueOnCapturedContext: true)).Task);
     }
@@ -488,8 +475,8 @@ public sealed partial class VSCodexToolWindowViewModel
     private void UpdateVoiceInputStatus(string status)
     {
         VoiceInputStatus = status;
-        this.RaisePropertyChanged();
-        this.RaisePropertyChanged();
+        this.RaisePropertyChanged(nameof(IsListeningToVoice));
+        this.RaisePropertyChanged(nameof(IsVoiceInputAvailable));
     }
 
     /// <summary>Performs the schedule Startup Checks In Background operation.</summary>
@@ -512,6 +499,7 @@ public sealed partial class VSCodexToolWindowViewModel
                 },
                     _lifetime.Token).ConfigureAwait(continueOnCapturedContext: false);
                 await CheckPrerequisitesAsync(showSystemMessage: false).ConfigureAwait(continueOnCapturedContext: true);
+                await RefreshRuntimeModelsAsync().ConfigureAwait(continueOnCapturedContext: false);
                 await Task.Delay(TimeSpan.FromSeconds(Numeric6), _lifetime.Token).ConfigureAwait(continueOnCapturedContext: false);
                 await RefreshRateLimitsAsync().ConfigureAwait(continueOnCapturedContext: true);
             }
@@ -579,6 +567,7 @@ public sealed partial class VSCodexToolWindowViewModel
             }
 
             UpdateRateLimitsFromJson(rateLimits.ToString());
+            SetRateLimitsUnavailable("Codex did not report this account limit");
         }
         catch (Exception ex)
         {
@@ -592,7 +581,27 @@ public sealed partial class VSCodexToolWindowViewModel
     /// <param name="text">The text.</param>
     private void SetRateLimitsUnavailable(string text)
     {
-        SetRateLimitRows(text, 0, string.Empty);
+        foreach (RateLimitWindowStatus row in RateLimits)
+        {
+            if (row.HasTelemetry)
+            {
+                if (!row.ToolTip.Contains("Last received"))
+                {
+                    row.ToolTip += " Last received account telemetry is retained when a refresh omits this window.";
+                }
+            }
+            else
+            {
+                row.Remaining = "Unavailable";
+                row.ResetText = string.Empty;
+                row.ToolTip = $"{text}. Refresh the account status or check Codex sign-in.";
+            }
+        }
+
+        if (!RateLimits.Any(row => row.HasTelemetry))
+        {
+            RateLimitUpdatedAt = text;
+        }
     }
 
     /// <summary>Sets rate Limit Rows.</summary>
@@ -603,6 +612,11 @@ public sealed partial class VSCodexToolWindowViewModel
     {
         foreach (RateLimitWindowStatus rateLimit in RateLimits)
         {
+            if (rateLimit.HasTelemetry)
+            {
+                continue;
+            }
+
             rateLimit.Remaining = remaining;
             rateLimit.UsagePercent = usagePercent;
             rateLimit.ResetText = resetText;
@@ -621,7 +635,7 @@ public sealed partial class VSCodexToolWindowViewModel
             ApplyEnvironmentReport(report, !report.CanRunSdkBridge);
         }
 
-        if (report.CanRunSdkBridge)
+        if (Transport == CodexTransportKind.CliFallback ? report.IsCliReady : report.CanRunSdkBridge)
         {
             return true;
         }

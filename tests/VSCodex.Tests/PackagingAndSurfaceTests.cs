@@ -3,7 +3,10 @@
 // See the LICENSE file in the project root for full license information.
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Xml.Linq;
+using Newtonsoft.Json.Linq;
 
 namespace VSCodex.Tests;
 
@@ -12,6 +15,9 @@ public sealed class PackagingAndSurfaceTests
 {
     /// <summary>Named number used by this type.</summary>
     private const int Numeric3 = 3;
+
+    /// <summary>The packaged bridge source path.</summary>
+    private const string BridgeRelativePath = "src/VSCodex/Resources/codex-bridge.mjs";
 
     /// <summary>Path to the view-model source files.</summary>
     private const string ViewModelsDirectory = "src/VSCodex/ViewModels";
@@ -49,7 +55,7 @@ public sealed class PackagingAndSurfaceTests
         await Assert.That(centralPackages).Contains("<PackageVersion Include=\"NuGet.Versioning\"");
         await Assert.That(centralPackages).Contains("<CPReactiveMemoryMcpServerVersion>1.");
         await Assert.That(toolManifest).Contains("\"minver-cli\"");
-        await Assert.That(toolManifest).Contains("\"version\": \"7.0.0\"");
+        await Assert.That(toolManifest).Contains("\"version\": \"8.0.0\"");
         await Assert.That(build).Contains("Target ResolveVersion");
         await Assert.That(build).Contains("MINVERVERSIONOVERRIDE");
         await Assert.That(build).Contains("VersionStamp.Parse(resolvedSemVer)");
@@ -91,7 +97,15 @@ public sealed class PackagingAndSurfaceTests
         await Assert.That(view).Contains("<controls:SelectableMarkdownViewer");
         await Assert.That(view).Contains("HorizontalAlignment=\"Stretch\"");
         await Assert.That(view).Contains("TreeItemAvailableWidthConverter");
-        await Assert.That(view).Contains("AncestorType={x:Type TreeViewItem}");
+        await Assert.That(view).DoesNotContain("AncestorType={x:Type TreeViewItem}");
+        var layout = XDocument.Parse(view);
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        var treeTemplate = layout.Descendants(presentation + "ControlTemplate")
+            .Single(element => (string?)element.Attribute("TargetType") == "TreeViewItem");
+        await Assert.That(treeTemplate.Descendants(presentation + "ColumnDefinition")
+            .Select(element => (string?)element.Attribute("Width"))).Contains("*");
+        await Assert.That(treeTemplate.Descendants(presentation + "ContentPresenter")
+            .Single().Attribute("HorizontalAlignment")?.Value).IsEqualTo("Stretch");
         await Assert.That(view).DoesNotContain("Width=\"{Binding ActualWidth, ElementName=ConversationTree}\"");
         await Assert.That(view).DoesNotContain("Padding=\"0,0,88,0\"");
         await Assert.That(view).Contains("ToolWindowBackgroundBrushKey");
@@ -115,7 +129,7 @@ public sealed class PackagingAndSurfaceTests
         var viewModel = ReadTextFiles(ViewModelsDirectory, ToolWindowViewModelSearchPattern);
 
         await Assert.That(package).Contains("ProvideOptionPage(typeof(OptionsProvider.GeneralOptions), \"VSCodex\", \"General\"");
-        await Assert.That(options).Contains("class GeneralOptions : DialogPage");
+        await Assert.That(options).Contains("class GeneralOptions : UIElementDialogPage");
         await Assert.That(options).Contains("Follow-up behavior");
         await Assert.That(view).DoesNotContain("Header=\"Settings\"");
         await Assert.That(view).Contains("Command=\"{Binding SteerCommand}\"");
@@ -130,7 +144,7 @@ public sealed class PackagingAndSurfaceTests
     [Test]
     public async Task Run_controls_use_exact_app_server_turns_and_durable_pause()
     {
-        var bridge = ReadText("src/VSCodex/Resources/codex-bridge.mjs");
+        var bridge = ReadText(BridgeRelativePath);
         var viewModel = ReadTextFiles(ViewModelsDirectory, ToolWindowViewModelSearchPattern);
         var reactiveMemory = ReadText("src/VSCodex/Services/ReactiveMemoryService.cs");
 
@@ -155,9 +169,9 @@ public sealed class PackagingAndSurfaceTests
         var orchestrator = ReadText("src/VSCodex/Services/CodexOrchestrator.cs");
 
         await Assert.That(viewModel).Contains("mcpServer/elicitation/request");
-        await Assert.That(viewModel).Contains("request.Id, request.Method, approve");
-        await Assert.That(orchestrator).Contains("[\"action\"] = approve ? \"accept\" : \"decline\"");
-        await Assert.That(orchestrator).Contains("[\"content\"] = JValue.CreateNull()");
+        await Assert.That(viewModel).Contains("request.ServerRequestId ?? new JValue(request.Id)");
+        await Assert.That(viewModel).Contains("request.Form.TryBuildContent");
+        await Assert.That(orchestrator).Contains("ServerRequestProtocol.CreateResult(method, approve, content, cancel)");
     }
 
     /// <summary>Verifies that ReactiveMemory is bundled and cannot be disabled or removed.</summary>
@@ -228,12 +242,59 @@ public sealed class PackagingAndSurfaceTests
         await Assert.That(manifest).DoesNotContain("$(VSCodexVersion)");
     }
 
+    /// <summary>Prevents incompatible scheduler identities in the Visual Studio AppDomain.</summary>
+    /// <returns>The asynchronous verification operation.</returns>
+    [Test]
+    public async Task Packaged_reactive_assemblies_reference_the_same_Rx_version()
+    {
+        using var archive = ZipFile.OpenRead(PathFor("src/VSCodex/bin/Release/net48/VSCodex.vsix"));
+        var assemblyEntries = archive.Entries.Where(entry => !entry.FullName.Contains('/')
+            && !entry.FullName.Contains('\\') && entry.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
+        var rxVersions = new List<(string Assembly, Version Version)>();
+        Version? packagedRxVersion = null;
+        foreach (var entry in assemblyEntries)
+        {
+            using var bytes = new MemoryStream();
+            using (var source = entry.Open())
+            {
+                await source.CopyToAsync(bytes);
+            }
+
+            bytes.Position = 0;
+            using var pe = new PEReader(bytes);
+            if (!pe.HasMetadata)
+            {
+                continue;
+            }
+
+            var metadata = pe.GetMetadataReader();
+            if (entry.Name == "System.Reactive.dll")
+            {
+                packagedRxVersion = metadata.GetAssemblyDefinition().Version;
+            }
+
+            foreach (var referenceHandle in metadata.AssemblyReferences)
+            {
+                var reference = metadata.GetAssemblyReference(referenceHandle);
+                if (metadata.GetString(reference.Name) == "System.Reactive")
+                {
+                    rxVersions.Add((entry.Name, reference.Version));
+                }
+            }
+        }
+
+        await Assert.That(packagedRxVersion).IsNotNull();
+        await Assert.That(rxVersions).IsNotEmpty();
+        await Assert.That(rxVersions.Where(reference => reference.Version != packagedRxVersion)
+            .Select(reference => $"{reference.Assembly}: {reference.Version}")).IsEmpty();
+    }
+
     /// <summary>Verifies that the JavaScript bridge parses and its resilient parser and model catalog pass.</summary>
     /// <returns>A task that represents the asynchronous operation.</returns>
     [Test]
     public async Task Bridge_syntax_and_resilient_parser_are_valid()
     {
-        var script = PathFor("src/VSCodex/Resources/codex-bridge.mjs");
+        var script = PathFor(BridgeRelativePath);
         var syntax = await RunProcessAsync("node", $"--check \"{script}\"");
         var parser = await RunProcessAsync("node", $"\"{script}\" --self-test-resilient-parser");
         var models = await RunProcessAsync("node", $"\"{script}\" --self-test-model-catalog");
@@ -245,6 +306,51 @@ public sealed class PackagingAndSurfaceTests
         await Assert.That(parser.Output).Contains("\"ignoredCount\":1");
         await Assert.That(models.Output).Contains("\"transportEffort\":\"max\"");
         await Assert.That(models.Output).Contains("\"model\":\"gpt-5.3-codex-spark\"");
+    }
+
+    /// <summary>Exercises JSON-RPC correlation, notification, Unicode and disconnect behavior.</summary>
+    /// <returns>The asynchronous verification operation.</returns>
+    [Test]
+    public async Task Bridge_rpc_preserves_types_and_completes_requests_on_disconnect()
+    {
+        var probe = PathFor("tests/fixtures/bridge-rpc-probe.mjs");
+        var bridge = PathFor(BridgeRelativePath);
+        var result = await RunProcessAsync("node", $"\"{probe}\" \"{bridge}\"");
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        var report = Newtonsoft.Json.Linq.JObject.Parse(result.Output);
+        await Assert.That(report["notification"]?.Value<string>("method")).IsEqualTo("initialized");
+        await Assert.That(report["notification"]?["id"]).IsNull();
+        await Assert.That(report["numericId"]?.Type).IsEqualTo(Newtonsoft.Json.Linq.JTokenType.Integer);
+        await Assert.That(report["numericId"]?.Value<int>()).IsEqualTo(0);
+        await Assert.That(report["stringId"]?.Type).IsEqualTo(Newtonsoft.Json.Linq.JTokenType.String);
+        await Assert.That(report.Value<string>("unicode")).IsEqualTo("Überprüfung 日本語 😀");
+        await Assert.That(report["results"]?.ToString(Newtonsoft.Json.Formatting.None)).IsEqualTo("[1,2]");
+        await Assert.That(report.Value<int>("notificationCount")).IsEqualTo(1);
+        await Assert.That(report.Value<string>("closedError")!).Contains("disconnected");
+        await Assert.That(report.Value<string>("lateResponse")!).Contains("closed");
+        await Assert.That(report.Value<string>("spawnError")).IsEqualTo("simulated process failure");
+        await Assert.That(report.Value<int>("disconnects")).IsEqualTo(1);
+        await Assert.That(report.Value<string>("timeoutError")!).Contains("test/timeout");
+    }
+
+    /// <summary>Runs a child process without blocking its redirected streams.</summary>
+    /// <returns>The asynchronous verification operation.</returns>
+    [Test]
+    public async Task Bridge_completes_immediate_turns_and_elicitation_without_replaying_failures()
+    {
+        var probe = PathFor("tests/fixtures/bridge-turn-probe.mjs");
+        var bridge = PathFor(BridgeRelativePath);
+        var result = await RunProcessAsync("node", $"\"{probe}\" \"{bridge}\"");
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        var report = JObject.Parse(result.Output);
+        await Assert.That(report.Value<string>("normal")).IsEqualTo("Überprüfung 日本語 😀");
+        await Assert.That(report.Value<string>("elicitation")).IsEqualTo("Approved ✓");
+        await Assert.That(report.Value<string>("failure")).IsEqualTo("simulated turn failure");
+        await Assert.That(report.Value<int>("responseId")).IsEqualTo(0);
+        await Assert.That(report.Value<int>("spawned")).IsEqualTo(1);
+        await Assert.That(report.Value<int>("fallbackCount")).IsEqualTo(0);
+        await Assert.That(report["methods"]![0]!.Value<string>()).IsEqualTo("initialize");
+        await Assert.That(report["methods"]![1]!.Value<string>()).IsEqualTo("initialized");
     }
 
     /// <summary>Runs a child process without blocking its redirected streams.</summary>

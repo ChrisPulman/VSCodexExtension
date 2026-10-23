@@ -54,8 +54,11 @@ public static class CodexModelCatalog
     /// <summary>Stores the safe effort identifiers used for an unknown custom model.</summary>
     private static readonly IReadOnlyList<string> UnknownModelEffortValues = Array.AsReadOnly(["medium"]);
 
+    /// <summary>Stores the last complete account catalog, replaced atomically.</summary>
+    private static volatile CodexRuntimeModel[] _runtimeModels = [];
+
     /// <summary>Gets the Codex Power default.</summary>
-    public static string DefaultModel => "gpt-5.6-sol";
+    public static string DefaultModel => _runtimeModels.FirstOrDefault(model => model.IsDefault)?.Model ?? "gpt-5.6-sol";
 
     /// <summary>Gets the default lower-cost failover model.</summary>
     public static string DefaultFailoverModel => "gpt-5.6-terra";
@@ -67,16 +70,43 @@ public static class CodexModelCatalog
     public static string DefaultReasoningEffort => "medium";
 
     /// <summary>Gets the models exposed by the current Codex application.</summary>
-    public static IReadOnlyList<string> SupportedModels { get; } = Array.AsReadOnly(Models);
+    public static IReadOnlyList<string> SupportedModels => _runtimeModels.Length == 0
+        ? Array.AsReadOnly(Models)
+        : Array.AsReadOnly(_runtimeModels.Select(model => model.Model).ToArray());
 
     /// <summary>Gets the complete ordered reasoning-effort list used across the current catalog.</summary>
     public static IReadOnlyList<string> ReasoningEfforts { get; } = SolTerraEffortValues;
+
+    /// <summary>Publishes a successfully discovered runtime catalog.</summary>
+    /// <param name="models">The complete nonempty model list.</param>
+    public static void SetRuntimeModels(IEnumerable<CodexRuntimeModel> models)
+    {
+        CodexRuntimeModel[] snapshot = models.Where(model => !string.IsNullOrWhiteSpace(model.Model)).ToArray();
+        if (snapshot.Length == 0)
+        {
+            return;
+        }
+
+        _runtimeModels = snapshot;
+    }
+
+    /// <summary>Determines whether an identifier was shipped in the offline catalog.</summary>
+    /// <param name="model">The identifier.</param>
+    /// <returns>Whether it was a shipped choice.</returns>
+    public static bool IsShippedModel(string? model) => Models.Contains(model ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Resolves a saved choice against the last complete runtime catalog.</summary>
+    /// <param name="model">The saved choice.</param>
+    /// <param name="customModels">Explicit user-provided model identifiers.</param>
+    /// <returns>The compatible saved choice or runtime default.</returns>
+    public static string ResolveModelSelection(string? model, IEnumerable<string> customModels)
+        => CodexRuntimeModel.ResolveSelection(model, _runtimeModels, customModels);
 
     /// <summary>Gets whether a model is part of the current Codex application catalog.</summary>
     /// <param name="model">The model identifier.</param>
     /// <returns><see langword="true"/> when the model is supported; otherwise, <see langword="false"/>.</returns>
     public static bool IsSupportedModel(string? model)
-        => Models.Contains(model ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+        => SupportedModels.Contains(model ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets whether a model identifier is a retired shipped default.</summary>
     /// <param name="model">The model identifier.</param>
@@ -89,6 +119,12 @@ public static class CodexModelCatalog
     /// <returns>The ordered model-specific efforts.</returns>
     public static IReadOnlyList<string> GetReasoningEfforts(string? model)
     {
+        CodexRuntimeModel? runtime = _runtimeModels.FirstOrDefault(item => string.Equals(item.Model, model, StringComparison.OrdinalIgnoreCase));
+        if (runtime is not null)
+        {
+            return runtime.ReasoningEfforts.Count > 0 ? runtime.ReasoningEfforts : Array.AsReadOnly(new[] { runtime.DefaultReasoningEffort });
+        }
+
         return (model ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "gpt-5.6-sol" or "gpt-5.6-terra" => SolTerraEffortValues,
@@ -104,6 +140,12 @@ public static class CodexModelCatalog
     /// <returns>A valid model-specific effort.</returns>
     public static string ResolveReasoningEffort(string? model, string? effort)
     {
+        CodexRuntimeModel? runtime = _runtimeModels.FirstOrDefault(item => string.Equals(item.Model, model, StringComparison.OrdinalIgnoreCase));
+        if (runtime is not null)
+        {
+            return runtime.ResolveReasoningEffort(effort);
+        }
+
         IReadOnlyList<string> supported = GetReasoningEfforts(model);
         string requested = (effort ?? string.Empty).Trim().ToLowerInvariant();
         if (supported.Contains(requested, StringComparer.OrdinalIgnoreCase))

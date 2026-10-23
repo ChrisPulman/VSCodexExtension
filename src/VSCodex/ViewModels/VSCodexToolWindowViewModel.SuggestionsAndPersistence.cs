@@ -2,8 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
-using ReactiveUI;
-
 namespace VSCodex.ViewModels;
 
 /// <summary>Maintains prompt suggestions, analytics, and workspace settings snapshots.</summary>
@@ -367,6 +365,7 @@ public sealed partial class VSCodexToolWindowViewModel
                 WorkspaceSolutionPath = _workspace.CurrentSolutionPath,
                 WorkspaceMemoryRoot = _workspace.CurrentWorkspaceMemoryRoot,
                 WorkspaceIdentity = _workspace.CurrentWorkspaceIdentity,
+                SolutionContext = CreateRunOptions().IncludeWorkspaceContext ? _workspace.CaptureSolutionContext() : null,
                 Options = new CodexRunOptions
                 {
                     Mode = mode,
@@ -389,7 +388,6 @@ public sealed partial class VSCodexToolWindowViewModel
                 AgentRoles = AgentRoles.Where((x) => x.IsEnabled).ToList()
             };
             ModelEstimate = _modelAnalytics.Estimate(request);
-            this.RaisePropertyChanged();
         }
         catch (Exception exception)
         {
