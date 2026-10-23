@@ -47,6 +47,14 @@ public sealed partial class VSCodexToolWindowViewModel
                 BudgetModel = CodexRuntimeModel.ResolveSelection(BudgetModel, models, custom);
                 FailoverModel = CodexRuntimeModel.ResolveSelection(FailoverModel, models, custom);
                 OrchestrationModel = CodexRuntimeModel.ResolveSelection(OrchestrationModel, models, custom);
+                foreach (AgentRoleDefinition agent in AgentRoles)
+                {
+                    if (!string.IsNullOrWhiteSpace(agent.Model))
+                    {
+                        agent.Model = CodexRuntimeModel.ResolveSelection(agent.Model, models, custom);
+                    }
+                }
+
                 RefreshReasoningOptions();
             }
 

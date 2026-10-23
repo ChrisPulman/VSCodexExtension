@@ -251,6 +251,12 @@ public sealed partial class VSCodexToolWindowViewModel
             {
                 agent.Model = BudgetModel;
             }
+            else if (!string.IsNullOrWhiteSpace(agent.Model))
+            {
+                IEnumerable<string> custom = _settingsStore.Current.CustomModels
+                    .Where(model => !CodexModelCatalog.IsShippedModel(model) && !CodexModelCatalog.IsLegacyModel(model));
+                agent.Model = CodexModelCatalog.ResolveModelSelection(agent.Model, custom);
+            }
 
             yield return agent;
         }

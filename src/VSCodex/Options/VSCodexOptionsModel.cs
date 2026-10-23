@@ -52,7 +52,7 @@ public sealed class VSCodexOptionsModel
     [Category("Models")]
     [DisplayName("Default model")]
     [Description("Primary interactive coding model.")]
-    [DefaultValue("gpt-5.6-sol")]
+    [DefaultValue("gpt-6.1-sol")]
     [TypeConverter(typeof(AvailableModelTypeConverter))]
     public string DefaultModel { get; set; } = CodexModelCatalog.DefaultModel;
 
@@ -60,7 +60,7 @@ public sealed class VSCodexOptionsModel
     [Category("Models")]
     [DisplayName("Default failover model")]
     [Description("Fallback model used when the primary model is unavailable.")]
-    [DefaultValue("gpt-5.6-terra")]
+    [DefaultValue("gpt-6-sol")]
     [TypeConverter(typeof(AvailableModelTypeConverter))]
     public string DefaultFailoverModel { get; set; } = CodexModelCatalog.DefaultFailoverModel;
 
@@ -140,7 +140,7 @@ public sealed class VSCodexOptionsModel
     [Category("Agents")]
     [DisplayName("Orchestration model")]
     [Description("Model used to split, route, and verify multi-agent tasks.")]
-    [DefaultValue("gpt-5.6-sol")]
+    [DefaultValue("gpt-6.1-sol")]
     [TypeConverter(typeof(AvailableModelTypeConverter))]
     public string DefaultOrchestrationModel { get; set; } = CodexModelCatalog.DefaultModel;
 
@@ -155,7 +155,7 @@ public sealed class VSCodexOptionsModel
     [Category("Agents")]
     [DisplayName("Budget model")]
     [Description("Lower-cost model used when budget-driven selection is enabled.")]
-    [DefaultValue("gpt-5.6-luna")]
+    [DefaultValue("gpt-6-luna")]
     [TypeConverter(typeof(AvailableModelTypeConverter))]
     public string DefaultBudgetModel { get; set; } = CodexModelCatalog.DefaultBudgetModel;
 

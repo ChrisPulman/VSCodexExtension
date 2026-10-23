@@ -305,7 +305,7 @@ public sealed class PackagingAndSurfaceTests
         await Assert.That(parser.Output).Contains("\"finalResponse\":\"Hi from parser\"");
         await Assert.That(parser.Output).Contains("\"ignoredCount\":1");
         await Assert.That(models.Output).Contains("\"transportEffort\":\"max\"");
-        await Assert.That(models.Output).Contains("\"model\":\"gpt-5.3-codex-spark\"");
+        await Assert.That(models.Output).Contains("\"model\":\"gpt-6.1-sol\"");
     }
 
     /// <summary>Exercises JSON-RPC correlation, notification, Unicode and disconnect behavior.</summary>

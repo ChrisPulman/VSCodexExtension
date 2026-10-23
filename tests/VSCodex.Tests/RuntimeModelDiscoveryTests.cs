@@ -14,6 +14,9 @@ public sealed class RuntimeModelDiscoveryTests
     /// <summary>Available runtime choice.</summary>
     private const string AvailableModel = "available-model";
 
+    /// <summary>Default advertised by a future account catalog.</summary>
+    private const string FutureDefault = "future-default";
+
     /// <summary>Previously shipped choice.</summary>
     private const string RetiredModel = "gpt-5.5";
 
@@ -59,12 +62,15 @@ public sealed class RuntimeModelDiscoveryTests
     [Test]
     public async Task Runtime_default_replaces_only_retired_shipped_choices()
     {
-        CodexRuntimeModel[] models = [new() { Model = "future-default", IsDefault = true }, new() { Model = AvailableModel }];
-        await Assert.That(CodexRuntimeModel.ResolveSelection(RetiredModel, models, [])).IsEqualTo("future-default");
+        CodexRuntimeModel[] models = [new() { Model = FutureDefault, IsDefault = true }, new() { Model = AvailableModel }];
+        await Assert.That(CodexRuntimeModel.ResolveSelection(RetiredModel, models, [])).IsEqualTo(FutureDefault);
         await Assert.That(CodexRuntimeModel.ResolveSelection(RetiredModel, models, [RetiredModel])).IsEqualTo(RetiredModel);
         await Assert.That(CodexRuntimeModel.ResolveSelection("custom-model", models, [])).IsEqualTo("custom-model");
         await Assert.That(CodexRuntimeModel.ResolveSelection(AvailableModel, models, [])).IsEqualTo(AvailableModel);
         await Assert.That(CodexRuntimeModel.ResolveSelection(RetiredModel, [], [])).IsEqualTo(RetiredModel);
+        await Assert.That(CodexRuntimeModel.ResolveSelection("gpt-6-luna", models, [])).IsEqualTo(FutureDefault);
+        await Assert.That(CodexRuntimeModel.ResolveSelection("gpt-6-sol", models, [])).IsEqualTo(FutureDefault);
+        await Assert.That(CodexRuntimeModel.ResolveSelection(RetiredModel, [new() { Model = RetiredModel }], [])).IsEqualTo(RetiredModel);
     }
 
     /// <summary>Verifies future effort values and runtime defaults without hard-coded model names.</summary>
