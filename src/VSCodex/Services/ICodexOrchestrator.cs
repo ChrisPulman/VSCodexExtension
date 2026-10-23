@@ -23,6 +23,10 @@ public interface ICodexOrchestrator
     /// <returns>A task whose result contains the rate limits.</returns>
     Task<JObject?> GetRateLimitsAsync();
 
+    /// <summary>Gets the complete model catalog advertised by the active account.</summary>
+    /// <returns>The runtime model catalog.</returns>
+    Task<JObject?> GetModelsAsync();
+
     /// <summary>Steers an active turn.</summary>
     /// <param name="threadId">The thread identifier.</param>
     /// <param name="prompt">The steering prompt.</param>
@@ -38,8 +42,10 @@ public interface ICodexOrchestrator
     /// <param name="requestId">The request identifier.</param>
     /// <param name="method">The server request method.</param>
     /// <param name="approve">Whether to approve the request.</param>
+    /// <param name="content">The accepted form values.</param>
+    /// <param name="cancel">Whether the user cancelled elicitation.</param>
     /// <returns>A task that completes after the response is sent.</returns>
-    Task RespondToServerRequestAsync(string requestId, string method, bool approve);
+    Task RespondToServerRequestAsync(JToken requestId, string method, bool approve, JObject? content, bool cancel);
 
     /// <summary>Cancels active work without blocking.</summary>
     void Cancel();

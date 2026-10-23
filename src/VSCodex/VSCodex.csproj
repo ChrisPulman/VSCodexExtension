@@ -47,9 +47,9 @@
     <PackageReference Include="Microsoft.VisualStudio.SDK" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" />
     <PackageReference Include="Microsoft.Bcl.TimeProvider" />
-    <PackageReference Include="ReactiveUI" />
-    <PackageReference Include="ReactiveUI.WPF" />
-    <PackageReference Include="ReactiveUI.Extensions" />
+    <PackageReference Include="ReactiveUI.Reactive" />
+    <PackageReference Include="ReactiveUI.Wpf.Reactive" />
+    <PackageReference Include="ReactiveUI.Primitives.Wpf.Reactive" />
     <PackageReference Include="System.Reactive" />
     <PackageReference Include="Newtonsoft.Json" />
     <PackageDownload Include="CP.ReactiveMemory.Mcp.Server" Version="[$(CPReactiveMemoryMcpServerVersion)]" />
@@ -93,6 +93,7 @@
       <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Runtime.CompilerServices.Unsafe.dll'" />
       <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Text.Json.dll'" />
       <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'System.Threading.Tasks.Extensions.dll'" />
+      <_VSCodexRuntimeAssembly Include="@(ReferenceCopyLocalPaths)" Condition="$([System.String]::Copy('%(Filename)').StartsWith('ReactiveUI.')) or $([System.String]::Copy('%(Filename)').StartsWith('Splat')) or '%(Filename)%(Extension)' == 'System.Reactive.dll'" />
       <VSIXSourceItem Include="@(_VSCodexRuntimeAssembly)">
         <VSIXSubPath>$(AssemblyVSIXSubPath)</VSIXSubPath>
       </VSIXSourceItem>

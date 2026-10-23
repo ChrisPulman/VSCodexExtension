@@ -44,6 +44,9 @@ public sealed partial class VSCodexToolWindowViewModel
     /// <summary>Captures immutable state for one queued prompt execution.</summary>
     private sealed class QueuedPromptContext
     {
+        /// <summary>Gets or sets the immutable metadata captured at enqueue.</summary>
+        public SolutionContextSnapshot? SolutionContext { get; set; }
+
         /// <summary>Gets or sets the prompt.</summary>
         public string Prompt { get; set; } = string.Empty;
 

@@ -2,8 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
-using ReactiveUI;
-
 namespace VSCodex.ViewModels;
 
 /// <summary>Builds and updates the Codex run-activity presentation.</summary>
@@ -195,7 +193,7 @@ public sealed partial class VSCodexToolWindowViewModel
             Kind = kind,
             Title = title,
             StartedAt = _timeProvider.GetLocalNow(),
-            IsExpanded = (kind != RunActivityKind.System)
+            IsExpanded = kind == RunActivityKind.Assistant
         };
     }
 
@@ -252,13 +250,12 @@ public sealed partial class VSCodexToolWindowViewModel
             FilePath = (filePath ?? string.Empty),
             IsDeleted = isDeleted,
             StartedAt = _timeProvider.GetLocalNow(),
-            IsExpanded = (kind != RunActivityKind.System)
+            IsExpanded = kind == RunActivityKind.Assistant
         };
         RunOnUiThread(() =>
         {
             RunActivityNode activitySection = GetActivitySection(kind);
             activitySection.Children.Add(node);
-            activitySection.IsExpanded = true;
         });
         return node;
     }
@@ -305,6 +302,32 @@ public sealed partial class VSCodexToolWindowViewModel
         {
             AppendMessageToActivityTree(message);
         }
+
+        foreach (RunActivityNode root in RunActivityRoots)
+        {
+            CompleteRunActivityPresentation(root);
+        }
+    }
+
+    /// <summary>Leaves the final response open while retaining earlier responses for inspection.</summary>
+    /// <param name="root">The completed request.</param>
+    private void CompleteRunActivityPresentation(RunActivityNode root)
+    {
+        RunActivityNode? responses = root.Children.FirstOrDefault(child => child.Kind == RunActivityKind.Assistant);
+        if (responses is null)
+        {
+            return;
+        }
+
+        VSCodex.Core.Presentation.ResponsePresentation.Complete(
+            responses.Children,
+            response => response.Detail,
+            (response, expanded) => response.IsExpanded = expanded,
+            () =>
+            {
+                root.IsExpanded = true;
+                responses.IsExpanded = true;
+            });
     }
 
     /// <summary>Updates run Activity Elapsed.</summary>
@@ -353,8 +376,6 @@ public sealed partial class VSCodexToolWindowViewModel
                         IsExpanded = false
                     });
                 }
-
-                activitySection.IsExpanded = true;
             }
         });
     }
@@ -375,7 +396,7 @@ public sealed partial class VSCodexToolWindowViewModel
             {
                 _activeTurnId = ev.TurnId ?? string.Empty;
                 _activeOperationId = ev.OperationId ?? _activeOperationId;
-                this.RaisePropertyChanged();
+                this.RaisePropertyChanged(nameof(CanSteer));
             }
 
             if (ev.Type == "approval-request")
@@ -384,15 +405,17 @@ public sealed partial class VSCodexToolWindowViewModel
                 string text = jsonObject.Value<string>("method") ?? string.Empty;
                 ApprovalRequest item = new ApprovalRequest
                 {
-                    Id = (jsonObject.Value<string>("requestId") ?? Guid.NewGuid().ToString("N")),
+                    Id = jsonObject["requestId"]?.ToString() ?? Guid.NewGuid().ToString("N"),
+                    ServerRequestId = jsonObject["requestId"]?.DeepClone(),
+                    Form = text == "mcpServer/elicitation/request" ? ElicitationForm.Create(jsonObject["params"] as JObject) : null,
                     Method = text,
                     ToolName = text,
                     ArgumentsPreview = (jsonObject["params"]?.ToString() ?? string.Empty),
-                    Reason = ev.Message
+                    Reason = text == "mcpServer/elicitation/request" ? "Codex needs your input" : "Codex needs your approval"
                 };
                 ApprovalRequests.Add(item);
                 _ = AddMessage(CodexMessageRole.Approval, ev.Message, persist: false);
-                Status = ev.Message;
+                Status = item.Reason;
             }
             else if (ev.Type == "assistant-delta")
             {

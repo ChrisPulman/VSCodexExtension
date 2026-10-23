@@ -7,7 +7,7 @@ using System.Linq;
 namespace VSCodex.Options;
 
 /// <summary>Provides the verbosity Type Converter implementation.</summary>
-public sealed class VerbosityTypeConverter : StringConverter
+public sealed class VerbosityTypeConverter : System.ComponentModel.StringConverter
 {
     /// <summary>Gets standard Values Supported.</summary>
     /// <param name="context">The context.</param>

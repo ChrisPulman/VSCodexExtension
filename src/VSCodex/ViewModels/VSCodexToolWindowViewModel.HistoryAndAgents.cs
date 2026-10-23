@@ -2,8 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
-using ReactiveUI;
-
 namespace VSCodex.ViewModels;
 
 /// <summary>Manages workspace-scoped history, attachments, and agent choices.</summary>
@@ -29,13 +27,16 @@ public sealed partial class VSCodexToolWindowViewModel
     /// <summary>Refreshes history.</summary>
     private void RefreshHistory()
     {
+        string? selectedId = SelectedHistoryItem?.Id;
         WorkspaceIdentity identity = _workspace.CurrentWorkspaceIdentity;
         List<SessionHistoryItem> items = (from session in _sessionStore.LoadRecent(Numeric100)
                                           where session.Messages.Count > 0 || !string.IsNullOrWhiteSpace(session.ThreadId)
                                           where SessionBelongsToCurrentWorkspace(session, identity)
+                                          where IncludeArchivedSessions || !session.IsArchived
                                           select session).Select(BuildHistoryItem).ToList();
         Replace(HistoryItems, items);
         ApplyHistoryFilter(items);
+        SelectedHistoryItem = VisibleHistoryItems.FirstOrDefault(item => item.Id == selectedId);
     }
 
     /// <summary>Applies history Filter.</summary>
@@ -55,8 +56,8 @@ public sealed partial class VSCodexToolWindowViewModel
             items = items.Where((item) => Contains(item.Title, query) || Contains(item.Preview, query) || Contains(item.ThreadId, query));
         }
 
-        Replace(VisibleHistoryItems, items.ToList());
-        this.RaisePropertyChanged();
+        Replace(VisibleHistoryItems, items.OrderByDescending(item => item.IsPinned).ThenByDescending(item => item.Updated).ToList());
+        this.RaisePropertyChanged(nameof(HasVisibleHistory));
     }
 
     /// <summary>Loads history Item.</summary>
@@ -89,7 +90,7 @@ public sealed partial class VSCodexToolWindowViewModel
 
         RebuildActivityTreeFromMessages();
         Attachments.Clear();
-        SelectedHistoryItem = item;
+        SelectedHistoryItem = VisibleHistoryItems.FirstOrDefault(candidate => candidate.Id == item.Id) ?? item;
         IsToolPanelOpen = false;
         Status = (loadedFromAnotherWorkspace ? "Loaded history for the current workspace without reusing the previous Codex thread" : ($"Loaded history: {item.Title}"));
         UpdateAnalytics(Prompt);

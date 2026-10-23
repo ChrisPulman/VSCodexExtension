@@ -18,7 +18,7 @@ using VSCodex.Models;
 namespace VSCodex.Services;
 
 /// <summary>Provides the workspace Context Service implementation.</summary>
-public sealed class WorkspaceContextService : IWorkspaceContextService
+public sealed partial class WorkspaceContextService : IWorkspaceContextService
 {
     /// <summary>Named number used by this type.</summary>
     private const int Numeric12 = 12;

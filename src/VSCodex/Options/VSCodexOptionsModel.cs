@@ -41,6 +41,13 @@ public sealed class VSCodexOptionsModel
     [DefaultValue("")]
     public string BridgeScriptPath { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the execution transport.</summary>
+    [Category("Runtime")]
+    [DisplayName("Execution transport")]
+    [Description("Use the Codex app-server for streaming, approvals and history, or CLI-only execution for a standalone process. CLI-only mode cannot answer interactive approval forms.")]
+    [DefaultValue(CodexTransportKind.SdkBridge)]
+    public CodexTransportKind DefaultTransport { get; set; } = CodexTransportKind.SdkBridge;
+
     /// <summary>Gets or sets the default Model.</summary>
     [Category("Models")]
     [DisplayName("Default model")]
@@ -203,6 +210,7 @@ public sealed class VSCodexOptionsModel
         CodexCliPath = settings.CodexCliPath;
         NodePath = settings.NodePath;
         BridgeScriptPath = settings.BridgeScriptPath;
+        DefaultTransport = settings.DefaultTransport;
         DefaultModel = settings.DefaultModel;
         DefaultFailoverModel = settings.DefaultFailoverModel;
         DefaultReasoningEffort = settings.DefaultReasoningEffort;
@@ -233,6 +241,7 @@ public sealed class VSCodexOptionsModel
         settings.CodexCliPath = TrimOr(CodexCliPath, "codex");
         settings.NodePath = TrimOr(NodePath, "node");
         settings.BridgeScriptPath = TrimOr(BridgeScriptPath, string.Empty);
+        settings.DefaultTransport = DefaultTransport;
         settings.DefaultModel = TrimOr(DefaultModel, CodexModelCatalog.DefaultModel);
         settings.DefaultFailoverModel = TrimOr(DefaultFailoverModel, CodexModelCatalog.DefaultFailoverModel);
         settings.DefaultReasoningEffort = CodexModelCatalog.ResolveReasoningEffort(settings.DefaultModel, TrimOr(DefaultReasoningEffort, MediumText));

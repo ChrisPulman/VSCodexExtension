@@ -20,7 +20,7 @@ namespace VSCodex.Services;
 
 /// <summary>Provides the Codex SDK JSON client implementation.</summary>
 /// <param name="settings">The extension settings store.</param>
-public sealed class CodexSdkJsonClient(ISettingsStore settings) : ICodexClient, IDisposable
+public sealed class CodexSdkJsonClient(ISettingsStore settings) : ICodexClient, IThreadCatalogClient, IDisposable
 {
     /// <summary>Defines the bridge startup delay in milliseconds.</summary>
     private const int BridgeStartupDelayMilliseconds = 150;
@@ -40,6 +40,12 @@ public sealed class CodexSdkJsonClient(ISettingsStore settings) : ICodexClient, 
     /// <summary>Stores pending bridge requests.</summary>
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> _pending = new();
 
+    /// <summary>Serializes bridge startup across chat and approval requests.</summary>
+    private readonly SemaphoreSlim _startupGate = new(1, 1);
+
+    /// <summary>Prevents overlapping writes from corrupting the JSON line protocol.</summary>
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
+
     /// <summary>Stores the bridge process.</summary>
     private Process? _process;
 
@@ -56,7 +62,16 @@ public sealed class CodexSdkJsonClient(ISettingsStore settings) : ICodexClient, 
     {
         ValidateWorkspace(request);
         await EnsureBridgeAsync().ConfigureAwait(continueOnCapturedContext: false);
-        JObject response = await SendAsync(CreateRunPayload(request)).ConfigureAwait(continueOnCapturedContext: false);
+        JObject response;
+        try
+        {
+            response = await SendAsync(CreateRunPayload(request)).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            throw new CodexRunFailureException(exception);
+        }
+
         string rawJson = ToCompactJson(response);
         return new CodexRunResult
         {
@@ -74,6 +89,26 @@ public sealed class CodexSdkJsonClient(ISettingsStore settings) : ICodexClient, 
         return await SendAsync(new JObject { [CommandPropertyName] = "getRateLimits" })
             .ConfigureAwait(continueOnCapturedContext: false);
     }
+
+    /// <summary>Gets available models and reasoning capabilities from the SDK bridge.</summary>
+    /// <returns>The complete runtime model catalog.</returns>
+    public async Task<JObject?> GetModelsAsync()
+    {
+        await EnsureBridgeAsync().ConfigureAwait(false);
+        return await SendAsync(new JObject { [CommandPropertyName] = "getModels" }).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public Task<JObject> ListThreadsAsync(bool archived) => SendThreadCommandAsync("listThreads", null, archived);
+
+    /// <inheritdoc />
+    public Task<JObject> ReadThreadAsync(string threadId) => SendThreadCommandAsync("readThread", threadId);
+
+    /// <inheritdoc />
+    public Task<JObject> ForkThreadAsync(string threadId) => SendThreadCommandAsync("forkThread", threadId);
+
+    /// <inheritdoc />
+    public Task<JObject> SetThreadArchivedAsync(string threadId, bool archived) => SendThreadCommandAsync("archiveThread", threadId, archived);
 
     /// <summary>Steers an active SDK turn.</summary>
     /// <param name="threadId">The thread identifier.</param>
@@ -107,15 +142,10 @@ public sealed class CodexSdkJsonClient(ISettingsStore settings) : ICodexClient, 
     /// <param name="requestId">The request identifier.</param>
     /// <param name="result">The response payload.</param>
     /// <returns>A task whose result contains the bridge response.</returns>
-    public async Task<JObject> RespondToServerRequestAsync(string requestId, JObject result)
+    public async Task<JObject> RespondToServerRequestAsync(JToken requestId, JObject result)
     {
         await EnsureBridgeAsync().ConfigureAwait(continueOnCapturedContext: false);
-        return await SendAsync(new JObject
-        {
-            [CommandPropertyName] = "respondServerRequest",
-            [nameof(requestId)] = requestId,
-            [nameof(result)] = result
-        }).ConfigureAwait(continueOnCapturedContext: false);
+        return await SendAsync(ServerRequestProtocol.CreateBridgeCommand(requestId, result)).ConfigureAwait(continueOnCapturedContext: false);
     }
 
     /// <summary>Cancels the active run without blocking the caller.</summary>
@@ -124,6 +154,7 @@ public sealed class CodexSdkJsonClient(ISettingsStore settings) : ICodexClient, 
     /// <summary>Releases process resources.</summary>
     public void Dispose()
     {
+        FailPendingRequests("Codex SDK bridge has been disposed.");
         TryKillProcess();
         _events.Dispose();
     }
@@ -203,27 +234,109 @@ public sealed class CodexSdkJsonClient(ISettingsStore settings) : ICodexClient, 
 
         string id = Guid.NewGuid().ToString("N");
         payload[nameof(id)] = id;
-        TaskCompletionSource<JObject> completionSource = new();
+        TaskCompletionSource<JObject> completionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[id] = completionSource;
-        await _stdin.WriteLineAsync(ToCompactJson(payload)).ConfigureAwait(continueOnCapturedContext: false);
-        await _stdin.FlushAsync().ConfigureAwait(continueOnCapturedContext: false);
+        try
+        {
+            await WritePayloadAsync(payload).ConfigureAwait(false);
+        }
+        catch
+        {
+            _ = _pending.TryRemove(id, out _);
+            throw;
+        }
+
         return await completionSource.Task.ConfigureAwait(continueOnCapturedContext: false);
+    }
+
+    /// <summary>Writes one complete protocol message without interleaving other requests.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <returns>The asynchronous write operation.</returns>
+    private async Task WritePayloadAsync(JObject payload)
+    {
+        await _writeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            StreamWriter writer = _stdin ?? throw new InvalidOperationException("Codex SDK bridge is not running.");
+            await writer.WriteLineAsync(ToCompactJson(payload)).ConfigureAwait(false);
+            await writer.FlushAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _writeGate.Release();
+        }
+    }
+
+    /// <summary>Sends a thread command without falling back or replaying mutations.</summary>
+    /// <param name="command">The bridge command.</param>
+    /// <param name="threadId">The thread identifier.</param>
+    /// <param name="archived">The archive state.</param>
+    /// <returns>The protocol response.</returns>
+    private async Task<JObject> SendThreadCommandAsync(string command, string? threadId, bool archived = false)
+    {
+        await EnsureBridgeAsync().ConfigureAwait(false);
+        return await SendAsync(new JObject
+        {
+            [CommandPropertyName] = command,
+            [ThreadIdPropertyName] = threadId,
+            [nameof(archived)] = archived
+        }).ConfigureAwait(false);
     }
 
     /// <summary>Ensures that the SDK bridge is running.</summary>
     /// <returns>A task that completes after bridge initialization.</returns>
     private async Task EnsureBridgeAsync()
     {
-        if (_process?.HasExited == false)
+        await _startupGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return;
-        }
+            if (_process?.HasExited == false)
+            {
+                return;
+            }
 
-        _process = StartBridge(ResolveBridgeScript());
-        _stdin = _process.StandardInput;
-        _ = Task.Run(() => PumpStdout(_process.StandardOutput));
-        _ = Task.Run(() => PumpStderr(_process.StandardError));
-        await Task.Delay(BridgeStartupDelayMilliseconds).ConfigureAwait(continueOnCapturedContext: false);
+            FailPendingRequests("The previous Codex bridge stopped before responding.");
+            Process bridge = StartBridge(ResolveBridgeScript());
+            _process = bridge;
+            _stdin = Utf8ProcessStreams.CreateWriter(bridge.StandardInput.BaseStream);
+            _ = Task.Run(() => ObserveBridgeOutput(bridge));
+            _ = Task.Run(() => PumpStderr(bridge.StandardError));
+            await Task.Delay(BridgeStartupDelayMilliseconds).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _startupGate.Release();
+        }
+    }
+
+    /// <summary>Drains final responses before failing requests when the bridge output closes.</summary>
+    /// <param name="bridge">The process whose output is being observed.</param>
+    private void ObserveBridgeOutput(Process bridge)
+    {
+        try
+        {
+            PumpStdout(bridge.StandardOutput);
+        }
+        finally
+        {
+            if (ReferenceEquals(bridge, _process))
+            {
+                FailPendingRequests("Codex bridge disconnected before responding. Retry after checking the runtime setup.");
+            }
+        }
+    }
+
+    /// <summary>Completes outstanding requests when their transport is unavailable.</summary>
+    /// <param name="message">The disconnect explanation.</param>
+    private void FailPendingRequests(string message)
+    {
+        foreach (string id in _pending.Keys)
+        {
+            if (_pending.TryRemove(id, out TaskCompletionSource<JObject>? completion))
+            {
+                _ = completion.TrySetException(new IOException(message));
+            }
+        }
     }
 
     /// <summary>Resolves the SDK bridge script path.</summary>

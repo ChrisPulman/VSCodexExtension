@@ -2,8 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
-using ReactiveUI;
-
 namespace VSCodex.ViewModels;
 
 /// <summary>Exposes the bindable state and commands of the VSCodex tool-window view model.</summary>
@@ -119,6 +117,9 @@ public sealed partial class VSCodexToolWindowViewModel
 
     /// <summary>Gets the decline Request Command.</summary>
     public ReactiveCommand<ApprovalRequest, Unit> DeclineRequestCommand { get; private set; }
+
+    /// <summary>Gets the cancel elicitation command.</summary>
+    public ReactiveCommand<ApprovalRequest, Unit> CancelRequestCommand { get; private set; }
 
     /// <summary>Gets the new Thread Command.</summary>
     public ReactiveCommand<Unit, Unit> NewThreadCommand { get; private set; }
@@ -259,9 +260,9 @@ public sealed partial class VSCodexToolWindowViewModel
         set
         {
             _ = this.RaiseAndSetIfChanged(ref _prompt, value);
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(HasPromptText));
+            this.RaisePropertyChanged(nameof(IsRunControlInStopMode));
+            this.RaisePropertyChanged(nameof(IsPersistentStopControlVisible));
         }
     }
 
@@ -279,11 +280,11 @@ public sealed partial class VSCodexToolWindowViewModel
         set
         {
             _ = this.RaiseAndSetIfChanged(ref _isRunning, value);
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(CanEditSettings));
+            this.RaisePropertyChanged(nameof(IsPauseControlVisible));
+            this.RaisePropertyChanged(nameof(IsRunControlInStopMode));
+            this.RaisePropertyChanged(nameof(IsPersistentStopControlVisible));
+            this.RaisePropertyChanged(nameof(CanSteer));
         }
     }
 
@@ -294,8 +295,8 @@ public sealed partial class VSCodexToolWindowViewModel
         private set
         {
             _ = this.RaiseAndSetIfChanged(ref _queuedPromptCount, Math.Max(0, value));
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(HasQueuedPrompts));
+            this.RaisePropertyChanged(nameof(QueueStatusDisplay));
         }
     }
 
@@ -312,15 +313,15 @@ public sealed partial class VSCodexToolWindowViewModel
         private set
         {
             _ = this.RaiseAndSetIfChanged(ref _isPaused, value);
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(IsPauseControlVisible));
+            this.RaisePropertyChanged(nameof(IsResumeControlVisible));
         }
     }
 
     /// <summary>Gets the is Pause Control Visible.</summary>
     public bool IsPauseControlVisible
     {
-        get => IsRunning ? !IsPaused : false;
+        get => IsRunning && !IsPaused;
     }
 
     /// <summary>Gets the is Resume Control Visible.</summary>
@@ -329,19 +330,19 @@ public sealed partial class VSCodexToolWindowViewModel
     /// <summary>Gets the can Steer.</summary>
     public bool CanSteer
     {
-        get => IsRunning ? !string.IsNullOrWhiteSpace(ThreadId) : false;
+        get => IsRunning && !string.IsNullOrWhiteSpace(ThreadId);
     }
 
     /// <summary>Gets the is Run Control In Stop Mode.</summary>
     public bool IsRunControlInStopMode
     {
-        get => IsRunning ? !HasPromptText : false;
+        get => IsRunning && !HasPromptText;
     }
 
     /// <summary>Gets the is Persistent Stop Control Visible.</summary>
     public bool IsPersistentStopControlVisible
     {
-        get => IsRunning ? HasPromptText : false;
+        get => IsRunning && HasPromptText;
     }
 
     /// <summary>Gets the queue Status Display.</summary>
@@ -541,10 +542,10 @@ public sealed partial class VSCodexToolWindowViewModel
         set
         {
             _ = this.RaiseAndSetIfChanged(ref _modelEstimate, value ?? new ModelUsageEstimate());
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(AnalyticsSummary));
+            this.RaisePropertyChanged(nameof(AnalyticsRecommendation));
+            this.RaisePropertyChanged(nameof(ContextWindowSummary));
+            this.RaisePropertyChanged(nameof(ContextRemainingSummary));
         }
     }
 
@@ -760,7 +761,7 @@ public sealed partial class VSCodexToolWindowViewModel
         set
         {
             _ = this.RaiseAndSetIfChanged(ref _threadId, value);
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(CanSteer));
         }
     }
 

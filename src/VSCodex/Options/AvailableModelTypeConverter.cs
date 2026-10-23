@@ -7,7 +7,7 @@ using System.Linq;
 namespace VSCodex.Options;
 
 /// <summary>Provides the available Model Type Converter implementation.</summary>
-public sealed class AvailableModelTypeConverter : StringConverter
+public sealed class AvailableModelTypeConverter : System.ComponentModel.StringConverter
 {
     /// <summary>Gets standard Values Supported.</summary>
     /// <param name="context">The context.</param>

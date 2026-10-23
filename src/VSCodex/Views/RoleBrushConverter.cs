@@ -23,14 +23,14 @@ public sealed class RoleBrushConverter : IValueConverter
     /// <returns>The convert result.</returns>
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        ThemeResourceKey key = (ThemeResourceKey)((value is not CodexMessageRole) ? EnvironmentColors.ToolWindowTextBrushKey : ((CodexMessageRole)value switch
+        ThemeResourceKey key = value switch
         {
             CodexMessageRole.User => EnvironmentColors.FileTabHotTextBrushKey,
             CodexMessageRole.Error => EnvironmentColors.ToolWindowValidationErrorTextBrushKey,
             CodexMessageRole.Memory => EnvironmentColors.SystemGrayTextBrushKey,
             CodexMessageRole.Skill or CodexMessageRole.Mcp => EnvironmentColors.CommandBarMenuLinkTextBrushKey,
             _ => EnvironmentColors.ToolWindowTextBrushKey,
-        }));
+        };
         return (Application.Current?.TryFindResource(key) as Brush) ?? SystemColors.ControlTextBrush;
     }
 

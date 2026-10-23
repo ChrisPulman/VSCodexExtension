@@ -8,7 +8,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Threading;
-using ReactiveUI.Builder;
+using ReactiveUI.Reactive.Builder;
 using VSCodex.Services;
 
 namespace VSCodex.Infrastructure;
@@ -121,9 +121,9 @@ public sealed class RxAppBuilder
                 }
 
                 var dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
-                var mainThreadScheduler = new DispatcherScheduler(dispatcher);
+                var mainThreadScheduler = new ReactiveUI.Primitives.Reactive.Concurrency.DispatcherSequencer(dispatcher);
 
-                _ = ReactiveUI.Builder.RxAppBuilder.CreateReactiveUIBuilder()
+                _ = ReactiveUI.Reactive.Builder.RxAppBuilder.CreateReactiveUIBuilder()
                     .WithMainThreadScheduler(mainThreadScheduler)
                     .WithTaskPoolScheduler(TaskPoolScheduler.Default)
                     .WithCoreServices()

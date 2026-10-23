@@ -69,7 +69,7 @@ public sealed class ModelAnalyticsService : IModelAnalyticsService
     [
         new ModelProfile
         {
-            Id = CodexModelCatalog.DefaultModel, DisplayName = "GPT-5.6 Sol",
+            Id = "gpt-5.6-sol", DisplayName = "GPT-5.6 Sol",
             InputPricePerMillion = 5.00D, OutputPricePerMillion = 30.00D,
             ContextWindowTokens = Numeric1050000, BestForComplexity = ModelTaskComplexity.High,
             IsCodexOptimized = true, Notes = "Codex Power model for complex, open-ended work."
@@ -173,6 +173,11 @@ public sealed class ModelAnalyticsService : IModelAnalyticsService
     private int EstimateInputTokens(CodexRunRequest request)
     {
         var chars = SafeLength(request.Prompt);
+        if (request.Options.IncludeWorkspaceContext && request.SolutionContext is not null)
+        {
+            chars += request.SolutionContext.Format().Length;
+        }
+
         chars += request.WorkspaceFiles.Sum(x => SafeLength(x.Preview));
         chars += request.Memories.Sum(x => SafeLength(x.Text));
         chars += request.Skills.Where(x => x.IsEnabled).Sum(x => Math.Min(SafeLength(x.Content), Numeric4000));
@@ -298,7 +303,7 @@ public sealed class ModelAnalyticsService : IModelAnalyticsService
             return profile;
         }
 
-        var fallback = _profiles.First(x => x.Id.Equals(CodexModelCatalog.DefaultModel, StringComparison.OrdinalIgnoreCase));
+        var fallback = _profiles[0];
         return new ModelProfile
         {
             Id = string.IsNullOrWhiteSpace(model) ? fallback.Id : model.Trim(),

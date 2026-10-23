@@ -2,7 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 using System;
-using ReactiveUI;
 
 namespace VSCodex.Models;
 
@@ -20,6 +19,18 @@ public sealed class RateLimitWindowStatus : ReactiveObject
 
     /// <summary>Stores the usage Percent.</summary>
     private int _usagePercent;
+
+    /// <summary>Stores whether telemetry has arrived.</summary>
+    private bool _hasTelemetry;
+
+    /// <summary>Stores the detailed account limit description.</summary>
+    private string _toolTip = "Account limits have not been received from Codex.";
+
+    /// <summary>Gets or sets a value indicating whether this row contains verified account telemetry.</summary>
+    public bool HasTelemetry { get => _hasTelemetry; set => this.RaiseAndSetIfChanged(ref _hasTelemetry, value); }
+
+    /// <summary>Gets or sets detailed telemetry and local reset information.</summary>
+    public string ToolTip { get => _toolTip; set => this.RaiseAndSetIfChanged(ref _toolTip, value ?? string.Empty); }
 
     /// <summary>Gets or sets the label.</summary>
     public string Label { get; set; } = string.Empty;

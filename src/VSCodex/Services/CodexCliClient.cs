@@ -22,14 +22,20 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
     /// <summary>Defines the maximum UI error length.</summary>
     private const int MaximumUiErrorLength = 1600;
 
+    /// <summary>Defines the Windows backslash escaping multiplier.</summary>
+    private const int EscapeMultiplier = 2;
+
     /// <summary>Stores the settings.</summary>
     private readonly ISettingsStore _settings = settings;
 
     /// <summary>Publishes CLI events.</summary>
     private readonly Subject<CodexEvent> _events = new();
 
-    /// <summary>Stores the active CLI process.</summary>
-    private Process? _active;
+    /// <summary>Owns the active process tree.</summary>
+    private CliProcessLifetime? _activeLifetime;
+
+    /// <summary>Records an explicit stop.</summary>
+    private volatile bool _cancelled;
 
     /// <summary>Gets CLI events.</summary>
     public IObservable<CodexEvent> Events => _events.AsObservable();
@@ -40,22 +46,57 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
     public async Task<CodexRunResult> RunAsync(CodexRunRequest request)
     {
         ValidateWorkspace(request);
-        Process process = StartProcess(CreateStartInfo(request));
-        _active = process;
-        StringBuilder output = new();
+        using Process process = StartProcess(CreateStartInfo(request));
+        using var lifetime = CliProcessLifetime.Attach(process);
+        _activeLifetime = lifetime;
+        _cancelled = false;
+        var parser = new CodexCliJsonParser(request.ThreadId);
         StringBuilder error = new();
-        SubscribeToOutput(process, output, error);
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        Exception? stdinException = await WritePromptAsync(process, request.Prompt).ConfigureAwait(continueOnCapturedContext: false);
-        await Task.Run(() => process.WaitForExit()).ConfigureAwait(continueOnCapturedContext: false);
-        ThrowIfRunFailed(process, output, error, stdinException);
-        return new CodexRunResult { FinalResponse = output.ToString(), UsedFallback = true };
+        process.OutputDataReceived += (_, args) =>
+        {
+            if (args.Data is null)
+            {
+                return;
+            }
+
+            foreach (CodexEvent item in parser.ParseLine(args.Data))
+            {
+                _events.OnNext(item);
+            }
+        };
+        process.ErrorDataReceived += (_, args) => HandleStandardError(args, error);
+        try
+        {
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            Exception? stdinException = await WritePromptAsync(process, request.Prompt).ConfigureAwait(false);
+            await Task.Run(() => process.WaitForExit()).ConfigureAwait(false);
+            if (_cancelled)
+            {
+                throw new OperationCanceledException("Codex CLI execution was stopped.");
+            }
+
+            if (process.ExitCode != 0 || stdinException is not null || parser.Failure is not null || !parser.Completed)
+            {
+                string details = TrimForUi(parser.Failure ?? error.ToString());
+                throw new CodexRunFailureException($"Codex CLI exited with code {process.ExitCode}: {details}", stdinException ?? new InvalidOperationException(details));
+            }
+
+            return new CodexRunResult { ThreadId = parser.ThreadId, FinalResponse = parser.FinalResponse, RawJson = parser.RawJson, UsedFallback = true };
+        }
+        finally
+        {
+            _activeLifetime = null;
+        }
     }
 
     /// <summary>Gets CLI rate limits.</summary>
     /// <returns>A completed task with no CLI rate limit payload.</returns>
     public Task<JObject?> GetRateLimitsAsync() => Task.FromResult<JObject?>(null);
+
+    /// <summary>Gets no model catalog because CLI execution has no discovery endpoint.</summary>
+    /// <returns>A null catalog.</returns>
+    public Task<JObject?> GetModelsAsync() => GetRateLimitsAsync();
 
     /// <summary>Reports that CLI steering is unsupported.</summary>
     /// <param name="threadId">The thread identifier.</param>
@@ -79,7 +120,7 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
     /// <param name="requestId">The request identifier.</param>
     /// <param name="result">The response payload.</param>
     /// <returns>A failed task.</returns>
-    public Task<JObject> RespondToServerRequestAsync(string requestId, JObject result)
+    public Task<JObject> RespondToServerRequestAsync(JToken requestId, JObject result)
     {
         return Task.FromException<JObject>(new NotSupportedException("The Codex CLI fallback does not expose app-server approval requests."));
     }
@@ -87,17 +128,8 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
     /// <summary>Cancels the active CLI process without blocking.</summary>
     public void CancelActiveRun()
     {
-        try
-        {
-            if (_active?.HasExited == false)
-            {
-                _active.Kill();
-            }
-        }
-        catch (Exception ex) when (ex is InvalidOperationException || ex is Win32Exception || ex is ObjectDisposedException)
-        {
-            _events.OnNext(new CodexEvent { Type = "cli-stop-error", Message = ex.Message });
-        }
+        _cancelled = true;
+        _activeLifetime?.Dispose();
     }
 
     /// <summary>Builds CLI arguments for a request.</summary>
@@ -108,12 +140,23 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
         StringBuilder arguments = new("exec ");
         AppendModelArguments(arguments, request);
         AppendWorkspaceArguments(arguments, request.WorkspaceRoot);
+        if (!string.IsNullOrWhiteSpace(request.ThreadId))
+        {
+            _ = arguments.Append("resume ");
+        }
+
+        _ = arguments.Append("--json ");
         foreach (CodexAttachment attachment in request.Attachments)
         {
             if (attachment.Kind == "image")
             {
                 _ = arguments.Append("--image ").Append(Quote(attachment.Path)).Append(' ');
             }
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ThreadId))
+        {
+            _ = arguments.Append(Quote(request.ThreadId!)).Append(' ');
         }
 
         _ = arguments.Append('-');
@@ -123,7 +166,25 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
     /// <summary>Quotes a CLI argument.</summary>
     /// <param name="value">The value to quote.</param>
     /// <returns>The quoted value.</returns>
-    private string Quote(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
+    private string Quote(string value)
+    {
+        var quoted = new StringBuilder("\"");
+        int slashes = 0;
+        foreach (char character in value)
+        {
+            if (character == '\\')
+            {
+                slashes++;
+                continue;
+            }
+
+            _ = quoted.Append('\\', character == '\"' ? (slashes * EscapeMultiplier) + 1 : slashes).Append(character);
+
+            slashes = 0;
+        }
+
+        return quoted.Append('\\', slashes * EscapeMultiplier).Append('\"').ToString();
+    }
 
     /// <summary>Converts an approval policy to a CLI setting.</summary>
     /// <param name="policy">The policy.</param>
@@ -244,39 +305,6 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
             && !profile.Equals("default", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Determines whether a line is normal process-termination noise.</summary>
-    /// <param name="line">The output line.</param>
-    /// <returns><see langword="true"/> when the line is termination noise.</returns>
-    private bool IsProcessTerminationNoise(string line)
-    {
-        return line.StartsWith("SUCCESS: The process with PID ", StringComparison.OrdinalIgnoreCase)
-            && line.EndsWith(" has been terminated.", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>Subscribes to process output streams.</summary>
-    /// <param name="process">The process.</param>
-    /// <param name="output">The standard output buffer.</param>
-    /// <param name="error">The standard error buffer.</param>
-    private void SubscribeToOutput(Process process, StringBuilder output, StringBuilder error)
-    {
-        process.OutputDataReceived += (_, eventArgs) => HandleStandardOutput(eventArgs, output);
-        process.ErrorDataReceived += (_, eventArgs) => HandleStandardError(eventArgs, error);
-    }
-
-    /// <summary>Handles one standard output event.</summary>
-    /// <param name="eventArgs">The output event.</param>
-    /// <param name="output">The standard output buffer.</param>
-    private void HandleStandardOutput(DataReceivedEventArgs eventArgs, StringBuilder output)
-    {
-        if (eventArgs.Data is null || IsProcessTerminationNoise(eventArgs.Data))
-        {
-            return;
-        }
-
-        _ = output.AppendLine(eventArgs.Data);
-        _events.OnNext(new CodexEvent { Type = "stdout", Message = eventArgs.Data });
-    }
-
     /// <summary>Handles one standard error event.</summary>
     /// <param name="eventArgs">The error event.</param>
     /// <param name="error">The standard error buffer.</param>
@@ -299,8 +327,11 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
     {
         try
         {
-            await process.StandardInput.WriteAsync(prompt ?? string.Empty).ConfigureAwait(continueOnCapturedContext: false);
-            process.StandardInput.Close();
+            using (var stdin = Utf8ProcessStreams.CreateWriter(process.StandardInput.BaseStream))
+            {
+                await stdin.WriteAsync(prompt ?? string.Empty).ConfigureAwait(continueOnCapturedContext: false);
+            }
+
             return null;
         }
         catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException || ex is InvalidOperationException)
@@ -324,34 +355,12 @@ public sealed class CodexCliClient(ISettingsStore settings) : ICodexClient
         }
     }
 
-    /// <summary>Throws when CLI execution did not complete successfully.</summary>
-    /// <param name="process">The completed CLI process.</param>
-    /// <param name="output">The standard output buffer.</param>
-    /// <param name="error">The standard error buffer.</param>
-    /// <param name="stdinException">The optional stdin exception.</param>
-    private void ThrowIfRunFailed(Process process, StringBuilder output, StringBuilder error, Exception? stdinException)
-    {
-        if (process.ExitCode == 0 && stdinException is null)
-        {
-            return;
-        }
-
-        string details = TrimForUi(error + Environment.NewLine + output);
-        string message = $"Codex CLI fallback exited with code {process.ExitCode}: {details}";
-        if (stdinException is not null)
-        {
-            message = $"{message} Stdin write failed because codex exited early: {stdinException.Message}";
-        }
-
-        throw new InvalidOperationException(message, stdinException);
-    }
-
     /// <summary>Trims text for UI presentation.</summary>
     /// <param name="value">The value to trim.</param>
     /// <returns>The trimmed text.</returns>
     private string TrimForUi(object value)
     {
         string text = (value?.ToString() ?? string.Empty).Trim();
-        return text.Length > MaximumUiErrorLength ? $"{text.Substring(0, MaximumUiErrorLength)}..." : text;
+        return text.Length > MaximumUiErrorLength ? $"{text.Remove(MaximumUiErrorLength)}..." : text;
     }
 }

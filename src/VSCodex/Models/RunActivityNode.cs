@@ -4,7 +4,6 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
-using ReactiveUI;
 
 namespace VSCodex.Models;
 
@@ -21,7 +20,7 @@ public sealed class RunActivityNode : ReactiveObject
     private string _detail = string.Empty;
 
     /// <summary>Stores the is Expanded.</summary>
-    private bool _isExpanded = true;
+    private bool _isExpanded;
 
     /// <summary>Gets or sets the id.</summary>
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -66,7 +65,7 @@ public sealed class RunActivityNode : ReactiveObject
         set
         {
             _ = this.RaiseAndSetIfChanged(ref _title, value ?? string.Empty);
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(HeaderText));
         }
     }
 
@@ -77,7 +76,7 @@ public sealed class RunActivityNode : ReactiveObject
         set
         {
             _ = this.RaiseAndSetIfChanged(ref _detail, value ?? string.Empty);
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(HasDetail));
         }
     }
 
@@ -88,7 +87,7 @@ public sealed class RunActivityNode : ReactiveObject
         set
         {
             _ = this.RaiseAndSetIfChanged(ref _elapsedText, value ?? string.Empty);
-            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(HeaderText));
         }
     }
 

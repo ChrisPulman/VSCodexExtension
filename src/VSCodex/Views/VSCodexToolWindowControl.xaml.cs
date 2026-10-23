@@ -155,7 +155,7 @@ public partial class VSCodexToolWindowControl : UserControl
     /// <returns><see langword="true"/> when has Text succeeds; otherwise, <see langword="false"/>.</returns>
     private static bool HasText(IDataObject data)
     {
-        return !data.GetDataPresent(DataFormats.UnicodeText) && !data.GetDataPresent(DataFormats.Text) ? data.GetDataPresent(DataFormats.StringFormat) : true;
+        return !(!data.GetDataPresent(DataFormats.UnicodeText) && !data.GetDataPresent(DataFormats.Text)) || data.GetDataPresent(DataFormats.StringFormat);
     }
 
     /// <summary>Executes if Available.</summary>
@@ -279,36 +279,20 @@ public partial class VSCodexToolWindowControl : UserControl
     /// <returns><see langword="true"/> when the key was handled; otherwise, <see langword="false"/>.</returns>
     private bool TryHandlePromptSuggestionKeyDown(KeyEventArgs e)
     {
-        switch (e.Key)
+        Action? action = e.Key switch
         {
-            case Key.Down:
-            {
-                MovePromptSuggestionSelection(1);
-                break;
-            }
-
-            case Key.Up:
-            {
-                MovePromptSuggestionSelection(-1);
-                break;
-            }
-
-            case Key.Tab:
-            {
-                InsertSelectedPromptSuggestion();
-                break;
-            }
-
-            case Key.Escape:
-            {
-                ViewModel?.ClosePromptSuggestions();
-                break;
-            }
-
-            default:
-                return false;
+            Key.Down => () => MovePromptSuggestionSelection(1),
+            Key.Up => () => MovePromptSuggestionSelection(-1),
+            Key.Tab => InsertSelectedPromptSuggestion,
+            Key.Escape => () => ViewModel?.ClosePromptSuggestions(),
+            _ => null
+        };
+        if (action is null)
+        {
+            return false;
         }
 
+        action();
         e.Handled = true;
         return true;
     }
@@ -584,7 +568,7 @@ public partial class VSCodexToolWindowControl : UserControl
     /// <param name="e">The e.</param>
     private void OnReferenceSuggestionDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (!(sender is ListBox { SelectedItem: WorkspaceFileReference reference }) || ViewModel is null)
+        if (sender is not ListBox { SelectedItem: WorkspaceFileReference reference } || ViewModel is null)
         {
             return;
         }
@@ -615,7 +599,7 @@ public partial class VSCodexToolWindowControl : UserControl
     /// <param name="e">The e.</param>
     private void OnHistoryItemDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (!(sender is ListBox { SelectedItem: SessionHistoryItem item }) || ViewModel is null)
+        if (sender is not ListBox { SelectedItem: SessionHistoryItem item } || ViewModel is null)
         {
             return;
         }
@@ -909,7 +893,7 @@ public partial class VSCodexToolWindowControl : UserControl
             return false;
         }
 
-        if (!(data.GetData(DataFormats.FileDrop) is string[] files) || files.Length == 0)
+        if (data.GetData(DataFormats.FileDrop) is not string[] files || files.Length == 0)
         {
             return false;
         }

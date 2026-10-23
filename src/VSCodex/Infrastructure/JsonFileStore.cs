@@ -49,6 +49,26 @@ public sealed class JsonFileStore
             _ = Directory.CreateDirectory(dir);
         }
 
-        File.WriteAllText(path, JsonConvert.SerializeObject(value, Settings));
+        string json = JsonConvert.SerializeObject(value, Settings);
+        string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(temporaryPath, json);
+            if (File.Exists(path))
+            {
+                File.Replace(temporaryPath, path, null);
+            }
+            else
+            {
+                File.Move(temporaryPath, path);
+            }
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
     }
 }

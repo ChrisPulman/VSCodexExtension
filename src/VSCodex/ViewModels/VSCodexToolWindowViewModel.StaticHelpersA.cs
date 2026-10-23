@@ -91,7 +91,7 @@ public sealed partial class VSCodexToolWindowViewModel
             return true;
         }
 
-        return !string.IsNullOrWhiteSpace(session.WorkspaceSolutionPath) ? string.Equals(session.WorkspaceSolutionPath, identity.SolutionPath, StringComparison.OrdinalIgnoreCase) : false;
+        return !string.IsNullOrWhiteSpace(session.WorkspaceSolutionPath) && string.Equals(session.WorkspaceSolutionPath, identity.SolutionPath, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Determines whether is Known Different Workspace.</summary>
@@ -165,6 +165,8 @@ public sealed partial class VSCodexToolWindowViewModel
         return new SessionHistoryItem
         {
             Id = session.Id,
+            IsPinned = session.IsPinned,
+            IsArchived = session.IsArchived,
             ThreadId = session.ThreadId,
             Title = DeriveSessionTitle(session),
             Preview = DeriveSessionPreview(session),
@@ -313,7 +315,7 @@ public sealed partial class VSCodexToolWindowViewModel
     private static bool IsValidSkillName(string? name)
     {
         string value = (name ?? string.Empty).Trim();
-        return value.Length > 0 && char.IsLetterOrDigit(value[0]) ? value.All((ch) => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-') : false;
+        return value.Length > 0 && char.IsLetterOrDigit(value[0]) && value.All((ch) => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-');
     }
 
     /// <summary>Formats token Count.</summary>

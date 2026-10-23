@@ -2,8 +2,6 @@
 // Chris Pulman and contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
-using ReactiveUI;
-
 namespace VSCodex.ViewModels;
 
 /// <summary>Exposes imperative actions used by the VSCodex tool-window control.</summary>
@@ -36,8 +34,8 @@ public sealed partial class VSCodexToolWindowViewModel
             _voiceInput.Start();
         }
 
-        this.RaisePropertyChanged();
-        this.RaisePropertyChanged();
+        this.RaisePropertyChanged(nameof(IsListeningToVoice));
+        this.RaisePropertyChanged(nameof(IsVoiceInputAvailable));
     }
 
     /// <summary>Performs the show History operation.</summary>
@@ -152,6 +150,7 @@ public sealed partial class VSCodexToolWindowViewModel
     /// <summary>Performs the dispose operation.</summary>
     public void Dispose()
     {
+        _automationTimer?.Stop();
         _lifetime.Cancel();
         FlushPendingModelSettingsSave();
         _subscriptions.Dispose();

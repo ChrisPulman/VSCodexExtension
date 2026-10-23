@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for full license information.
 using System.Collections.Generic;
 using Newtonsoft.Json;
-using ReactiveUI;
 using VSCodex.Core.Models;
 
 namespace VSCodex.Models;
@@ -23,6 +22,9 @@ public sealed class ExtensionSettings : ReactiveObject
 
     /// <summary>Gets or sets the bridge Script Path.</summary>
     public string BridgeScriptPath { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the preferred execution transport.</summary>
+    public CodexTransportKind DefaultTransport { get; set; } = CodexTransportKind.SdkBridge;
 
     /// <summary>Gets or sets the default Model.</summary>
     public string DefaultModel { get; set; } = CodexModelCatalog.DefaultModel;
